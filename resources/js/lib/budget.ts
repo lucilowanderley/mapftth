@@ -6,6 +6,12 @@ export interface BudgetStep {
   detail: string;
   loss: number;
   kind: 'source' | 'connector' | 'cable' | 'fusion' | 'splitter';
+  /** Nó onde o evento acontece (para cabos, a ponta do lado da OLT). */
+  nodeId?: number;
+  /** Só em cabos: id do cabo, ponta do lado do cliente e comprimento óptico (m). */
+  cableId?: number;
+  downNodeId?: number;
+  meters?: number;
 }
 
 export interface BudgetResult {
@@ -125,6 +131,10 @@ export function traceUpstream(net: Network, nodeId: number, start: End): BudgetR
         label: cable.name,
         detail: `Fibra ${end.p.slice(1)} · ${Math.round(cable.length_m + (cable.slack_m ?? 0))} m`,
         loss: round(km * s.fiber_loss_db_km),
+        cableId: cable.id,
+        nodeId: otherId,
+        downNodeId: node.id,
+        meters: km * 1000,
       });
       nextNode = idx.nodes.get(otherId)!;
       nextEnd = end;
@@ -135,7 +145,7 @@ export function traceUpstream(net: Network, nodeId: number, start: End): BudgetR
         const n = Number(end.p.slice(1));
         const slot = Math.floor((n - 1) / comp.ports) + 1;
         const pon = ((n - 1) % comp.ports) + 1;
-        steps.push({ kind: 'source', label: comp.name, detail: `${node.name} · Slot ${slot} / PON ${pon}`, loss: 0 });
+        steps.push({ kind: 'source', label: comp.name, detail: `${node.name} · Slot ${slot} / PON ${pon}`, loss: 0, nodeId: node.id });
         const totalLoss = round(steps.reduce((a, b) => a + b.loss, 0));
         const tx = comp.tx_dbm ?? s.olt_tx_dbm;
         return {
@@ -151,12 +161,12 @@ export function traceUpstream(net: Network, nodeId: number, start: End): BudgetR
         const model = splitterModel(comp.model);
         const out = Number(end.p.slice(1));
         const loss = (model.losses[out - 1] ?? model.losses[0]) + (model.connectorized ? s.connector_loss_db : 0);
-        steps.push({ kind: 'splitter', label: comp.name || model.name, detail: `Splitter ${model.name} · saída ${out}`, loss: round(loss) });
+        steps.push({ kind: 'splitter', label: comp.name || model.name, detail: `Splitter ${model.name} · saída ${out}`, loss: round(loss), nodeId: node.id });
         nextEnd = { c: comp.id, p: 'in' };
       } else {
         // DIO: atravessa do lado de fusão (a) para o de conector (b) e vice-versa.
         const n = end.p.slice(1);
-        steps.push({ kind: 'connector', label: comp.name, detail: `${node.name} · porta ${n}`, loss: round(s.connector_loss_db) });
+        steps.push({ kind: 'connector', label: comp.name, detail: `${node.name} · porta ${n}`, loss: round(s.connector_loss_db), nodeId: node.id });
         nextEnd = { c: comp.id, p: (end.p.startsWith('a') ? 'b' : 'a') + n };
       }
     }
@@ -167,7 +177,7 @@ export function traceUpstream(net: Network, nodeId: number, start: End): BudgetR
       return fail(`Porta sem conexão em ${nextNode.name}.`);
     }
     if (!isPatch(nextNode, idx, nextEnd) && !isPatch(nextNode, idx, link.other)) {
-      steps.push({ kind: 'fusion', label: 'F', detail: `Fusão em ${nextNode.name}`, loss: round(s.fusion_loss_db) });
+      steps.push({ kind: 'fusion', label: 'F', detail: `Fusão em ${nextNode.name}`, loss: round(s.fusion_loss_db), nodeId: nextNode.id });
     }
     node = nextNode;
     end = link.other;

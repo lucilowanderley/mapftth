@@ -12,9 +12,7 @@ const CABLE_W = 150;
 const BOX_W = 130;
 const SPLIT_W = 56;
 
-type Block =
-  | { key: string; kind: 'cable'; cable: Cable; x: number; y: number; side: 'left' | 'right'; label: string }
-  | (DiagramComponent & { key: string });
+type Block = { key: string; kind: 'cable'; cable: Cable; x: number; y: number; side: 'left' | 'right'; label: string } | (DiagramComponent & { key: string });
 
 interface Port {
   end: End;
@@ -102,9 +100,11 @@ interface Props {
   onClose: () => void;
   onSaved: (n: NetNode) => void;
   onShowBudget: (title: string, result: BudgetResult) => void;
+  /** Acesso de leitura: permite explorar o diagrama, mas não salvar. */
+  readOnly?: boolean;
 }
 
-export default function DiagramEditor({ node, network, onClose, onSaved, onShowBudget }: Props) {
+export default function DiagramEditor({ node, network, onClose, onSaved, onShowBudget, readOnly }: Props) {
   const [diagram, setDiagram] = useState<Diagram>(() => structuredClone(node.diagram ?? emptyDiagram()));
   const [status, setStatus] = useState<Status>(node.status);
   const [dirty, setDirty] = useState(false);
@@ -118,10 +118,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const contentRef = useRef<SVGGElement>(null);
   const drag = useRef<{ key?: string; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
 
-  const cables = useMemo(
-    () => network.cables.filter((c) => c.from_node_id === node.id || c.to_node_id === node.id),
-    [network.cables, node.id],
-  );
+  const cables = useMemo(() => network.cables.filter((c) => c.from_node_id === node.id || c.to_node_id === node.id), [network.cables, node.id]);
   const nodeName = (id: number | null) => network.nodes.find((n) => n.id === id)?.name ?? 'ponta solta';
 
   const update = (fn: (d: Diagram) => Diagram) => {
@@ -327,7 +324,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   }
 
   function requestClose() {
-    if (dirty && !confirm('Há alterações não salvas. Deseja sair sem salvar?')) return;
+    if (dirty && !readOnly && !confirm('Há alterações não salvas. Deseja sair sem salvar?')) return;
     onClose();
   }
 
@@ -510,7 +507,18 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   if (!port) return null;
                   const color = POWER_COLORS[powerLevel(r.power, network.settings)];
                   return (
-                    <text key={key} x={port.x + 9} y={port.y - 3} fontSize={8.5} fill={color} fontWeight="bold" stroke="#f1f5f9" strokeWidth={3} paintOrder="stroke" className="pointer-events-none">
+                    <text
+                      key={key}
+                      x={port.x + 9}
+                      y={port.y - 3}
+                      fontSize={8.5}
+                      fill={color}
+                      fontWeight="bold"
+                      stroke="#f1f5f9"
+                      strokeWidth={3}
+                      paintOrder="stroke"
+                      className="pointer-events-none"
+                    >
                       {r.power!.toFixed(1)}
                     </text>
                   );
@@ -526,7 +534,11 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
             { icon: <ZoomOut size={16} />, fn: () => setView((v) => ({ ...v, k: Math.max(0.25, v.k / 1.2) })) },
             { icon: <Maximize size={16} />, fn: fit },
           ].map((z, i) => (
-            <button key={i} onClick={z.fn} className="w-8 h-8 rounded-md bg-white text-slate-700 shadow flex items-center justify-center cursor-pointer hover:bg-slate-100">
+            <button
+              key={i}
+              onClick={z.fn}
+              className="w-8 h-8 rounded-md bg-white text-slate-700 shadow flex items-center justify-center cursor-pointer hover:bg-slate-100"
+            >
               {z.icon}
             </button>
           ))}
@@ -585,17 +597,28 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         <span className="text-xs text-slate-500">
           {validConnections.length} conexões · {diagram.components.filter((c) => c.kind === 'splitter').length} splitters
         </span>
-        <div className="ml-auto flex gap-2">
-          <button className="btn-ghost" onClick={() => save(false)} disabled={!dirty}>
-            Aplicar
-          </button>
-          <button className="btn-primary" onClick={() => save(true)}>
-            <Save size={15} /> Salvar e sair
-          </button>
-        </div>
+        {readOnly ? (
+          <div className="ml-auto flex items-center gap-3">
+            <span className="text-xs text-amber-400">Acesso de leitura: alterações não são salvas</span>
+            <button className="btn-ghost" onClick={onClose}>
+              Fechar
+            </button>
+          </div>
+        ) : (
+          <div className="ml-auto flex gap-2">
+            <button className="btn-ghost" onClick={() => save(false)} disabled={!dirty}>
+              Aplicar
+            </button>
+            <button className="btn-primary" onClick={() => save(true)}>
+              <Save size={15} /> Salvar e sair
+            </button>
+          </div>
+        )}
       </div>
 
-      {dialog === 'splitter' && <SplitterDialog onClose={() => setDialog(null)} onPick={(model) => addComponent({ id: uid(), kind: 'splitter', model, x: 0, y: 0 })} />}
+      {dialog === 'splitter' && (
+        <SplitterDialog onClose={() => setDialog(null)} onPick={(model) => addComponent({ id: uid(), kind: 'splitter', model, x: 0, y: 0 })} />
+      )}
       {dialog === 'olt' && (
         <OltDialog
           defaultTx={network.settings.olt_tx_dbm}
@@ -612,7 +635,19 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   );
 }
 
-function ToolButton({ icon, label, onClick, active, danger }: { icon: React.ReactNode; label: string; onClick: () => void; active?: boolean; danger?: boolean }) {
+function ToolButton({
+  icon,
+  label,
+  onClick,
+  active,
+  danger,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+  danger?: boolean;
+}) {
   return (
     <button
       onClick={onClick}
@@ -634,7 +669,12 @@ function BlockView({ block: b, selected, onPointerDown }: { block: Block; select
     const m = splitterModel(b.model);
     return (
       <g onPointerDown={onPointerDown} className="cursor-move">
-        <path d={`M${b.x},${b.y + h / 2} L${b.x + w},${b.y} L${b.x + w},${b.y + h} Z`} fill="#64748b" stroke={selected ? '#eab308' : '#334155'} strokeWidth={sw + 0.5} />
+        <path
+          d={`M${b.x},${b.y + h / 2} L${b.x + w},${b.y} L${b.x + w},${b.y + h} Z`}
+          fill="#64748b"
+          stroke={selected ? '#eab308' : '#334155'}
+          strokeWidth={sw + 0.5}
+        />
         <text x={b.x + w / 2} y={b.y + h + 12} fontSize={9} textAnchor="middle" fill="#334155" fontWeight="bold">
           {b.name || m.name}
         </text>
@@ -695,7 +735,11 @@ function SplitterDialog({ onClose, onPick }: { onClose: () => void; onPick: (mod
     <Modal title="Selecionar splitter" onClose={onClose} width="max-w-sm">
       <div className="flex rounded-md bg-slate-950 p-1 mb-3">
         {[true, false].map((v) => (
-          <button key={String(v)} onClick={() => setBalanced(v)} className={`flex-1 rounded py-1.5 text-sm cursor-pointer ${balanced === v ? 'bg-emerald-600' : ''}`}>
+          <button
+            key={String(v)}
+            onClick={() => setBalanced(v)}
+            className={`flex-1 rounded py-1.5 text-sm cursor-pointer ${balanced === v ? 'bg-emerald-600' : ''}`}
+          >
             {v ? 'Balanceado' : 'Desbalanceado'}
           </button>
         ))}
@@ -716,7 +760,17 @@ function SplitterDialog({ onClose, onPick }: { onClose: () => void; onPick: (mod
   );
 }
 
-function OltDialog({ defaultTx, count, onClose, onCreate }: { defaultTx: number; count: number; onClose: () => void; onCreate: (c: DiagramComponent) => void }) {
+function OltDialog({
+  defaultTx,
+  count,
+  onClose,
+  onCreate,
+}: {
+  defaultTx: number;
+  count: number;
+  onClose: () => void;
+  onCreate: (c: DiagramComponent) => void;
+}) {
   const [model, setModel] = useState('custom');
   const [slots, setSlots] = useState(1);
   const [ports, setPorts] = useState(8);
@@ -802,7 +856,9 @@ function AutoFuseDialog({ blocks, onClose, onRun }: { blocks: Block[]; onClose: 
   const label = (b: Block) => (b.kind === 'cable' ? `${b.cable.name} (${b.label})` : b.kind === 'dio' ? b.name : '');
   return (
     <Modal title="Auto-fusão" onClose={onClose} width="max-w-sm">
-      <p className="text-sm text-slate-400 mb-3">Funde as fibras em sequência (1↔1, 2↔2...), pulando as que já estão ocupadas. Use para sangrias e para ligar o cabo ao DIO.</p>
+      <p className="text-sm text-slate-400 mb-3">
+        Funde as fibras em sequência (1↔1, 2↔2...), pulando as que já estão ocupadas. Use para sangrias e para ligar o cabo ao DIO.
+      </p>
       <div className="space-y-3">
         <Field label="Cabo de origem">
           <select className="input" value={from} onChange={(e) => setFrom(e.target.value)}>

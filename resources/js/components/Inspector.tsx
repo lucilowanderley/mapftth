@@ -1,9 +1,11 @@
-import { Activity, Link2, Network, Trash2, X } from 'lucide-react';
+import { Activity, History, Link2, Network, Radar, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, POWER_LABEL, powerLevel, type BudgetResult } from '../lib/budget';
 import { CABLE_CATEGORIES, CABLE_MODELS, NODE_TYPES, STATUSES } from '../lib/catalog';
-import type { Cable, CableCategory, NetNode, Settings, Status } from '../lib/types';
+import type { Cable, CableCategory, NetNode, PoleAttributes, Settings, Status } from '../lib/types';
+import { POLE_MATERIALS } from './PolesModal';
+import { cablesNear } from '../lib/analysis';
 import { Field, formatLength } from './ui';
 
 const SWATCHES = ['#0ea5e9', '#2563eb', '#22c55e', '#ef4444', '#f97316', '#eab308', '#a855f7', '#ec4899', '#ffffff', '#0f172a'];
@@ -22,6 +24,10 @@ interface Props {
   onShowBudget: (n: NetNode) => void;
   onConnectClient: (n: NetNode) => void;
   onError: (message: string) => void;
+  readOnly?: boolean;
+  cables?: Cable[];
+  onHistory?: (kind: 'node' | 'cable', id: number, name: string) => void;
+  onOtdr?: (n: NetNode) => void;
 }
 
 export default function Inspector(props: Props) {
@@ -58,11 +64,63 @@ function StatusSelect({ value, onChange }: { value: Status; onChange: (s: Status
   );
 }
 
-function NodeForm({ node, budget, settings, onClose, onNodeSaved, onDeleted, onOpenDiagram, onShowBudget, onConnectClient, onError }: Props & { node: NetNode }) {
+function Actions({
+  readOnly,
+  onRemove,
+  onSave,
+  saving,
+  onHistory,
+}: {
+  readOnly?: boolean;
+  onRemove: () => void;
+  onSave: () => void;
+  saving: boolean;
+  onHistory?: () => void;
+}) {
+  return (
+    <div className="flex gap-2">
+      {!readOnly && (
+        <button className="btn-danger" onClick={onRemove} title="Excluir">
+          <Trash2 size={16} />
+        </button>
+      )}
+      {onHistory && (
+        <button type="button" className="btn-ghost" onClick={onHistory} title="Histórico de alterações">
+          <History size={16} />
+        </button>
+      )}
+      {!readOnly && (
+        <button className="btn-primary flex-1" onClick={onSave} disabled={saving}>
+          Salvar alterações
+        </button>
+      )}
+    </div>
+  );
+}
+
+function NodeForm({
+  node,
+  budget,
+  settings,
+  readOnly,
+  cables,
+  onClose,
+  onNodeSaved,
+  onDeleted,
+  onOpenDiagram,
+  onShowBudget,
+  onConnectClient,
+  onError,
+  onHistory,
+  onOtdr,
+}: Props & { node: NetNode }) {
   const [name, setName] = useState(node.name);
   const [status, setStatus] = useState<Status>(node.status);
   const [notes, setNotes] = useState(node.notes ?? '');
   const [address, setAddress] = useState((node.attributes?.address as string) ?? '');
+  const [pole, setPole] = useState<PoleAttributes>((node.attributes as PoleAttributes) ?? {});
+  const setP = (patch: PoleAttributes) => setPole((p) => ({ ...p, ...patch }));
+  const cablesHere = cablesNear([node.lat, node.lng], cables ?? []);
   const [saving, setSaving] = useState(false);
   const hasDiagram = ['cto', 'ceo', 'pop'].includes(node.type);
   const level = budget ? powerLevel(budget.power, settings) : null;
@@ -74,7 +132,11 @@ function NodeForm({ node, budget, settings, onClose, onNodeSaved, onDeleted, onO
         name,
         status,
         notes: notes || null,
-        attributes: { ...(node.attributes ?? {}), ...(node.type === 'client' ? { address } : {}) },
+        attributes: {
+          ...(node.attributes ?? {}),
+          ...(node.type === 'client' ? { address } : {}),
+          ...(node.type === 'pole' ? pole : {}),
+        },
       });
       onNodeSaved(r.node, r.cables);
     } catch (e) {
@@ -85,8 +147,12 @@ function NodeForm({ node, budget, settings, onClose, onNodeSaved, onDeleted, onO
 
   async function remove() {
     if (!confirm(`Excluir ${node.name}?`)) return;
-    await api.deleteNode(node.id);
-    onDeleted('node', node.id);
+    try {
+      await api.deleteNode(node.id);
+      onDeleted('node', node.id);
+    } catch (e) {
+      onError(errorMessage(e));
+    }
   }
 
   return (
@@ -114,39 +180,85 @@ function NodeForm({ node, budget, settings, onClose, onNodeSaved, onDeleted, onO
             {budget.error && <div className="text-xs text-slate-400">{budget.error}</div>}
           </button>
         )}
-        {node.type === 'client' && !budget?.steps.length && (
+        {node.type === 'client' && budget && budget.power !== null && onOtdr && (
+          <button type="button" className="btn-ghost w-full" onClick={() => onOtdr(node)}>
+            <Radar size={16} /> Simular OTDR / localizar evento
+          </button>
+        )}
+        {node.type === 'client' && !budget?.steps.length && !readOnly && (
           <button className="btn-ghost w-full" onClick={() => onConnectClient(node)}>
             <Link2 size={16} /> Ligar drop à CTO mais próxima
           </button>
         )}
-        <Field label="Nome">
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <Field label="Status">
-          <StatusSelect value={status} onChange={setStatus} />
-        </Field>
-        {node.type === 'client' && (
-          <Field label="Endereço">
-            <input className="input" value={address} onChange={(e) => setAddress(e.target.value)} />
+        {/* fieldset desabilitado: quem tem acesso de leitura só visualiza os campos */}
+        <fieldset disabled={readOnly} className="space-y-3">
+          <Field label="Nome">
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
-        )}
-        <Field label="Observações">
-          <textarea className="input" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </Field>
-        <div className="flex gap-2">
-          <button className="btn-danger" onClick={remove} title="Excluir">
-            <Trash2 size={16} />
-          </button>
-          <button className="btn-primary flex-1" onClick={save} disabled={saving}>
-            Salvar alterações
-          </button>
-        </div>
+          <Field label="Status">
+            <StatusSelect value={status} onChange={setStatus} />
+          </Field>
+          {node.type === 'client' && (
+            <Field label="Endereço">
+              <input className="input" value={address} onChange={(e) => setAddress(e.target.value)} />
+            </Field>
+          )}
+          {node.type === 'pole' && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Código / plaqueta">
+                  <input className="input" value={pole.code ?? ''} onChange={(e) => setP({ code: e.target.value })} />
+                </Field>
+                <Field label="Material">
+                  <select className="input" value={pole.material ?? ''} onChange={(e) => setP({ material: e.target.value })}>
+                    <option value="">—</option>
+                    {POLE_MATERIALS.map((m) => (
+                      <option key={m}>{m}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Altura (m)">
+                  <input
+                    type="number"
+                    className="input"
+                    value={pole.height_m ?? ''}
+                    onChange={(e) =>
+                      setP({
+                        height_m: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                  />
+                </Field>
+                <Field label="Esforço (daN)">
+                  <input
+                    type="number"
+                    className="input"
+                    value={pole.load_dan ?? ''}
+                    onChange={(e) =>
+                      setP({
+                        load_dan: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                  />
+                </Field>
+              </div>
+              <Field label="Distribuidora / proprietário">
+                <input className="input" value={pole.owner ?? ''} onChange={(e) => setP({ owner: e.target.value })} />
+              </Field>
+              <div className="text-xs text-slate-400">Cabos neste poste: {cablesHere.length ? cablesHere.map((c) => c.name).join(', ') : 'nenhum'}</div>
+            </>
+          )}
+          <Field label="Observações">
+            <textarea className="input" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </Field>
+        </fieldset>
+        <Actions readOnly={readOnly} onRemove={remove} onSave={save} saving={saving} onHistory={onHistory && (() => onHistory('node', node.id, node.name))} />
       </div>
     </>
   );
 }
 
-function CableForm({ cable, nodes, onClose, onCableSaved, onDeleted, onError }: Props & { cable: Cable }) {
+function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, onError, onHistory }: Props & { cable: Cable }) {
   const [form, setForm] = useState({
     name: cable.name,
     model: cable.model ?? '',
@@ -167,14 +279,25 @@ function CableForm({ cable, nodes, onClose, onCableSaved, onDeleted, onError }: 
   function pickModel(id: string) {
     const m = CABLE_MODELS.find((x) => x.id === id);
     if (!m) return set({ model: '' });
-    set({ model: m.id, name: m.name, fiber_count: m.fibers, fibers_per_tube: m.perTube, category: m.category, color: CABLE_CATEGORIES[m.category].color });
+    set({
+      model: m.id,
+      name: m.name,
+      fiber_count: m.fibers,
+      fibers_per_tube: m.perTube,
+      category: m.category,
+      color: CABLE_CATEGORIES[m.category].color,
+    });
   }
 
   async function save() {
     if (form.fiber_count < cable.fiber_count && !confirm('Reduzir o número de fibras remove as fusões das fibras excedentes. Continuar?')) return;
     setSaving(true);
     try {
-      const r = await api.updateCable(cable.id, { ...form, model: form.model || null, notes: form.notes || null });
+      const r = await api.updateCable(cable.id, {
+        ...form,
+        model: form.model || null,
+        notes: form.notes || null,
+      });
       onCableSaved(r.cable, r.nodes);
     } catch (e) {
       onError(errorMessage(e));
@@ -184,95 +307,144 @@ function CableForm({ cable, nodes, onClose, onCableSaved, onDeleted, onError }: 
 
   async function remove() {
     if (!confirm(`Excluir ${cable.name}? As fusões deste cabo nas caixas também serão removidas.`)) return;
-    const r = await api.deleteCable(cable.id);
-    onDeleted('cable', cable.id, r.nodes);
+    try {
+      const r = await api.deleteCable(cable.id);
+      onDeleted('cable', cable.id, r.nodes);
+    } catch (e) {
+      onError(errorMessage(e));
+    }
   }
 
   return (
     <>
       <Header title={cable.name} subtitle={`${from?.name ?? 'Ponta solta'} → ${to?.name ?? 'Ponta solta'}`} onClose={onClose} />
       <div className="p-4 space-y-3">
-        <Field label="Modelo do catálogo">
-          <select className="input" value={form.model} onChange={(e) => pickModel(e.target.value)}>
-            <option value="">Personalizado</option>
-            {CABLE_MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Nome do cabo">
-          <input className="input" value={form.name} onChange={(e) => set({ name: e.target.value })} />
-        </Field>
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Fibras">
-            <input type="number" min={1} max={288} className="input" value={form.fiber_count} onChange={(e) => set({ fiber_count: Number(e.target.value), model: '' })} />
-          </Field>
-          <Field label="Fibras/tubo">
-            <input type="number" min={1} max={24} className="input" value={form.fibers_per_tube} onChange={(e) => set({ fibers_per_tube: Number(e.target.value) })} />
-          </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Tipo">
-            <select className="input" value={form.category} onChange={(e) => set({ category: e.target.value as CableCategory })}>
-              {(Object.keys(CABLE_CATEGORIES) as CableCategory[]).map((c) => (
-                <option key={c} value={c}>
-                  {CABLE_CATEGORIES[c].label}
+        <fieldset disabled={readOnly} className="space-y-3">
+          <Field label="Modelo do catálogo">
+            <select className="input" value={form.model} onChange={(e) => pickModel(e.target.value)}>
+              <option value="">Personalizado</option>
+              {CABLE_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
                 </option>
               ))}
             </select>
           </Field>
-          <Field label="Status">
-            <StatusSelect value={form.status} onChange={(status) => set({ status })} />
+          <Field label="Nome do cabo">
+            <input className="input" value={form.name} onChange={(e) => set({ name: e.target.value })} />
           </Field>
-        </div>
-        <div className="rounded-md bg-slate-950 p-3 text-xs space-y-1">
-          <div className="flex justify-between text-slate-400">
-            <span>Padrão de cores</span>
-            <span>ABNT</span>
-          </div>
-          <div className="flex justify-between text-slate-400">
-            <span>Comprimento geométrico</span>
-            <span>{formatLength(cable.length_m)}</span>
-          </div>
-          <div className="flex justify-between items-center text-slate-400">
-            <span>Reserva técnica (m)</span>
-            <input type="number" min={0} className="input !w-20 !py-0.5 text-right" value={form.slack_m} onChange={(e) => set({ slack_m: Number(e.target.value) })} />
-          </div>
-          <div className="flex justify-between font-semibold text-emerald-400 pt-1 border-t border-slate-800">
-            <span>Total</span>
-            <span>{formatLength(cable.length_m + form.slack_m)}</span>
-          </div>
-        </div>
-        <Field label="Cor no mapa">
-          <div className="flex flex-wrap gap-1.5 items-center">
-            {SWATCHES.map((c) => (
-              <button
-                key={c}
-                onClick={() => set({ color: c })}
-                className={`w-5 h-5 rounded-full border-2 cursor-pointer ${form.color === c ? 'border-yellow-400' : 'border-slate-700'}`}
-                style={{ background: c }}
-                aria-label={c}
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Fibras">
+              <input
+                type="number"
+                min={1}
+                max={288}
+                className="input"
+                value={form.fiber_count}
+                onChange={(e) =>
+                  set({
+                    fiber_count: Number(e.target.value),
+                    model: '',
+                  })
+                }
               />
-            ))}
-            <input type="color" value={form.color} onChange={(e) => set({ color: e.target.value })} className="w-6 h-6 bg-transparent cursor-pointer" />
+            </Field>
+            <Field label="Fibras/tubo">
+              <input
+                type="number"
+                min={1}
+                max={24}
+                className="input"
+                value={form.fibers_per_tube}
+                onChange={(e) =>
+                  set({
+                    fibers_per_tube: Number(e.target.value),
+                  })
+                }
+              />
+            </Field>
           </div>
-        </Field>
-        <Field label={`Espessura: ${form.width}px`}>
-          <input type="range" min={1} max={12} value={form.width} onChange={(e) => set({ width: Number(e.target.value) })} className="w-full accent-emerald-500" />
-        </Field>
-        <Field label="Observações">
-          <textarea className="input" rows={2} value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
-        </Field>
-        <div className="flex gap-2">
-          <button className="btn-danger" onClick={remove} title="Excluir">
-            <Trash2 size={16} />
-          </button>
-          <button className="btn-primary flex-1" onClick={save} disabled={saving}>
-            Salvar alterações
-          </button>
-        </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Tipo">
+              <select
+                className="input"
+                value={form.category}
+                onChange={(e) =>
+                  set({
+                    category: e.target.value as CableCategory,
+                  })
+                }
+              >
+                {(Object.keys(CABLE_CATEGORIES) as CableCategory[]).map((c) => (
+                  <option key={c} value={c}>
+                    {CABLE_CATEGORIES[c].label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Status">
+              <StatusSelect value={form.status} onChange={(status) => set({ status })} />
+            </Field>
+          </div>
+          <div className="rounded-md bg-slate-950 p-3 text-xs space-y-1">
+            <div className="flex justify-between text-slate-400">
+              <span>Padrão de cores</span>
+              <span>ABNT</span>
+            </div>
+            <div className="flex justify-between text-slate-400">
+              <span>Comprimento geométrico</span>
+              <span>{formatLength(cable.length_m)}</span>
+            </div>
+            <div className="flex justify-between items-center text-slate-400">
+              <span>Reserva técnica (m)</span>
+              <input
+                type="number"
+                min={0}
+                className="input !w-20 !py-0.5 text-right"
+                value={form.slack_m}
+                onChange={(e) => set({ slack_m: Number(e.target.value) })}
+              />
+            </div>
+            <div className="flex justify-between font-semibold text-emerald-400 pt-1 border-t border-slate-800">
+              <span>Total</span>
+              <span>{formatLength(cable.length_m + form.slack_m)}</span>
+            </div>
+          </div>
+          <Field label="Cor no mapa">
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {SWATCHES.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => set({ color: c })}
+                  className={`w-5 h-5 rounded-full border-2 cursor-pointer ${form.color === c ? 'border-yellow-400' : 'border-slate-700'}`}
+                  style={{ background: c }}
+                  aria-label={c}
+                />
+              ))}
+              <input type="color" value={form.color} onChange={(e) => set({ color: e.target.value })} className="w-6 h-6 bg-transparent cursor-pointer" />
+            </div>
+          </Field>
+          <Field label={`Espessura: ${form.width}px`}>
+            <input
+              type="range"
+              min={1}
+              max={12}
+              value={form.width}
+              onChange={(e) => set({ width: Number(e.target.value) })}
+              className="w-full accent-emerald-500"
+            />
+          </Field>
+          <Field label="Observações">
+            <textarea className="input" rows={2} value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
+          </Field>
+        </fieldset>
+        <Actions
+          readOnly={readOnly}
+          onRemove={remove}
+          onSave={save}
+          saving={saving}
+          onHistory={onHistory && (() => onHistory('cable', cable.id, cable.name))}
+        />
       </div>
     </>
   );

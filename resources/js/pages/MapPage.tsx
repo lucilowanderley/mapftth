@@ -1,6 +1,13 @@
 import {
   Activity,
+  BarChart3,
   Cable as CableIcon,
+  FileText,
+  History,
+  Pentagon,
+  Radar,
+  Users,
+  UtilityPole,
   ChevronLeft,
   Download,
   Hexagon,
@@ -17,14 +24,15 @@ import {
   Zap,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
+import { Circle, CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import { Link, useParams } from 'react-router-dom';
 import L from 'leaflet';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, clientBudget, powerLevel, type BudgetResult } from '../lib/budget';
 import { CABLE_CATEGORIES, CABLE_MODELS, NODE_TYPES } from '../lib/catalog';
 import { distance, pathLength } from '../lib/geo';
-import type { Cable, CableCategory, LatLng, NetNode, NodeType, Project, Settings } from '../lib/types';
+import type { Activity as ActivityItem, Area, Cable, CableCategory, LatLng, NetNode, NodeType, Project, Role, Settings } from '../lib/types';
+import { viability } from '../lib/analysis';
 import { nodeIcon } from '../components/markers';
 import { Logo, Toast, formatLength } from '../components/ui';
 import Inspector from '../components/Inspector';
@@ -32,8 +40,16 @@ import DiagramEditor from '../components/DiagramEditor';
 import BudgetModal from '../components/BudgetModal';
 import SettingsModal from '../components/SettingsModal';
 import NetworkAnalysis from '../components/NetworkAnalysis';
+import TeamModal, { ROLE_LABELS } from '../components/TeamModal';
+import HistoryModal from '../components/HistoryModal';
+import DashboardModal from '../components/DashboardModal';
+import ReportModal from '../components/ReportModal';
+import PolesModal from '../components/PolesModal';
+import OtdrModal from '../components/OtdrModal';
+import ViabilityPanel from '../components/ViabilityPanel';
+import AreaPanel from '../components/AreaPanel';
 
-type Tool = 'select' | NodeType | 'cable' | 'ruler';
+type Tool = 'select' | NodeType | 'cable' | 'ruler' | 'area' | 'viability';
 
 const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'select', label: 'Selecionar', icon: <MousePointer2 size={18} /> },
@@ -43,8 +59,13 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'pole', label: 'Poste', icon: <Zap size={18} /> },
   { id: 'client', label: 'Cliente', icon: <User size={18} /> },
   { id: 'cable', label: 'Cabo', icon: <CableIcon size={18} /> },
+  { id: 'area', label: 'Área', icon: <Pentagon size={18} /> },
   { id: 'ruler', label: 'Régua', icon: <Ruler size={18} /> },
+  { id: 'viability', label: 'Viabilidade', icon: <Radar size={18} /> },
 ];
+
+/** Ferramentas que só leem a rede (liberadas para quem tem acesso de leitura). */
+const READ_TOOLS: Tool[] = ['select', 'ruler', 'viability'];
 
 const BASE_LAYERS = {
   satellite: {
@@ -64,7 +85,7 @@ const BASE_LAYERS = {
   },
 };
 
-export type Selection = { kind: 'node'; id: number } | { kind: 'cable'; id: number } | null;
+export type Selection = { kind: 'node'; id: number } | { kind: 'cable'; id: number } | { kind: 'area'; id: number } | null;
 
 export default function MapPage() {
   const { id } = useParams();
@@ -73,19 +94,61 @@ export default function MapPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [nodes, setNodes] = useState<NetNode[]>([]);
   const [cables, setCables] = useState<Cable[]>([]);
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [role, setRole] = useState<Role>('viewer');
+  const [areaDraft, setAreaDraft] = useState<LatLng[]>([]);
+  const [viaPoint, setViaPoint] = useState<LatLng | null>(null);
+  const [viaRadius, setViaRadius] = useState(250);
+  const [marker, setMarker] = useState<{
+    at: LatLng;
+    label: string;
+    route: LatLng[];
+  } | null>(null);
+  const [history, setHistory] = useState<{
+    title: string;
+    filter?: { type: string; subject_id: number };
+  } | null>(null);
+  const [report, setReport] = useState<{
+    title: string;
+    polygon?: LatLng[];
+  } | null>(null);
+  const [otdr, setOtdr] = useState<{
+    title: string;
+    result: BudgetResult;
+  } | null>(null);
+  const [recent, setRecent] = useState<ActivityItem[] | null>(null);
   const [tool, setTool] = useState<Tool>('select');
   const [selection, setSelection] = useState<Selection>(null);
-  const [draft, setDraft] = useState<{ path: LatLng[]; from: number | null } | null>(null);
+  const [draft, setDraft] = useState<{
+    path: LatLng[];
+    from: number | null;
+  } | null>(null);
   const [ruler, setRuler] = useState<LatLng[]>([]);
   const [cursor, setCursor] = useState<LatLng | null>(null);
   const [base, setBase] = useState<keyof typeof BASE_LAYERS>('satellite');
-  const [visible, setVisible] = useState<Record<string, boolean>>({ cto: true, ceo: true, pop: true, pole: true, client: true, backbone: true, distribution: true, drop: true });
+  const [visible, setVisible] = useState<Record<string, boolean>>({
+    cto: true,
+    ceo: true,
+    pop: true,
+    pole: true,
+    client: true,
+    backbone: true,
+    distribution: true,
+    drop: true,
+    areas: true,
+  });
   const [labels, setLabels] = useState(true);
   const [zoom, setZoom] = useState(16);
   const [diagramNodeId, setDiagramNodeId] = useState<number | null>(null);
-  const [budget, setBudget] = useState<{ title: string; result: BudgetResult } | null>(null);
-  const [modal, setModal] = useState<'settings' | 'analysis' | null>(null);
-  const [toast, setToast] = useState<{ message: string; kind?: 'ok' | 'error' } | null>(null);
+  const [budget, setBudget] = useState<{
+    title: string;
+    result: BudgetResult;
+  } | null>(null);
+  const [modal, setModal] = useState<'settings' | 'analysis' | 'team' | 'dashboard' | 'poles' | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    kind?: 'ok' | 'error';
+  } | null>(null);
   const [search, setSearch] = useState('');
   const mapRef = useRef<L.Map | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -96,6 +159,8 @@ export default function MapPage() {
       setSettings(d.settings);
       setNodes(d.nodes);
       setCables(d.cables);
+      setAreas(d.areas);
+      setRole(d.role);
     });
 
   useEffect(() => {
@@ -115,9 +180,11 @@ export default function MapPage() {
       if (e.key === 'Escape') {
         setDraft(null);
         setRuler([]);
+        setAreaDraft([]);
         setTool('select');
       }
       if (e.key === 'Enter' && draft) finishCable();
+      if (e.key === 'Enter' && areaDraft.length >= 3) finishArea();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -133,15 +200,44 @@ export default function MapPage() {
   }, [network, nodes]);
 
   const notify = (message: string, kind: 'ok' | 'error' = 'ok') => setToast({ message, kind });
+  const readOnly = role === 'viewer';
+  const canManage = role === 'owner' || role === 'admin';
 
-  const mergeCables = (updated: Cable[]) =>
-    setCables((list) => list.map((c) => updated.find((u) => u.id === c.id) ?? c));
-  const mergeNodes = (updated: NetNode[]) =>
-    setNodes((list) => list.map((n) => updated.find((u) => u.id === n.id) ?? n));
+  const viaOptions = useMemo(() => (network && viaPoint ? viability(network, viaPoint, viaRadius) : []), [network, viaPoint, viaRadius]);
+
+  useEffect(() => {
+    if (modal === 'dashboard') api.activity(projectId).then(setRecent);
+  }, [modal, projectId]);
+
+  async function finishArea(points = areaDraft) {
+    if (points.length < 3) return;
+    try {
+      const area = await api.createArea(projectId, { polygon: points });
+      setAreas((list) => [...list, area]);
+      setSelection({ kind: 'area', id: area.id });
+      notify('Área criada');
+    } catch (e) {
+      notify(errorMessage(e), 'error');
+    }
+    setAreaDraft([]);
+    setTool('select');
+  }
+
+  function focusNode(n: NetNode) {
+    mapRef.current?.setView([n.lat, n.lng], Math.max(mapRef.current.getZoom(), 18));
+    setSelection({ kind: 'node', id: n.id });
+  }
+
+  const mergeCables = (updated: Cable[]) => setCables((list) => list.map((c) => updated.find((u) => u.id === c.id) ?? c));
+  const mergeNodes = (updated: NetNode[]) => setNodes((list) => list.map((n) => updated.find((u) => u.id === n.id) ?? n));
 
   async function addNode(type: NodeType, at: LatLng) {
     try {
-      const node = await api.createNode(projectId, { type, lat: at[0], lng: at[1] });
+      const node = await api.createNode(projectId, {
+        type,
+        lat: at[0],
+        lng: at[1],
+      });
       setNodes((list) => [...list, node]);
       setSelection({ kind: 'node', id: node.id });
       notify(`${NODE_TYPES[type].label} adicionado`);
@@ -157,6 +253,14 @@ export default function MapPage() {
   }
 
   function nodeClicked(node: NetNode) {
+    if (tool === 'viability') {
+      setViaPoint([node.lat, node.lng]);
+      return;
+    }
+    if (tool === 'area') {
+      setAreaDraft((a) => [...a, [node.lat, node.lng]]);
+      return;
+    }
     if (tool === 'cable') {
       const point: LatLng = [node.lat, node.lng];
       if (!draft) {
@@ -243,14 +347,31 @@ export default function MapPage() {
 
   const selectedNode = selection?.kind === 'node' ? nodes.find((n) => n.id === selection.id) : undefined;
   const selectedCable = selection?.kind === 'cable' ? cables.find((c) => c.id === selection.id) : undefined;
+  const selectedArea = selection?.kind === 'area' ? areas.find((a) => a.id === selection.id) : undefined;
   const diagramNode = nodes.find((n) => n.id === diagramNodeId);
 
   const searchResults = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return [];
     return [
-      ...nodes.filter((n) => n.name.toLowerCase().includes(q)).map((n) => ({ kind: 'node' as const, id: n.id, label: n.name, sub: NODE_TYPES[n.type].label, at: [n.lat, n.lng] as LatLng })),
-      ...cables.filter((c) => c.name.toLowerCase().includes(q)).map((c) => ({ kind: 'cable' as const, id: c.id, label: c.name, sub: 'Cabo', at: c.path[0] })),
+      ...nodes
+        .filter((n) => n.name.toLowerCase().includes(q))
+        .map((n) => ({
+          kind: 'node' as const,
+          id: n.id,
+          label: n.name,
+          sub: NODE_TYPES[n.type].label,
+          at: [n.lat, n.lng] as LatLng,
+        })),
+      ...cables
+        .filter((c) => c.name.toLowerCase().includes(q))
+        .map((c) => ({
+          kind: 'cable' as const,
+          id: c.id,
+          label: c.name,
+          sub: 'Cabo',
+          at: c.path[0],
+        })),
     ].slice(0, 8);
   }, [search, nodes, cables]);
 
@@ -261,15 +382,21 @@ export default function MapPage() {
   const deployed = nodes.filter((n) => n.status === 'deployed' || n.status === 'certified').length;
   const pct = nodes.length ? Math.round((deployed / nodes.length) * 100) : 0;
   const hint =
-    tool === 'cable'
-      ? draft
-        ? 'Clique para adicionar pontos. Clique numa caixa ou pressione Enter para finalizar. Esc cancela.'
-        : 'Clique numa caixa (ou no mapa) para iniciar o cabo.'
-      : tool === 'ruler'
-        ? `Régua: ${formatLength(pathLength(ruler))} · clique para medir, Esc limpa.`
-        : tool !== 'select'
-          ? `Clique no mapa para adicionar ${NODE_TYPES[tool].label}.`
-          : 'Clique num elemento para editar. Arraste caixas para mover.';
+    tool === 'area'
+      ? `Clique para marcar os vértices da área (${areaDraft.length}). Enter ou "Finalizar área" conclui. Esc cancela.`
+      : tool === 'viability'
+        ? 'Clique no local do cliente ou busque o endereço no painel.'
+        : readOnly && tool === 'select'
+          ? 'Acesso somente leitura. Clique num elemento para ver detalhes.'
+          : tool === 'cable'
+            ? draft
+              ? 'Clique para adicionar pontos. Clique numa caixa ou pressione Enter para finalizar. Esc cancela.'
+              : 'Clique numa caixa (ou no mapa) para iniciar o cabo.'
+            : tool === 'ruler'
+              ? `Régua: ${formatLength(pathLength(ruler))} · clique para medir, Esc limpa.`
+              : tool !== 'select'
+                ? `Clique no mapa para adicionar ${NODE_TYPES[tool].label}.`
+                : 'Clique num elemento para editar. Arraste caixas para mover.';
 
   return (
     <div className="h-full flex">
@@ -285,7 +412,9 @@ export default function MapPage() {
           <div className="mt-2 h-1.5 rounded-full bg-slate-800">
             <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
           </div>
-          <div className="text-xs text-slate-400 mt-1">{pct}% implantado</div>
+          <div className="text-xs text-slate-400 mt-1">
+            {pct}% implantado · {ROLE_LABELS[role].label}
+          </div>
         </div>
         <div className="p-3 relative">
           <Search size={14} className="absolute left-5 top-5.5 text-slate-500" />
@@ -298,7 +427,10 @@ export default function MapPage() {
                     className="w-full text-left px-3 py-1.5 hover:bg-slate-800 cursor-pointer"
                     onClick={() => {
                       mapRef.current?.setView(r.at, 18);
-                      setSelection({ kind: r.kind, id: r.id });
+                      setSelection({
+                        kind: r.kind,
+                        id: r.id,
+                      });
                       setSearch('');
                     }}
                   >
@@ -311,12 +443,17 @@ export default function MapPage() {
         </div>
         <nav className="px-2 space-y-0.5 text-sm">
           <SideLink to="/" icon={<Home size={16} />} label="Meus projetos" />
+          <SideButton icon={<BarChart3 size={16} />} label="Dashboard" onClick={() => setModal('dashboard')} />
           <SideButton icon={<Activity size={16} />} label="Análise de rede" onClick={() => setModal('analysis')} />
-          <SideButton icon={<Upload size={16} />} label="Importar KMZ/KML" onClick={() => fileRef.current?.click()} />
+          <SideButton icon={<FileText size={16} />} label="Relatório da rede" onClick={() => setReport({ title: 'Rede completa' })} />
+          <SideButton icon={<UtilityPole size={16} />} label="Tabela de postes" onClick={() => setModal('poles')} />
+          <SideButton icon={<Users size={16} />} label="Equipe" onClick={() => setModal('team')} />
+          <SideButton icon={<History size={16} />} label="Histórico" onClick={() => setHistory({ title: project.name })} />
+          {!readOnly && <SideButton icon={<Upload size={16} />} label="Importar KMZ/KML" onClick={() => fileRef.current?.click()} />}
           <a href={api.exportUrl(projectId)} className="flex items-center gap-2 rounded-md px-3 py-2 text-slate-300 hover:bg-slate-800">
             <Download size={16} /> Exportar KMZ
           </a>
-          <SideButton icon={<SettingsIcon size={16} />} label="Configurações" onClick={() => setModal('settings')} />
+          {canManage && <SideButton icon={<SettingsIcon size={16} />} label="Configurações" onClick={() => setModal('settings')} />}
         </nav>
         <input
           ref={fileRef}
@@ -355,6 +492,8 @@ export default function MapPage() {
           <MapEvents
             onClick={(at) => {
               if (tool === 'select') setSelection(null);
+              else if (tool === 'viability') setViaPoint(at);
+              else if (tool === 'area') setAreaDraft((a) => [...a, at]);
               else if (tool === 'cable') setDraft((d) => (d ? { ...d, path: [...d.path, at] } : { path: [at], from: null }));
               else if (tool === 'ruler') setRuler((r) => [...r, at]);
               else addNode(tool, at);
@@ -362,6 +501,31 @@ export default function MapPage() {
             onMove={setCursor}
             onZoom={setZoom}
           />
+
+          {visible.areas &&
+            areas.map((a) => (
+              <Polygon
+                key={`${a.id}-${a.color}-${a.polygon.length}`}
+                positions={a.polygon}
+                pathOptions={{
+                  color: selection?.kind === 'area' && selection.id === a.id ? '#facc15' : a.color,
+                  weight: 2,
+                  fillOpacity: 0.12,
+                }}
+                eventHandlers={{
+                  click: (e) => {
+                    if (tool !== 'select') return;
+                    L.DomEvent.stopPropagation(e);
+                    setSelection({
+                      kind: 'area',
+                      id: a.id,
+                    });
+                  },
+                }}
+              >
+                {labels && <Tooltip sticky>{a.name}</Tooltip>}
+              </Polygon>
+            ))}
 
           {cables
             .filter((c) => visible[c.category])
@@ -379,7 +543,10 @@ export default function MapPage() {
                   click: (e) => {
                     if (tool !== 'select') return;
                     L.DomEvent.stopPropagation(e);
-                    setSelection({ kind: 'cable', id: c.id });
+                    setSelection({
+                      kind: 'cable',
+                      id: c.id,
+                    });
                   },
                 }}
               >
@@ -399,7 +566,7 @@ export default function MapPage() {
                     selected: selection?.kind === 'node' && selection.id === n.id,
                     fill: level ? POWER_COLORS[level] : undefined,
                   })}
-                  draggable={tool === 'select'}
+                  draggable={tool === 'select' && !readOnly}
                   eventHandlers={{
                     click: (e) => {
                       L.DomEvent.stopPropagation(e);
@@ -415,7 +582,12 @@ export default function MapPage() {
                   }}
                 >
                   {labels && (zoom >= 17 || n.type === 'pop') && n.type !== 'pole' && (
-                    <Tooltip permanent direction="bottom" offset={[0, 10]} className="!bg-slate-900/80 !text-white !border-0 !shadow-none !text-[11px] !px-1.5 !py-0">
+                    <Tooltip
+                      permanent
+                      direction="bottom"
+                      offset={[0, 10]}
+                      className="!bg-slate-900/80 !text-white !border-0 !shadow-none !text-[11px] !px-1.5 !py-0"
+                    >
                       {n.name}
                     </Tooltip>
                   )}
@@ -424,22 +596,100 @@ export default function MapPage() {
             })}
 
           {draft && (
-            <Polyline positions={cursor ? [...draft.path, cursor] : draft.path} pathOptions={{ color: '#facc15', weight: 3, dashArray: '6 6' }} />
+            <Polyline
+              positions={cursor ? [...draft.path, cursor] : draft.path}
+              pathOptions={{
+                color: '#facc15',
+                weight: 3,
+                dashArray: '6 6',
+              }}
+            />
           )}
-          {ruler.length > 0 && (
-            <Polyline positions={cursor && tool === 'ruler' ? [...ruler, cursor] : ruler} pathOptions={{ color: '#f472b6', weight: 3 }} />
+          {areaDraft.length > 0 && (
+            <Polygon
+              positions={cursor ? [...areaDraft, cursor] : areaDraft}
+              pathOptions={{
+                color: '#facc15',
+                weight: 2,
+                dashArray: '6 6',
+                fillOpacity: 0.1,
+              }}
+            />
           )}
+          {tool === 'viability' && viaPoint && (
+            <>
+              <Circle
+                center={viaPoint}
+                radius={viaRadius}
+                pathOptions={{
+                  color: '#10b981',
+                  weight: 1.5,
+                  fillOpacity: 0.08,
+                }}
+              />
+              <CircleMarker
+                center={viaPoint}
+                radius={7}
+                pathOptions={{
+                  color: '#ffffff',
+                  fillColor: '#10b981',
+                  fillOpacity: 1,
+                  weight: 2,
+                }}
+              />
+              {viaOptions.map((o) => (
+                <Polyline
+                  key={o.box.id}
+                  positions={[viaPoint, [o.box.lat, o.box.lng]]}
+                  pathOptions={{
+                    color: o.free.length ? POWER_COLORS[o.level] : '#ef4444',
+                    weight: 2,
+                    dashArray: '4 6',
+                  }}
+                />
+              ))}
+            </>
+          )}
+          {marker && (
+            <>
+              <Polyline
+                positions={marker.route}
+                pathOptions={{
+                  color: '#f97316',
+                  weight: 6,
+                  opacity: 0.5,
+                }}
+              />
+              <CircleMarker
+                center={marker.at}
+                radius={9}
+                pathOptions={{
+                  color: '#ffffff',
+                  fillColor: '#ef4444',
+                  fillOpacity: 1,
+                  weight: 3,
+                }}
+              >
+                <Tooltip permanent direction="top" offset={[0, -8]}>
+                  {marker.label}
+                </Tooltip>
+              </CircleMarker>
+            </>
+          )}
+          {ruler.length > 0 && <Polyline positions={cursor && tool === 'ruler' ? [...ruler, cursor] : ruler} pathOptions={{ color: '#f472b6', weight: 3 }} />}
         </MapContainer>
 
         {/* Barra de ferramentas */}
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] panel flex p-1 gap-0.5">
-          {TOOLS.map((t) => (
+          {TOOLS.filter((t) => !readOnly || READ_TOOLS.includes(t.id)).map((t) => (
             <button
               key={t.id}
               onClick={() => {
                 setTool(t.id);
                 setDraft(null);
+                setAreaDraft([]);
                 if (t.id !== 'ruler') setRuler([]);
+                if (t.id === 'viability') setSelection(null);
               }}
               className={`flex flex-col items-center gap-0.5 rounded-md px-2.5 py-1.5 text-[10px] uppercase tracking-wide cursor-pointer ${
                 tool === t.id ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800'
@@ -455,6 +705,16 @@ export default function MapPage() {
         {/* Dica e ações do desenho */}
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2">
           <div className="panel px-3 py-1.5 text-xs text-slate-300">{hint}</div>
+          {areaDraft.length >= 3 && (
+            <button className="btn-primary !py-1.5 text-xs" onClick={() => finishArea()}>
+              Finalizar área
+            </button>
+          )}
+          {marker && (
+            <button className="btn-ghost !py-1.5 text-xs" onClick={() => setMarker(null)}>
+              Limpar marcação
+            </button>
+          )}
           {draft && draft.path.length > 1 && (
             <button className="btn-primary !py-1.5 text-xs" onClick={() => finishCable()}>
               Finalizar cabo ({formatLength(pathLength(draft.path))})
@@ -486,14 +746,78 @@ export default function MapPage() {
               <Toggle key={t} label={NODE_TYPES[t].plural} color={NODE_TYPES[t].color} on={visible[t]} onChange={(v) => setVisible({ ...visible, [t]: v })} />
             ))}
             {(Object.keys(CABLE_CATEGORIES) as CableCategory[]).map((c) => (
-              <Toggle key={c} label={`Cabos ${CABLE_CATEGORIES[c].label.toLowerCase()}`} color={CABLE_CATEGORIES[c].color} on={visible[c]} onChange={(v) => setVisible({ ...visible, [c]: v })} />
+              <Toggle
+                key={c}
+                label={`Cabos ${CABLE_CATEGORIES[c].label.toLowerCase()}`}
+                color={CABLE_CATEGORIES[c].color}
+                on={visible[c]}
+                onChange={(v) => setVisible({ ...visible, [c]: v })}
+              />
             ))}
+            <Toggle label="Áreas" color="#a855f7" on={visible.areas ?? true} onChange={(v) => setVisible({ ...visible, areas: v })} />
             <Toggle label="Rótulos" on={labels} onChange={setLabels} />
           </div>
         </div>
 
-        {(selectedNode || selectedCable) && (
+        {tool === 'viability' && (
+          <ViabilityPanel
+            point={viaPoint}
+            radius={viaRadius}
+            options={viaOptions}
+            onRadius={setViaRadius}
+            onPoint={(p) => {
+              setViaPoint(p);
+              mapRef.current?.setView(p, 17);
+            }}
+            onFocus={(n) => mapRef.current?.setView([n.lat, n.lng], 18)}
+            onClose={() => {
+              setTool('select');
+              setViaPoint(null);
+            }}
+          />
+        )}
+
+        {selectedArea && tool !== 'viability' && (
+          <AreaPanel
+            key={selectedArea.id}
+            area={selectedArea}
+            readOnly={readOnly}
+            onClose={() => setSelection(null)}
+            onSaved={(a) => {
+              setAreas((list) => list.map((x) => (x.id === a.id ? a : x)));
+              notify('Área salva');
+            }}
+            onDeleted={() => {
+              setAreas((list) => list.filter((x) => x.id !== selectedArea.id));
+              setSelection(null);
+              notify('Área excluída');
+            }}
+            onReport={() =>
+              setReport({
+                title: selectedArea.name,
+                polygon: selectedArea.polygon,
+              })
+            }
+            onError={(m) => notify(m, 'error')}
+          />
+        )}
+
+        {(selectedNode || selectedCable) && tool !== 'viability' && (
           <Inspector
+            readOnly={readOnly}
+            cables={cables}
+            onHistory={(kind, id, name) =>
+              setHistory({
+                title: name,
+                filter: { type: kind, subject_id: id },
+              })
+            }
+            onOtdr={(n) =>
+              setOtdr({
+                title: n.name,
+                result: clientPower.get(n.id)!,
+              })
+            }
             key={`${selection?.kind}${selection?.id}`}
             node={selectedNode}
             cable={selectedCable}
@@ -529,7 +853,12 @@ export default function MapPage() {
               notify('Excluído');
             }}
             onOpenDiagram={(n) => setDiagramNodeId(n.id)}
-            onShowBudget={(n) => setBudget({ title: n.name, result: clientPower.get(n.id)! })}
+            onShowBudget={(n) =>
+              setBudget({
+                title: n.name,
+                result: clientPower.get(n.id)!,
+              })
+            }
             onConnectClient={connectClient}
             onError={(m) => notify(m, 'error')}
           />
@@ -540,6 +869,7 @@ export default function MapPage() {
         <DiagramEditor
           node={diagramNode}
           network={network}
+          readOnly={readOnly}
           onClose={() => setDiagramNodeId(null)}
           onSaved={(n) => {
             mergeNodes([n]);
@@ -573,6 +903,38 @@ export default function MapPage() {
             setModal(null);
             mapRef.current?.setView([n.lat, n.lng], 19);
             setSelection({ kind: 'node', id: n.id });
+          }}
+        />
+      )}
+      {modal === 'team' && <TeamModal projectId={projectId} role={role} onClose={() => setModal(null)} />}
+      {modal === 'dashboard' && <DashboardModal network={network} projectName={project.name} recent={recent} onClose={() => setModal(null)} />}
+      {modal === 'poles' && (
+        <PolesModal
+          projectId={projectId}
+          poles={nodes.filter((n) => n.type === 'pole')}
+          cables={cables}
+          readOnly={readOnly}
+          onClose={() => setModal(null)}
+          onSaved={(n) => mergeNodes([n])}
+          onImported={(created) => setNodes((list) => [...list, ...created])}
+          onFocus={(n) => {
+            setModal(null);
+            focusNode(n);
+          }}
+        />
+      )}
+      {history && <HistoryModal projectId={projectId} title={history.title} filter={history.filter} onClose={() => setHistory(null)} />}
+      {report && <ReportModal network={network} projectName={project.name} title={report.title} polygon={report.polygon} onClose={() => setReport(null)} />}
+      {otdr && (
+        <OtdrModal
+          title={otdr.title}
+          network={network}
+          budget={otdr.result}
+          onClose={() => setOtdr(null)}
+          onLocate={(at, label, route) => {
+            setOtdr(null);
+            setMarker({ at, label, route });
+            mapRef.current?.setView(at, 18);
           }}
         />
       )}

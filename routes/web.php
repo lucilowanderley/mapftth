@@ -1,7 +1,10 @@
 <?php
 
+use App\Http\Controllers\Api\ActivityController;
+use App\Http\Controllers\Api\AreaController;
 use App\Http\Controllers\Api\CableController;
 use App\Http\Controllers\Api\KmzController;
+use App\Http\Controllers\Api\MemberController;
 use App\Http\Controllers\Api\NodeController;
 use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\AuthController;
@@ -27,6 +30,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/me', fn () => auth()->user()->only('id', 'name', 'email'));
         Route::apiResource('projects', ProjectController::class);
         Route::post('/projects/{project}/nodes', [NodeController::class, 'store']);
+        Route::post('/projects/{project}/nodes/bulk', [NodeController::class, 'bulk']);
         Route::put('/nodes/{node}', [NodeController::class, 'update']);
         Route::delete('/nodes/{node}', [NodeController::class, 'destroy']);
         Route::post('/projects/{project}/cables', [CableController::class, 'store']);
@@ -34,5 +38,13 @@ Route::middleware('auth')->group(function () {
         Route::delete('/cables/{cable}', [CableController::class, 'destroy']);
         Route::post('/projects/{project}/import', [KmzController::class, 'import']);
         Route::get('/projects/{project}/export', [KmzController::class, 'export']);
+        Route::post('/projects/{project}/areas', [AreaController::class, 'store']);
+        Route::put('/areas/{area}', [AreaController::class, 'update']);
+        Route::delete('/areas/{area}', [AreaController::class, 'destroy']);
+        Route::get('/projects/{project}/members', [MemberController::class, 'index']);
+        Route::post('/projects/{project}/members', [MemberController::class, 'store']);
+        Route::put('/projects/{project}/members/{member}', [MemberController::class, 'update']);
+        Route::delete('/projects/{project}/members/{member}', [MemberController::class, 'destroy']);
+        Route::get('/projects/{project}/activity', [ActivityController::class, 'index']);
     });
 });

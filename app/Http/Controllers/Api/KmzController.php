@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\NetworkNode;
 use App\Models\Project;
 use App\Services\KmlService;
@@ -19,7 +20,7 @@ class KmzController extends Controller
 
     public function import(Request $request, Project $project): JsonResponse
     {
-        $this->authorizeProject($request, $project);
+        $this->authorizeProject($request, $project, 'edit');
         $request->validate([
             'file' => ['required', 'file', 'max:51200'],
             'default_type' => ['sometimes', Rule::in(NetworkNode::TYPES)],
@@ -36,6 +37,8 @@ class KmzController extends Controller
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        ActivityLog::record($project, 'project', null, 'imported', $result, $name);
 
         return response()->json($result);
     }

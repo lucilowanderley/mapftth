@@ -30,6 +30,8 @@ export interface Project {
   total_nodes?: number;
   cables_count?: number;
   cable_length_m?: number | null;
+  role?: Role;
+  user?: { id: number; name: string };
 }
 
 /** Componente dentro do diagrama de uma caixa ou POP. */
@@ -92,4 +94,43 @@ export interface Network {
   nodes: NetNode[];
   cables: Cable[];
   settings: Settings;
+}
+
+export type Role = 'owner' | 'admin' | 'editor' | 'viewer';
+
+export interface Area {
+  id: number;
+  project_id: number;
+  name: string;
+  color: string;
+  polygon: LatLng[];
+  notes: string | null;
+}
+
+export interface Member {
+  id: number;
+  user_id: number;
+  role: Exclude<Role, 'owner'>;
+  user: { id: number; name: string; email: string };
+}
+
+export interface Activity {
+  id: number;
+  user: { id: number; name: string } | null;
+  subject_type: 'node' | 'cable' | 'area' | 'project' | 'member';
+  subject_id: number | null;
+  subject_name: string | null;
+  action: string;
+  changes: Record<string, unknown> | null;
+  created_at: string;
+}
+
+/** Atributos de poste (guardados em node.attributes). */
+export interface PoleAttributes extends Record<string, unknown> {
+  code?: string;
+  material?: string;
+  height_m?: number;
+  load_dan?: number;
+  owner?: string;
+  structure?: string;
 }

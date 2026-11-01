@@ -35,6 +35,42 @@ class Project extends Model
         return $this->hasMany(Cable::class);
     }
 
+    public function members(): HasMany
+    {
+        return $this->hasMany(ProjectMember::class);
+    }
+
+    public function areas(): HasMany
+    {
+        return $this->hasMany(Area::class);
+    }
+
+    public function activity(): HasMany
+    {
+        return $this->hasMany(ActivityLog::class);
+    }
+
+    /** Papel do usuário no projeto: owner, admin, editor, viewer ou null (sem acesso). */
+    public function roleOf(?User $user): ?string
+    {
+        if (! $user) {
+            return null;
+        }
+        if ($this->user_id === $user->id) {
+            return 'owner';
+        }
+
+        return $this->members()->where('user_id', $user->id)->value('role');
+    }
+
+    /** Projetos que o usuário pode abrir (próprios e compartilhados). */
+    public static function accessibleBy(User $user)
+    {
+        return static::query()->where(fn ($q) => $q
+            ->where('user_id', $user->id)
+            ->orWhereHas('members', fn ($m) => $m->where('user_id', $user->id)));
+    }
+
     /** Configurações do projeto já mescladas com os padrões. */
     public function effectiveSettings(): array
     {
