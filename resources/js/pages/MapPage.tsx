@@ -33,6 +33,7 @@ import { CABLE_CATEGORIES, CABLE_MODELS, NODE_TYPES } from '../lib/catalog';
 import { distance, pathLength } from '../lib/geo';
 import type { Activity as ActivityItem, Area, Cable, CableCategory, LatLng, NetNode, NodeType, Project, Role, Settings } from '../lib/types';
 import { viability } from '../lib/analysis';
+import { BASE_LAYERS, type BaseLayerId } from '../lib/basemaps';
 import { nodeIcon } from '../components/markers';
 import { Logo, Toast, formatLength } from '../components/ui';
 import Inspector from '../components/Inspector';
@@ -67,23 +68,6 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
 /** Ferramentas que só leem a rede (liberadas para quem tem acesso de leitura). */
 const READ_TOOLS: Tool[] = ['select', 'ruler', 'viability'];
 
-const BASE_LAYERS = {
-  satellite: {
-    label: 'Satélite',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Imagens &copy; Esri',
-  },
-  streets: {
-    label: 'Ruas',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; OpenStreetMap',
-  },
-  dark: {
-    label: 'Escuro',
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-  },
-};
 
 export type Selection = { kind: 'node'; id: number } | { kind: 'cable'; id: number } | { kind: 'area'; id: number } | null;
 
@@ -125,7 +109,7 @@ export default function MapPage() {
   } | null>(null);
   const [ruler, setRuler] = useState<LatLng[]>([]);
   const [cursor, setCursor] = useState<LatLng | null>(null);
-  const [base, setBase] = useState<keyof typeof BASE_LAYERS>('satellite');
+  const [base, setBase] = useState<BaseLayerId>('satellite');
   const [visible, setVisible] = useState<Record<string, boolean>>({
     cto: true,
     ceo: true,
@@ -488,7 +472,7 @@ export default function MapPage() {
           doubleClickZoom={false}
           ref={mapRef}
         >
-          <TileLayer key={base} url={BASE_LAYERS[base].url} attribution={BASE_LAYERS[base].attribution} maxZoom={21} maxNativeZoom={19} />
+          <TileLayer key={base} url={BASE_LAYERS[base].url} attribution={BASE_LAYERS[base].attribution} maxZoom={21} maxNativeZoom={BASE_LAYERS[base].maxNativeZoom} />
           <MapEvents
             onClick={(at) => {
               if (tool === 'select') setSelection(null);
@@ -729,7 +713,7 @@ export default function MapPage() {
               <Layers size={12} /> Mapa base
             </div>
             <div className="flex gap-1">
-              {(Object.keys(BASE_LAYERS) as (keyof typeof BASE_LAYERS)[]).map((k) => (
+              {(Object.keys(BASE_LAYERS) as BaseLayerId[]).map((k) => (
                 <button
                   key={k}
                   onClick={() => setBase(k)}
