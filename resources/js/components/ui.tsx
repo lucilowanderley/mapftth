@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 
 export function Logo({ compact = false }: { compact?: boolean }) {
   return (
@@ -18,6 +18,11 @@ export function Logo({ compact = false }: { compact?: boolean }) {
 }
 
 export function Modal({ title, onClose, children, width = 'max-w-md' }: { title: ReactNode; onClose: () => void; children: ReactNode; width?: string }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
   return (
     <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 p-4" onMouseDown={onClose}>
       <div className={`panel w-full ${width} max-h-[90vh] flex flex-col`} onMouseDown={(e) => e.stopPropagation()}>

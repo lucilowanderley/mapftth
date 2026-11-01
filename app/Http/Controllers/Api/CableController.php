@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\Cable;
 use App\Models\NetworkNode;
 use App\Models\Project;
@@ -15,10 +16,11 @@ class CableController extends Controller
 {
     public function store(Request $request, Project $project): JsonResponse
     {
-        $this->authorizeProject($request, $project);
+        $this->authorizeProject($request, $project, 'edit');
         $data = $this->validated($request, $project);
         $data['name'] ??= 'Cabo '.($data['fiber_count'] ?? 12).'FO';
         $cable = $project->cables()->create($data);
+        ActivityLog::record($project, 'cable', $cable, 'created');
         $project->touch();
 
         return response()->json($cable->fresh(), 201);
@@ -26,8 +28,17 @@ class CableController extends Controller
 
     public function update(Request $request, Cable $cable): JsonResponse
     {
-        $this->authorizeProject($request, $cable->project);
+        $this->authorizeProject($request, $cable->project, 'edit');
         $data = $this->validated($request, $cable->project, partial: true);
+        $fields = [];
+        foreach ($data as $key => $value) {
+            if ($key !== 'path' && $value != $cable->{$key}) {
+                $fields[$key] = ['de' => $cable->{$key}, 'para' => $value];
+            }
+        }
+        if (array_key_exists('path', $data) && $data['path'] != $cable->path) {
+            $fields['path'] = 'traçado alterado';
+        }
         $oldEnds = [$cable->from_node_id, $cable->to_node_id];
         $oldFibers = $cable->fiber_count;
         $cable->update($data);
@@ -43,6 +54,9 @@ class CableController extends Controller
                 }
             }
         }
+        if ($fields) {
+            ActivityLog::record($cable->project, 'cable', $cable, 'updated', $fields);
+        }
         $cable->project->touch();
 
         return response()->json(['cable' => $cable->fresh(), 'nodes' => $nodes->values()]);
@@ -50,7 +64,8 @@ class CableController extends Controller
 
     public function destroy(Request $request, Cable $cable): JsonResponse
     {
-        $this->authorizeProject($request, $cable->project);
+        $this->authorizeProject($request, $cable->project, 'edit');
+        ActivityLog::record($cable->project, 'cable', $cable, 'deleted');
         $nodes = collect();
         foreach (array_unique(array_filter([$cable->from_node_id, $cable->to_node_id])) as $nodeId) {
             $node = NetworkNode::find($nodeId);

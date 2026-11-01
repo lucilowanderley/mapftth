@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import { useNavigate } from 'react-router-dom';
 import L from 'leaflet';
+import { ROLE_LABELS } from '../components/TeamModal';
 import { api, errorMessage } from '../lib/api';
 import { searchPlaces, type Place } from '../lib/geocode';
 import type { Project } from '../lib/types';
@@ -26,10 +27,7 @@ export default function ProjectsPage() {
     api.projects().then(setProjects);
   }, []);
 
-  const filtered = useMemo(
-    () => (projects ?? []).filter((p) => p.name.toLowerCase().includes(query.toLowerCase())),
-    [projects, query],
-  );
+  const filtered = useMemo(() => (projects ?? []).filter((p) => p.name.toLowerCase().includes(query.toLowerCase())), [projects, query]);
 
   async function remove(p: Project) {
     if (!confirm(`Excluir o projeto "${p.name}" e toda a sua rede? Isso não pode ser desfeito.`)) return;
@@ -101,17 +99,24 @@ export default function ProjectsPage() {
                           <MapPin size={12} /> {p.city}
                         </p>
                       )}
+                      {p.role && p.role !== 'owner' && (
+                        <p className="text-xs text-sky-400 mt-0.5 truncate">
+                          Compartilhado por {p.user?.name ?? '—'} · {ROLE_LABELS[p.role].label}
+                        </p>
+                      )}
                     </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        remove(p);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 cursor-pointer"
-                      aria-label="Excluir projeto"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {(!p.role || p.role === 'owner') && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          remove(p);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 cursor-pointer"
+                        aria-label="Excluir projeto"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </div>
                   <div className="mt-4 grid grid-cols-4 gap-2 text-center text-xs">
                     {[
@@ -169,7 +174,13 @@ function CreateProjectModal({ onClose, onCreated }: { onClose: () => void; onCre
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const t = setTimeout(() => searchPlaces(city).then(setResults).catch(() => setResults([])), 400);
+    const t = setTimeout(
+      () =>
+        searchPlaces(city)
+          .then(setResults)
+          .catch(() => setResults([])),
+      400,
+    );
     return () => clearTimeout(t);
   }, [city]);
 

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Cable, NetNode, Project, Settings } from './types';
+import type { Activity, Area, Cable, Member, NetNode, Project, Role, Settings } from './types';
 
 export const http = axios.create({
   headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
@@ -28,7 +28,7 @@ export const api = {
   deleteProject: (id: number) => http.delete(`/api/projects/${id}`),
   project: (id: number) =>
     http
-      .get<{ project: Project; settings: Settings; nodes: NetNode[]; cables: Cable[] }>(`/api/projects/${id}`)
+      .get<{ project: Project; role: Role; settings: Settings; nodes: NetNode[]; cables: Cable[]; areas: Area[] }>(`/api/projects/${id}`)
       .then((r) => r.data),
 
   createNode: (projectId: number, data: Partial<NetNode>) =>
@@ -51,4 +51,22 @@ export const api = {
       .then((r) => r.data);
   },
   exportUrl: (projectId: number) => `/api/projects/${projectId}/export`,
+
+  bulkNodes: (projectId: number, nodes: Partial<NetNode>[]) =>
+    http.post<{ created: NetNode[] }>(`/api/projects/${projectId}/nodes/bulk`, { nodes }).then((r) => r.data),
+
+  createArea: (projectId: number, data: Partial<Area>) => http.post<Area>(`/api/projects/${projectId}/areas`, data).then((r) => r.data),
+  updateArea: (id: number, data: Partial<Area>) => http.put<Area>(`/api/areas/${id}`, data).then((r) => r.data),
+  deleteArea: (id: number) => http.delete(`/api/areas/${id}`),
+
+  members: (projectId: number) =>
+    http.get<{ owner: { id: number; name: string; email: string }; members: Member[] }>(`/api/projects/${projectId}/members`).then((r) => r.data),
+  addMember: (projectId: number, email: string, role: string) =>
+    http.post<Member>(`/api/projects/${projectId}/members`, { email, role }).then((r) => r.data),
+  updateMember: (projectId: number, id: number, role: string) =>
+    http.put<Member>(`/api/projects/${projectId}/members/${id}`, { role }).then((r) => r.data),
+  removeMember: (projectId: number, id: number) => http.delete(`/api/projects/${projectId}/members/${id}`),
+
+  activity: (projectId: number, params: { type?: string; subject_id?: number } = {}) =>
+    http.get<Activity[]>(`/api/projects/${projectId}/activity`, { params }).then((r) => r.data),
 };

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\Project;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -11,7 +12,9 @@ class ProjectController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $projects = $request->user()->projects()
+        $user = $request->user();
+        $projects = Project::accessibleBy($user)
+            ->with('user:id,name')
             ->withCount([
                 'nodes as cto_count' => fn ($q) => $q->whereIn('type', ['cto']),
                 'nodes as ceo_count' => fn ($q) => $q->where('type', 'ceo'),
@@ -23,7 +26,8 @@ class ProjectController extends Controller
             ])
             ->withSum('cables as cable_length_m', 'length_m')
             ->latest('updated_at')
-            ->get();
+            ->get()
+            ->each(fn (Project $p) => $p->setAttribute('role', $p->roleOf($user)));
 
         return response()->json($projects);
     }
@@ -37,11 +41,13 @@ class ProjectController extends Controller
 
     public function show(Request $request, Project $project): JsonResponse
     {
-        $this->authorizeProject($request, $project);
+        $role = $this->authorizeProject($request, $project);
 
         return response()->json([
             'project' => $project,
+            'role' => $role,
             'settings' => $project->effectiveSettings(),
+            'areas' => $project->areas()->orderBy('id')->get(),
             'nodes' => $project->nodes()->orderBy('id')->get(),
             'cables' => $project->cables()->orderBy('id')->get(),
         ]);
@@ -49,15 +55,17 @@ class ProjectController extends Controller
 
     public function update(Request $request, Project $project): JsonResponse
     {
-        $this->authorizeProject($request, $project);
-        $project->update($this->validated($request, partial: true));
+        $this->authorizeProject($request, $project, 'admin');
+        $data = $this->validated($request, partial: true);
+        $project->update($data);
+        ActivityLog::record($project, 'project', $project, 'updated', array_keys($data));
 
         return response()->json(['project' => $project, 'settings' => $project->effectiveSettings()]);
     }
 
     public function destroy(Request $request, Project $project): JsonResponse
     {
-        $this->authorizeProject($request, $project);
+        $this->authorizeProject($request, $project, 'owner');
         $project->delete();
 
         return response()->json(null, 204);

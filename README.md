@@ -26,6 +26,27 @@ estáticos em `public/build`, então o servidor só precisa de PHP e MySQL (nada
 Os parâmetros de perda (fusão, conector, atenuação da fibra, potência da OLT, limites da ONU) ficam em
 **Configurações** de cada projeto.
 
+## Funcionalidades (fase 2)
+
+- **Dashboard** do projeto: infraestrutura por status, sinal nos clientes, metragem de cabos por tipo,
+  ocupação das CTOs e últimas alterações.
+- **Áreas e relatórios**: desenhe uma área no mapa (ferramenta Área) e gere o relatório dela, ou da rede
+  inteira: elementos, lista de materiais (cabos com reserva técnica proporcional, splitters, caixas,
+  fusões), portas livres e sinal. Exporta planilha (CSV, abre no Excel) e imprime/salva em PDF.
+- **Tabela de postes**: material, altura, esforço, proprietário e cabos que passam em cada poste, com
+  edição na própria tabela. Importa planilha CSV com latitude/longitude (por exemplo, os postes da
+  distribuidora exportados da BDGD da ANEEL) e exporta CSV.
+- **Viabilidade**: busque um endereço ou clique no mapa e veja as CTOs com porta livre dentro do raio,
+  com distância e potência prevista em cada saída.
+- **OTDR virtual**: curva esperada do percurso OLT → cliente com todos os eventos. Digite a distância
+  medida no OTDR e o sistema marca o ponto no mapa.
+- **Equipe e permissões**: convide pessoas pelo e-mail da conta MapFTTH como Administrador (edita e
+  gerencia a equipe), Projetista (edita a rede) ou Técnico (somente leitura). Só o dono exclui o projeto.
+- **Histórico**: cada criação, alteração, movimentação e edição de diagrama fica registrada com autor e
+  data, por projeto ou por elemento (botão de relógio no painel do elemento).
+
+> Ao atualizar uma instalação existente, rode `php artisan migrate --force` para criar as tabelas novas.
+
 ## Rodando no Laragon (Windows)
 
 Requisitos: PHP **8.3+**, Composer, MySQL e Node 20+ (Node só é necessário se você for alterar o frontend).
@@ -79,8 +100,8 @@ Os arquivos do frontend já vão compilados em `public/build`, então não é pr
 ## Testes
 
 ```bash
-php artisan test     # API, permissões, KMZ
-npm test             # cálculo do orçamento óptico
+php artisan test     # API, permissões, equipe, histórico, KMZ
+npm test             # orçamento óptico, relatórios, viabilidade, OTDR
 npm run typecheck
 ```
 
@@ -95,8 +116,9 @@ npm run typecheck
 | `resources/js/components/DiagramEditor.tsx` | Editor de fusão / POP |
 | `resources/js/lib/budget.ts` | Cálculo do orçamento óptico |
 | `resources/js/lib/catalog.ts` | Cores ABNT, cabos, splitters e OLTs |
+| `resources/js/lib/analysis.ts` | Relatórios, viabilidade, OTDR e CSV |
 
 ## Próximas fases
 
-Dashboard com indicadores, relatórios por área (PDF/planilha), tabela de postes e camada de postes das
-distribuidoras, equipes e permissões, viabilidade por endereço e OTDR.
+Ideias para depois: app de campo offline para técnicos, ordens de serviço, integração com o sistema de
+gestão do provedor (clientes e ONUs) e importação de medições reais de OTDR (arquivos .sor).
