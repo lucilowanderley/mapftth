@@ -3,6 +3,8 @@
 Sistema web para planejar e documentar redes de fibra óptica FTTH: mapa da rede, diagramas de fusão das caixas,
 orçamento óptico até o cliente e importação/exportação KMZ.
 
+📘 **[Manual de uso passo a passo](docs/MANUAL.md)**: como usar cada tela e função do sistema.
+
 Feito com **Laravel 13 + MySQL** no backend e **React + Leaflet** no frontend. O React é compilado para arquivos
 estáticos em `public/build`, então o servidor só precisa de PHP e MySQL (nada de Node rodando em produção).
 
