@@ -1,0 +1,39 @@
+@import 'tailwindcss';
+@import 'leaflet/dist/leaflet.css';
+
+@source '../views/**/*.blade.php';
+@source '../js/**/*.{ts,tsx}';
+
+@theme {
+    --font-sans: ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer components {
+    .input {
+        @apply w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500;
+    }
+    .btn-primary {
+        @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition disabled:opacity-50 cursor-pointer bg-emerald-600 hover:bg-emerald-500 text-white;
+    }
+    .btn-ghost {
+        @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition disabled:opacity-50 cursor-pointer bg-slate-800 hover:bg-slate-700 text-slate-200;
+    }
+    .btn-danger {
+        @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition disabled:opacity-50 cursor-pointer bg-red-600/90 hover:bg-red-500 text-white;
+    }
+    .label {
+        @apply block text-xs font-medium uppercase tracking-wide text-slate-400 mb-1;
+    }
+    .panel {
+        @apply bg-slate-900/95 border border-slate-800 rounded-xl shadow-2xl backdrop-blur;
+    }
+}
+
+.leaflet-container {
+    background: #0f172a;
+    font-family: inherit;
+}
+.node-marker {
+    background: transparent;
+    border: none;
+}
