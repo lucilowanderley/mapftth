@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class NetworkNode extends Model
 {
-    public const TYPES = ['cto', 'ceo', 'pop', 'pole', 'client'];
+    public const TYPES = ['cto', 'ceo', 'pop', 'pole', 'client', 'condo'];
 
     public const STATUSES = ['planned', 'not_deployed', 'deployed', 'certified'];
 

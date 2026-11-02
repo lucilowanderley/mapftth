@@ -1,7 +1,7 @@
 import type { Cable, LatLng, NetNode } from './types';
 
 /** Tipos de caixa que a opção "Conectar caixas no traçado" procura. */
-export const ALONG_TYPES: NetNode['type'][] = ['cto', 'ceo'];
+export const ALONG_TYPES: NetNode['type'][] = ['cto', 'ceo', 'condo'];
 /** Distância máxima (m) entre a caixa e o traçado do cabo para ela ser considerada "no traçado". */
 export const ALONG_TOLERANCE_M = 30;
 

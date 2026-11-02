@@ -12,7 +12,9 @@ const CABLE_W = 150;
 const BOX_W = 130;
 const SPLIT_W = 56;
 
-type Block = { key: string; kind: 'cable'; cable: Cable; x: number; y: number; side: 'left' | 'right'; label: string } | (DiagramComponent & { key: string });
+/** Racks só existem no editor de POP e não entram no diagrama de fusão. */
+type BoxComponent = Exclude<DiagramComponent, { kind: 'rack' }>;
+type Block = { key: string; kind: 'cable'; cable: Cable; x: number; y: number; side: 'left' | 'right'; label: string } | (BoxComponent & { key: string });
 
 interface Port {
   end: End;
@@ -151,7 +153,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         label: incoming ? `de ${nodeName(c.from_node_id)}` : `para ${nodeName(c.to_node_id)}`,
       };
     });
-    return [...cableBlocks, ...diagram.components.map((c) => ({ ...c, key: c.id }))];
+    return [...cableBlocks, ...diagram.components.filter((c): c is BoxComponent => c.kind !== 'rack').map((c) => ({ ...c, key: c.id }))];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cables, diagram, node.id]);
 

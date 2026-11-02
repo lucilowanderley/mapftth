@@ -15,7 +15,25 @@ export const G = {
   CABLE_H: 104,
 };
 
-export type PopComp = Exclude<DiagramComponent, { kind: 'splitter' }>;
+/** Equipamentos com portas desenhados em vista frontal (o rack tem card próprio). */
+export type PopComp = Extract<DiagramComponent, { kind: 'olt' | 'dio' | 'active' }>;
+export type RackComp = Extract<DiagramComponent, { kind: 'rack' }>;
+
+/** Medidas do card de rack: altura de cada U e largura da área útil (19"). */
+export const RACK = { RU: 16, NUM: 26, INNER: 210, POST: 10, HEADER: 40, FOOT: 22, PAD: 8 };
+
+export function rackSize(r: RackComp): { w: number; h: number } {
+  return {
+    w: RACK.PAD * 2 + RACK.NUM + RACK.POST * 2 + RACK.INNER,
+    h: RACK.HEADER + RACK.PAD * 2 + r.units * RACK.RU + RACK.FOOT + (r.mount === 'floor' ? 10 : 0),
+  };
+}
+
+/** Topo (y relativo ao card) da U `u` (1 = base). */
+export const rackUTop = (r: RackComp, u: number) => RACK.HEADER + RACK.PAD + (r.units - u) * RACK.RU;
+
+/** Tamanho de qualquer card do canvas do POP. */
+export const anySize = (c: PopComp | RackComp) => (c.kind === 'rack' ? rackSize(c) : cardSize(c));
 
 const rowW = (cols: number) => cols * (G.PORT + G.GAP) - G.GAP;
 const rowsH = (rows: number) => rows * (G.PORT + G.ROWGAP) - G.ROWGAP;

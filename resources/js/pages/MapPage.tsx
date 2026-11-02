@@ -31,6 +31,8 @@ import {
   Waypoints,
   Trash2,
   Infinity as SlackToolIcon,
+  Building2,
+  Houses,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Circle, CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
@@ -38,9 +40,9 @@ import { Link, useParams } from 'react-router-dom';
 import L from 'leaflet';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, clientBudget, powerLevel, type BudgetResult } from '../lib/budget';
-import { CABLE_CATEGORIES, CABLE_MODELS, NODE_TYPES, SLACK_KINDS, effectiveLineStyle, lineDash } from '../lib/catalog';
+import { BOX_TYPES, CABLE_CATEGORIES, CABLE_MODELS, CONDO_KINDS, NODE_TYPES, NODE_TYPE_LIST, SLACK_KINDS, effectiveLineStyle, lineDash } from '../lib/catalog';
 import { distance, pathLength } from '../lib/geo';
-import type { Activity as ActivityItem, Area, Cable, CableCategory, LatLng, NetNode, NodeType, Project, Role, Settings, Slack, SlackKind } from '../lib/types';
+import type { Activity as ActivityItem, Area, Cable, CableCategory, CondoKind, LatLng, NetNode, NodeType, Project, Role, Settings, Slack, SlackKind } from '../lib/types';
 import { viability } from '../lib/analysis';
 import { LAYERS, MAP_ENGINES, MAP_STYLES, availableEngines, googleTileUrl, loadEngine, loadStyle, saveEngine, saveStyle, type MapEngine, type MapStyle } from '../lib/basemaps';
 import { appConfig } from '../lib/user';
@@ -73,6 +75,7 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'pop', label: 'POP', icon: <Server size={18} /> },
   { id: 'pole', label: 'Poste', icon: <Zap size={18} /> },
   { id: 'client', label: 'Cliente', icon: <User size={18} /> },
+  { id: 'condo', label: 'Condomínio', icon: <Building2 size={18} /> },
   { id: 'cable', label: 'Cabo', icon: <CableIcon size={18} /> },
   { id: 'area', label: 'Área', icon: <Pentagon size={18} /> },
   { id: 'slack', label: 'Reserva', icon: <SlackToolIcon size={18} /> },
@@ -117,6 +120,7 @@ export default function MapPage() {
   } | null>(null);
   const [recent, setRecent] = useState<ActivityItem[] | null>(null);
   const [tool, setTool] = useState<Tool>('select');
+  const [condoKind, setCondoKind] = useState<CondoKind>('buildings');
   const [selection, setSelection] = useState<Selection>(null);
   const [draft, setDraft] = useState<{
     path: LatLng[];
@@ -142,6 +146,7 @@ export default function MapPage() {
     pop: true,
     pole: true,
     client: true,
+    condo: true,
     backbone: true,
     distribution: true,
     drop: true,
@@ -347,6 +352,7 @@ export default function MapPage() {
         type,
         lat: at[0],
         lng: at[1],
+        ...(type === 'condo' ? { attributes: { condo_kind: condoKind } } : {}),
       });
       setNodes((list) => [...list, node]);
       setSelection({ kind: 'node', id: node.id });
@@ -602,7 +608,7 @@ export default function MapPage() {
   /** Duplo clique: caixas e POP abrem o diagrama/editor; demais objetos abrem o painel de edição. */
   function openEditor(n: NetNode) {
     setSelection({ kind: 'node', id: n.id });
-    if (['cto', 'ceo', 'pop'].includes(n.type)) setDiagramNodeId(n.id);
+    if (BOX_TYPES.includes(n.type)) setDiagramNodeId(n.id);
     else setEditorFocus(Date.now());
   }
 
@@ -853,7 +859,7 @@ export default function MapPage() {
           }}
         />
         <div className="mt-auto p-3 text-xs text-slate-500 grid grid-cols-2 gap-1">
-          {(['pop', 'ceo', 'cto', 'client'] as NodeType[]).map((t) => (
+          {(['pop', 'ceo', 'cto', 'condo', 'client'] as NodeType[]).map((t) => (
             <span key={t}>
               {NODE_TYPES[t].plural}: <b className="text-slate-300">{nodes.filter((n) => n.type === t).length}</b>
             </span>
@@ -1030,7 +1036,7 @@ export default function MapPage() {
                     },
                   }}
                 >
-                  {labels && (zoom >= 17 || n.type === 'pop') && n.type !== 'pole' && (
+                  {labels && (zoom >= 17 || n.type === 'pop' || n.type === 'condo') && n.type !== 'pole' && (
                     <Tooltip
                       permanent
                       direction="bottom"
@@ -1316,6 +1322,25 @@ export default function MapPage() {
             </div>
           )}
 
+          {/* Tipo do condomínio lançado pela ferramenta Condomínio */}
+          {!readOnly && tool === 'condo' && (
+            <div className="panel flex items-center gap-2 p-2 text-xs pointer-events-auto">
+              <span className="text-slate-300 flex items-center gap-1">
+                <Building2 size={14} /> Condomínio de
+              </span>
+              {(Object.keys(CONDO_KINDS) as CondoKind[]).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setCondoKind(k)}
+                  className={`flex items-center gap-1 rounded px-2 py-1 cursor-pointer ${condoKind === k ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  {k === 'houses' ? <Houses size={13} /> : <Building2 size={13} />} {CONDO_KINDS[k].label}
+                </button>
+              ))}
+              <span className="text-slate-500 hidden lg:inline">Clique no mapa para posicionar.</span>
+            </div>
+          )}
+
           {/* Tipo do cabo lançado pela ferramenta Cabo */}
           {!readOnly && tool === 'cable' && (
             <div className="panel flex items-center gap-2 p-2 text-xs pointer-events-auto">
@@ -1529,7 +1554,7 @@ export default function MapPage() {
           </div>
           <div>
             <div className="label">Elementos</div>
-            {(['pop', 'ceo', 'cto', 'pole', 'client'] as NodeType[]).map((t) => (
+            {NODE_TYPE_LIST.map((t) => (
               <Toggle key={t} label={NODE_TYPES[t].plural} color={NODE_TYPES[t].color} on={visible[t]} onChange={(v) => setVisible({ ...visible, [t]: v })} />
             ))}
             {(Object.keys(CABLE_CATEGORIES) as CableCategory[]).map((c) => (

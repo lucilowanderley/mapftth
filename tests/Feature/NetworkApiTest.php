@@ -85,6 +85,29 @@ class NetworkApiTest extends TestCase
         $this->assertSame('Cabo 12FO', $cable['name']);
     }
 
+    public function test_condo_is_created_with_attributes_and_accepts_cable_split(): void
+    {
+        $user = User::factory()->create();
+        $project = $this->project($user);
+        $this->actingAs($user);
+
+        $condo = $this->postJson("/api/projects/{$project->id}/nodes", [
+            'type' => 'condo', 'lat' => 0, 'lng' => 0.001,
+            'attributes' => ['condo_kind' => 'buildings', 'units' => 120, 'blocks' => 3, 'floors' => 10],
+        ])->assertCreated()->assertJsonPath('name', 'Cond-1')->assertJsonPath('attributes.units', 120)->json();
+
+        $pop = $project->nodes()->create(['type' => 'pop', 'name' => 'POP', 'lat' => 0, 'lng' => 0]);
+        $cto = $project->nodes()->create(['type' => 'cto', 'name' => 'CTO', 'lat' => 0, 'lng' => 0.002]);
+        $cable = $project->cables()->create([
+            'name' => 'Lance', 'fiber_count' => 12,
+            'path' => [[0, 0], [0, 0.002]], 'from_node_id' => $pop->id, 'to_node_id' => $cto->id,
+        ]);
+        $this->postJson("/api/cables/{$cable->id}/split", [
+            'path' => [[0, 0], [0, 0.001], [0, 0.002]],
+            'cuts' => [['index' => 1, 'node_id' => $condo['id']]],
+        ])->assertOk()->assertJsonCount(2, 'cables');
+    }
+
     public function test_moving_a_box_moves_the_cable_ends(): void
     {
         $user = User::factory()->create();

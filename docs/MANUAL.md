@@ -10,9 +10,9 @@ seções como consulta.
 2. [Conta e login](#2-conta-e-login)
 3. [Meus projetos](#3-meus-projetos)
 4. [A tela do mapa](#4-a-tela-do-mapa)
-5. [Adicionar POP, CEO, CTO, poste e cliente](#5-adicionar-pop-ceo-cto-poste-e-cliente)
+5. [Adicionar POP, CEO, CTO, poste, cliente e condomínio](#5-adicionar-pop-ceo-cto-poste-cliente-e-condomínio)
 6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos) (inclui as [3 formas de ligar a CTO no cabo](#ligar-a-cto-no-cabo-3-formas))
-7. [Editor do POP: OLT e DIO](#7-editor-do-pop-olt-e-dio)
+7. [Editor do POP: rack, OLT e DIO](#7-editor-do-pop-rack-olt-e-dio)
 8. [Diagrama de fusão da CEO e da CTO (splitters)](#8-diagrama-de-fusão-da-ceo-e-da-cto)
 9. [Ligar o cliente e ver o sinal](#9-ligar-o-cliente-e-ver-o-sinal)
 10. [Orçamento óptico](#10-orçamento-óptico)
@@ -92,7 +92,7 @@ A tela tem quatro partes:
 | Onde | O que tem |
 | --- | --- |
 | **Barra lateral (esquerda)** | Nome do projeto, % implantado, seu papel, busca, menu (Meus projetos, Dashboard, Análise de rede, Relatório da rede, Tabela de postes, Equipe, Histórico, Importar KMZ/KML, Exportar KMZ, Configurações) e os totais de POPs, CEOs, CTOs, clientes e metros de cabo. |
-| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, POP, Poste, Cliente, Cabo, Reserva, Área, Régua, Viabilidade. |
+| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, POP, Poste, Cliente, Condomínio, Cabo, Área, Reserva, Régua, Viabilidade. |
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
 
@@ -129,9 +129,9 @@ até ele e já o seleciona. Também aceita coordenadas, como `-8.0476, -34.8770`
 
 ---
 
-## 5. Adicionar POP, CEO, CTO, poste e cliente
+## 5. Adicionar POP, CEO, CTO, poste, cliente e condomínio
 
-1. Na barra de ferramentas, escolha **POP**, **CEO**, **CTO**, **Poste** ou **Cliente**.
+1. Na barra de ferramentas, escolha **POP**, **CEO**, **CTO**, **Poste**, **Cliente** ou **Condomínio**.
 2. Clique no mapa onde o elemento fica. Ele é criado na hora com um nome automático e o painel de edição abre
    à esquerda. Você pode continuar clicando para colocar vários do mesmo tipo.
 3. Volte para **Selecionar** (ou aperte **Esc**) quando terminar.
@@ -143,7 +143,7 @@ até o novo elemento. Aceita graus decimais com ponto ou vírgula (`-8.0476` ou 
 os dois campos são preenchidos.
 
 **Editar um elemento**: com **Selecionar**, clique nele. **Duplo clique** abre o editor direto: na CTO, CEO ou POP
-abre o diagrama de fusão / editor do POP; no poste e no cliente coloca o cursor no campo **Nome** do painel. No painel:
+(e no condomínio) abre o diagrama de fusão / editor do POP; no poste e no cliente coloca o cursor no campo **Nome** do painel. No painel:
 
 - **Nome**, **Status** (*Em projeto*, *Não implantado*, *Implantado*, *Certificado*) e **Observações**.
 - **Posição**: latitude e longitude do elemento. Digite os valores exatos (mesmos formatos aceitos acima) e salve
@@ -152,10 +152,25 @@ abre o diagrama de fusão / editor do POP; no poste e no cliente coloca o cursor
 - **Cliente**: campo **Endereço**, potência na ONU e os botões de drop e OTDR ([seção 9](#9-ligar-o-cliente-e-ver-o-sinal)).
 - **Poste**: **Código / plaqueta**, **Material**, **Altura (m)**, **Esforço (daN)**, **Distribuidora / proprietário**
   e a lista de **cabos neste poste**.
-- **POP, CEO e CTO**: botão **Editor do POP** ou **Diagrama de fusão**.
+- **Condomínio**: **Tipo** (*Casas* ou *Prédios*), número de **Casas** ou **Apartamentos**, **Quadras** ou
+  **Prédios / torres**, **Andares** (só prédios), **Endereço**, **Síndico / contato** e **Telefone**.
+- **POP, CEO, CTO e condomínio**: botão **Editor do POP** ou **Diagrama de fusão**.
 - Clique em **Salvar alterações**. A lixeira exclui; o relógio mostra o histórico daquele elemento.
 
-**Mover (arrastar)**: com **Selecionar**, clique e arraste qualquer elemento (POP, CEO, CTO, poste ou cliente).
+**Condomínio (casas ou prédios)**
+
+1. Escolha **Condomínio** na barra de ferramentas. Abaixo dela aparece **Condomínio de: Casas | Prédios**; escolha o
+   tipo antes de clicar no mapa.
+2. Clique no mapa. O condomínio é criado com o nome *Cond-1*, *Cond-2*... e o ícone mostra o tipo: dois prédios
+   ou duas casinhas, em rosa.
+3. No painel, preencha o número de unidades (casas ou apartamentos), as quadras ou prédios e os andares.
+
+O condomínio funciona como uma caixa: o cabo pode terminar nele, passar por ele em **sangria** (e pela opção
+**Conectar caixas no traçado**) e ele tem **Diagrama de fusão** próprio para os splitters e as fusões da rede
+interna. Os drops dos moradores saem dele como saem de uma CTO. Nos **relatórios** aparece o total de condomínios e
+de unidades (útil para contar casas cobertas), e no **KMZ** eles vão para a pasta *Condomínios*.
+
+**Mover (arrastar)**: com **Selecionar**, clique e arraste qualquer elemento (POP, CEO, CTO, poste, cliente ou condomínio).
 Enquanto você arrasta, os cabos acompanham: as pontas ligadas ao elemento e os pontos de cabos que passam
 exatamente por ele (por exemplo, um cabo apoiado num poste). Ao soltar, a posição é salva e o comprimento dos
 cabos é recalculado.
@@ -210,7 +225,7 @@ Se uma das pontas for um cliente, o cabo vira **Cabo Drop 1FO** (a não ser que 
 **Forma 3: conectar todas as CTOs do traçado de uma vez**
 
 1. Com **Selecionar**, clique com o **botão direito** no cabo. O item **Conectar caixas no traçado (N)** mostra
-   quantas CTOs e CEOs estão a até **30 m** do cabo.
+   quantas CTOs, CEOs e condomínios estão a até **30 m** do cabo.
 2. Clique nele e confirme em **Sim, conectar** (a caixa lista quais serão ligadas).
 3. Cada caixa no meio do caminho vira um ponto do cabo com **sangria** (trechos *T1, T2, T3...*). Uma caixa logo
    depois de uma **ponta solta** vira a ponta do cabo (conexão simples).
@@ -288,11 +303,11 @@ dentro dela).
 
 ---
 
-## 7. Editor do POP: OLT e DIO
+## 7. Editor do POP: rack, OLT e DIO
 
 Selecione o POP e clique em **Editor do POP** (ou duplo clique no POP). O editor abre um **canvas** escuro com
-**cards** que você arrasta pelo cabeçalho: um card para cada **cabo** que chega ao POP, e um card para cada **DIO**,
-**OLT** e **equipamento ativo** que você adicionar. Na primeira vez os cards já vêm organizados (cabos à esquerda,
+**cards** que você arrasta pelo cabeçalho: um card para cada **cabo** que chega ao POP, e um card para cada **rack**,
+**DIO**, **OLT** e **equipamento ativo** que você adicionar. Na primeira vez os cards já vêm organizados (cabos à esquerda,
 DIOs no meio, OLTs à direita).
 
 **Barra de ferramentas**
@@ -300,7 +315,8 @@ DIOs no meio, OLTs à direita).
 | Botão | O que faz |
 | --- | --- |
 | **OLT**, **DIO**, **Ativo** | Adicionam um equipamento ao canvas. |
-| Contadores | **OLT** e **DIO** (quantidade), **Portas** (portas do DIO com cordão / total) e **PON** (em uso / total). |
+| **Rack** | Adiciona um rack de piso ou suspenso, com a altura em U. |
+| Contadores | **Rack**, **OLT** e **DIO** (quantidade), **Portas** (portas do DIO com cordão / total) e **PON** (em uso / total). |
 | **Canvas 2D** / **Manobra** | Alterna entre o canvas com os cards e a tabela de manobra porta a porta. |
 | **Cordões** | Mostra ou esconde no canvas os cordões (patch) entre DIO, OLT e ativos. |
 | **Traço VFL** | Liga a "caneta de luz vermelha": clique numa porta e veja o caminho aceso. |
@@ -311,6 +327,33 @@ DIOs no meio, OLTs à direita).
 
 No canto inferior direito ficam o **zoom** e o **enquadrar tudo**. Arraste o fundo para mover a vista e use a
 roda do mouse para o zoom. O status do POP (*Em projeto*, *Implantado*...) fica ao lado do título.
+
+**Rack (piso ou suspenso)**
+
+1. Clique em **Rack**.
+2. Dê um **Nome** e escolha a **Instalação**: **Piso** (rack apoiado no chão) ou **Suspenso** (rack de parede).
+3. Escolha a **altura em U** (6U a 48U) ou digite outro tamanho. 1U = 44,45 mm.
+4. Clique em **Criar rack**.
+
+O rack aparece à direita, em **vista frontal**, com as U numeradas de baixo (**U1**) para cima. Cada equipamento
+instalado ocupa as suas U e aparece na cor do tipo: **DIO azul**, **OLT roxa** e **ativo verde**. O rodapé mostra
+quantas U estão livres.
+
+Há três jeitos de colocar um equipamento no rack:
+
+- Ao criar ou editar uma **OLT**, **DIO** ou **Ativo**, escolha o rack no campo **Instalar no rack**. O editor
+  coloca o equipamento na primeira posição livre, de cima para baixo.
+- No cabeçalho do rack, clique em **Instalar equipamento** (ícone de caixa com +) e escolha o equipamento.
+- Clique numa **U vazia** do rack para instalar um equipamento exatamente ali.
+
+Na janela de instalação você ajusta a **Posição** (a U de baixo) e a **Altura (U)**. A altura vem pronta pelo
+tamanho do equipamento (DIO de até 24 portas = 1U, 48 = 2U, 72 = 3U, 144 = 4U; OLT de 1 ou 2 slots = 1U ou 2U;
+switch = 1U) e pode ser trocada. O editor não deixa sobrepor dois equipamentos nem passar do topo do rack.
+
+Clique num equipamento dentro do rack para mudar a posição ou **Retirar do rack**. O card do equipamento continua no
+canvas com as portas, e o rodapé dele mostra onde está instalado (por exemplo *Rack 1 · U40–41*). Se você diminuir o
+rack e algum equipamento deixar de caber, ele fica com borda vermelha até ser reposicionado. Excluir o rack não
+exclui os equipamentos: eles só ficam fora do rack. O rack também sai no **PNG** do POP.
 
 **Adicionar o DIO**
 
@@ -364,7 +407,8 @@ os uplinks. Portas PON com cordão ficam **roxas**; uplinks com cordão ficam **
 
 **Equipamento ativo**
 
-Clique em **Ativo** para adicionar um switch, roteador, BNG ou servidor com o número de portas que quiser. As portas
+Clique em **Ativo** para adicionar um switch, roteador, BNG, servidor, firewall, nobreak ou patch panel UTP com o
+número de portas que quiser (até 96). As portas
 do ativo recebem cordões dos **uplinks da OLT** (ou da frente do DIO, em links ponto a ponto). O ativo não é fonte
 de sinal PON: o orçamento óptico só conta caminhos que chegam numa porta PON de OLT.
 
@@ -593,7 +637,7 @@ Use para comparar com a medição do OTDR de campo e achar onde está um problem
 
 1. Escolha um arquivo `.kmz` ou `.kml` (por exemplo, do Google Earth).
 2. Os pontos viram caixas conforme o **nome do ponto ou da pasta**: *CTO* ou *caixa de atendimento* → CTO; *CEO* ou
-   *emenda* → CEO; *POP*, *OLT* ou *datacenter* → POP; *poste* → Poste; *cliente*, *ONU* ou *assinante* → Cliente.
+   *emenda* → CEO; *POP*, *OLT* ou *datacenter* → POP; *condomínio*, *edifício* ou *residencial* → Condomínio; *poste* → Poste; *cliente*, *ONU* ou *assinante* → Cliente.
 3. As linhas viram cabos. Se o nome tiver a quantidade de fibras (ex.: *12FO*, *24 fibras*) ela é usada; *backbone*
    ou *tronco* define o tipo. As pontas dos cabos se ligam às caixas que estiverem a até **15 m**.
 4. Ao final aparece quantos pontos e cabos foram importados.
