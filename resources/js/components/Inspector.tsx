@@ -2,8 +2,8 @@ import { Activity, Copy, Crosshair, History, Link2, Network, Radar, Trash2, X } 
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, POWER_LABEL, powerLevel, type BudgetResult } from '../lib/budget';
-import { CABLE_CATEGORIES, CABLE_MODELS, NODE_TYPES, STATUSES } from '../lib/catalog';
-import type { Cable, CableCategory, LatLng, NetNode, PoleAttributes, Settings, Status } from '../lib/types';
+import { CABLE_CATEGORIES, CABLE_MODELS, LINE_STYLES, NODE_TYPES, STATUSES, effectiveLineStyle, lineDash } from '../lib/catalog';
+import type { Cable, CableCategory, LatLng, LineStyle, NetNode, PoleAttributes, Settings, Status } from '../lib/types';
 import { POLE_MATERIALS } from './PolesModal';
 import { cablesNear } from '../lib/analysis';
 import { Field, formatLength } from './ui';
@@ -338,6 +338,7 @@ function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, o
     status: cable.status,
     color: cable.color,
     width: cable.width,
+    line_style: cable.line_style,
     slack_m: cable.slack_m,
     notes: cable.notes ?? '',
   });
@@ -503,6 +504,30 @@ function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, o
               onChange={(e) => set({ width: Number(e.target.value) })}
               className="w-full accent-emerald-500"
             />
+          </Field>
+          <Field label="Estilo da linha">
+            <div className="grid grid-cols-4 gap-1">
+              {([null, 'solid', 'dashed', 'dotted'] as (LineStyle | null)[]).map((st) => {
+                const shown = st ?? effectiveLineStyle({ line_style: null, status: form.status });
+                const w = Math.min(form.width, 5);
+                return (
+                  <button
+                    key={st ?? 'auto'}
+                    type="button"
+                    onClick={() => set({ line_style: st })}
+                    title={st ? LINE_STYLES[st].label : 'Automático: tracejado quando Em projeto, contínuo nos demais'}
+                    className={`rounded-md border px-1 pt-1.5 pb-1 text-[10px] cursor-pointer ${
+                      form.line_style === st ? 'border-emerald-500 bg-emerald-950/40 text-emerald-200' : 'border-slate-700 text-slate-400 hover:bg-slate-800'
+                    }`}
+                  >
+                    <svg viewBox="0 0 48 8" className="w-full h-2">
+                      <line x1={w / 2 + 1} y1={4} x2={47 - w / 2} y2={4} stroke={form.color} strokeWidth={w} strokeLinecap="round" strokeDasharray={lineDash(shown, w)} />
+                    </svg>
+                    {st ? LINE_STYLES[st].label : 'Automático'}
+                  </button>
+                );
+              })}
+            </div>
           </Field>
           <Field label="Observações">
             <textarea className="input" rows={2} value={form.notes} onChange={(e) => set({ notes: e.target.value })} />

@@ -195,6 +195,19 @@ class NetworkApiTest extends TestCase
         $this->assertArrayHasKey("c{$c['id']}", $diagram['cablePos']);
     }
 
+    public function test_cable_line_style_is_saved_and_validated(): void
+    {
+        $user = User::factory()->create();
+        $project = $this->project($user);
+        $cable = $project->cables()->create(['name' => 'C', 'path' => [[0, 0], [0, 0.001]]]);
+
+        $this->actingAs($user)->putJson("/api/cables/{$cable->id}", ['line_style' => 'dotted'])
+            ->assertOk()->assertJsonPath('cable.line_style', 'dotted');
+        $this->actingAs($user)->putJson("/api/cables/{$cable->id}", ['line_style' => 'zigzag'])->assertUnprocessable();
+        $this->actingAs($user)->putJson("/api/cables/{$cable->id}", ['line_style' => null])
+            ->assertOk()->assertJsonPath('cable.line_style', null);
+    }
+
     public function test_split_rejects_box_already_on_the_cable(): void
     {
         $user = User::factory()->create();

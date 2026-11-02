@@ -1,4 +1,4 @@
-import type { CableCategory, NodeType, Status } from './types';
+import type { Cable, CableCategory, LineStyle, NodeType, Status } from './types';
 
 /** Cores de fibras e tubos conforme padrão ABNT (NBR 14160). */
 export const ABNT_COLORS = [
@@ -116,3 +116,19 @@ export const CABLE_CATEGORIES: Record<CableCategory, { label: string; color: str
   distribution: { label: 'Distribuição', color: '#0ea5e9' },
   drop: { label: 'Drop', color: '#22c55e' },
 };
+
+export const LINE_STYLES: Record<LineStyle, { label: string }> = {
+  solid: { label: 'Contínuo' },
+  dashed: { label: 'Tracejado' },
+  dotted: { label: 'Pontilhado' },
+};
+
+/** Estilo efetivo: sem escolha, o cabo "Em projeto" fica tracejado e os demais contínuos. */
+export const effectiveLineStyle = (c: Pick<Cable, 'line_style' | 'status'>): LineStyle => c.line_style ?? (c.status === 'planned' ? 'dashed' : 'solid');
+
+/** dashArray do Leaflet/SVG para o estilo, proporcional à espessura. */
+export function lineDash(style: LineStyle, width: number): string | undefined {
+  if (style === 'dashed') return `${width * 2 + 6} ${width + 5}`;
+  if (style === 'dotted') return `0.1 ${width * 2 + 3}`;
+  return undefined;
+}

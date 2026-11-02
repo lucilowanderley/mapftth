@@ -166,6 +166,7 @@ class CableController extends Controller
                         'status' => $cable->status,
                         'color' => $cable->color,
                         'width' => $cable->width,
+                        'line_style' => $cable->line_style,
                         'slack_m' => 0,
                         'notes' => $cable->notes,
                     ]);
@@ -288,6 +289,7 @@ class CableController extends Controller
             'status' => ['sometimes', Rule::in(NetworkNode::STATUSES)],
             'color' => ['sometimes', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
             'width' => ['sometimes', 'integer', 'between:1,12'],
+            'line_style' => ['nullable', Rule::in(Cable::LINE_STYLES)],
             'path' => [$req, 'array', 'min:2'],
             'path.*' => ['array', 'size:2'],
             'path.*.*' => ['numeric'],

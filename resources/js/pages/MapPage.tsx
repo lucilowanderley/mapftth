@@ -37,7 +37,7 @@ import { Link, useParams } from 'react-router-dom';
 import L from 'leaflet';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, clientBudget, powerLevel, type BudgetResult } from '../lib/budget';
-import { CABLE_CATEGORIES, CABLE_MODELS, NODE_TYPES } from '../lib/catalog';
+import { CABLE_CATEGORIES, CABLE_MODELS, NODE_TYPES, effectiveLineStyle, lineDash } from '../lib/catalog';
 import { distance, pathLength } from '../lib/geo';
 import type { Activity as ActivityItem, Area, Cable, CableCategory, LatLng, NetNode, NodeType, Project, Role, Settings } from '../lib/types';
 import { viability } from '../lib/analysis';
@@ -695,7 +695,7 @@ export default function MapPage() {
               : tool !== 'select'
                 ? `Clique no mapa para adicionar ${NODE_TYPES[tool].label} ou digite as coordenadas no painel acima.`
                 : selectedCable
-                  ? 'Arraste os quadrados para mover vértices e os círculos para criar novos. Botão direito num vértice o remove; no cabo, abre o menu de conexão.'
+                  ? 'Arraste os pontos para mover vértices e as bolinhas menores para criar novos. Botão direito num ponto o remove; no cabo, abre o menu de conexão.'
                   : 'Clique para selecionar, duplo clique abre o editor. Arraste um objeto para reposicioná-lo.';
 
   return (
@@ -843,6 +843,14 @@ export default function MapPage() {
               </Polygon>
             ))}
 
+          {/* Destaque do cabo selecionado: halo amarelo por baixo, o cabo mantém a cor e o estilo. */}
+          {selectedCable && visible[selectedCable.category] && (
+            <Polyline
+              positions={displayPath(selectedCable)}
+              interactive={false}
+              pathOptions={{ color: '#facc15', weight: selectedCable.width + 8, opacity: 0.45 }}
+            />
+          )}
           {cables
             .filter((c) => visible[c.category])
             .map((c) => (
@@ -850,9 +858,10 @@ export default function MapPage() {
                 key={c.id}
                 positions={displayPath(c)}
                 pathOptions={{
-                  color: selection?.kind === 'cable' && selection.id === c.id ? '#facc15' : c.color,
-                  weight: c.width + (selection?.kind === 'cable' && selection.id === c.id ? 2 : 0),
-                  dashArray: c.status === 'planned' ? '8 6' : undefined,
+                  color: c.color,
+                  weight: c.width,
+                  dashArray: lineDash(effectiveLineStyle(c), c.width),
+                  lineCap: 'round',
                   opacity: 0.95,
                 }}
                 eventHandlers={{
@@ -945,6 +954,22 @@ export default function MapPage() {
               );
             })}
 
+          {/* Pontos (vértices) de todos os cabos: fundo branco e borda na cor do cabo. */}
+          {zoom >= 16 &&
+            cables
+              .filter((c) => visible[c.category] && !(c.id === selectedCable?.id && tool === 'select' && !readOnly))
+              .flatMap((c) =>
+                displayPath(c).map((p, i) => (
+                  <CircleMarker
+                    key={`d${c.id}-${i}`}
+                    center={p}
+                    radius={Math.max(3, Math.min(6, c.width / 2 + 2))}
+                    interactive={false}
+                    pathOptions={{ color: c.color, weight: 2, fillColor: '#ffffff', fillOpacity: 1 }}
+                  />
+                )),
+              )}
+
           {selectedCable && tool === 'select' && !readOnly && visible[selectedCable.category] && (
             <>
               {selectedCable.path.map((p, i) => {
@@ -956,7 +981,7 @@ export default function MapPage() {
                   <Marker
                     key={`v${selectedCable.id}-${i}-${selectedCable.path.length}-${connecting ? 'c' : ''}`}
                     position={p}
-                    icon={connecting ? connectIcon : vertexIcon}
+                    icon={connecting ? connectIcon(selectedCable.color) : vertexIcon(selectedCable.color)}
                     draggable
                     zIndexOffset={1000}
                     eventHandlers={{
@@ -993,7 +1018,7 @@ export default function MapPage() {
                   <Marker
                     key={`m${selectedCable.id}-${i}-${selectedCable.path.length}`}
                     position={mid}
-                    icon={midpointIcon}
+                    icon={midpointIcon(selectedCable.color)}
                     draggable
                     zIndexOffset={900}
                     eventHandlers={{

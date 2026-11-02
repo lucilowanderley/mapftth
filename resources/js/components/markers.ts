@@ -37,25 +37,25 @@ export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: strin
   return icon;
 }
 
-/** Alça para arrastar vértices de um cabo (quadrado) ou inserir um novo (círculo). */
-export const vertexIcon = L.divIcon({
-  className: 'vertex-handle',
-  html: '<div style="width:12px;height:12px;background:#facc15;border:2px solid #0f172a;border-radius:2px"></div>',
-  iconSize: [12, 12],
-  iconAnchor: [6, 6],
-});
+const handles = new Map<string, L.DivIcon>();
 
-export const midpointIcon = L.divIcon({
-  className: 'vertex-handle',
-  html: '<div style="width:10px;height:10px;background:rgba(250,204,21,.45);border:2px solid #facc15;border-radius:50%"></div>',
-  iconSize: [10, 10],
-  iconAnchor: [5, 5],
-});
+function handle(key: string, size: number, html: string) {
+  let icon = handles.get(key);
+  if (!icon) {
+    icon = L.divIcon({ className: 'vertex-handle', html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+    handles.set(key, icon);
+  }
+  return icon;
+}
 
-/** Alça do modo "Conectar a caixa": pontos do cabo que podem ser soltos sobre um objeto. */
-export const connectIcon = L.divIcon({
-  className: 'vertex-handle',
-  html: '<div style="width:14px;height:14px;background:#fff;border:3px solid #10b981;border-radius:50%;box-shadow:0 0 0 2px rgba(15,23,42,.6)"></div>',
-  iconSize: [14, 14],
-  iconAnchor: [7, 7],
-});
+/** Alça de um vértice do cabo: fundo branco e borda na cor do cabo. */
+export const vertexIcon = (color: string) =>
+  handle(`v${color}`, 12, `<div style="width:12px;height:12px;background:#fff;border:3px solid ${color};border-radius:50%;box-shadow:0 0 0 1px rgba(15,23,42,.55)"></div>`);
+
+/** Alça para criar um vértice novo no meio de um trecho (menor e translúcida). */
+export const midpointIcon = (color: string) =>
+  handle(`m${color}`, 9, `<div style="width:9px;height:9px;background:rgba(255,255,255,.55);border:2px solid ${color};border-radius:50%"></div>`);
+
+/** Alça do modo "Conectar a caixa": maior, para soltar sobre um objeto. */
+export const connectIcon = (color: string) =>
+  handle(`c${color}`, 16, `<div style="width:16px;height:16px;background:#fff;border:4px solid ${color};border-radius:50%;box-shadow:0 0 0 2px rgba(15,23,42,.6)"></div>`);
