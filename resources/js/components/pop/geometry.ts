@@ -20,7 +20,7 @@ export type PopComp = Extract<DiagramComponent, { kind: 'olt' | 'dio' | 'active'
 export type RackComp = Extract<DiagramComponent, { kind: 'rack' }>;
 
 /** Medidas do card de rack: altura de cada U e largura da área útil (19"). */
-export const RACK = { RU: 16, NUM: 26, INNER: 210, POST: 10, HEADER: 40, FOOT: 22, PAD: 8 };
+export const RACK = { RU: 22, NUM: 26, INNER: 280, POST: 10, HEADER: 40, FOOT: 22, PAD: 8 };
 
 export function rackSize(r: RackComp): { w: number; h: number } {
   return {
@@ -105,4 +105,11 @@ export function textOn(hex: string): string {
   const g = parseInt(v.slice(2, 4), 16);
   const b = parseInt(v.slice(4, 6), 16);
   return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? '#0f172a' : '#ffffff';
+}
+
+/** Faixa (no canvas) que um equipamento recolhido ocupa dentro do rack: x, y, largura e altura. */
+export function rackStrip(r: RackComp, u: number, h: number): { x: number; y: number; w: number; h: number } {
+  const top = Math.min(r.units, u + h - 1);
+  const rows = Math.max(1, Math.min(h, top, r.units - u + 1));
+  return { x: r.x + RACK.PAD + RACK.NUM + RACK.POST + 1, y: r.y + rackUTop(r, top) + 1, w: RACK.INNER - 2, h: rows * RACK.RU - 2 };
 }

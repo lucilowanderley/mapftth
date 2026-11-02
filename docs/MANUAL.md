@@ -322,6 +322,7 @@ DIOs no meio, OLTs à direita).
 | --- | --- |
 | **OLT**, **DIO**, **Ativo** | Adicionam um equipamento ao canvas. |
 | **Rack** | Adiciona um rack de piso ou suspenso, com a altura em U. |
+| **Cadastro** | Abre o **Cadastro de equipamentos** (fabricante, modelo, portas e altura em U). |
 | Contadores | **Rack**, **OLT** e **DIO** (quantidade), **Portas** (portas do DIO com cordão / total) e **PON** (em uso / total). |
 | **Canvas 2D** / **Manobra** | Alterna entre o canvas com os cards e a tabela de manobra porta a porta. |
 | **Cordões** | Mostra ou esconde no canvas os cordões (patch) entre DIO, OLT e ativos. |
@@ -352,14 +353,40 @@ Há três jeitos de colocar um equipamento no rack:
 - No cabeçalho do rack, clique em **Instalar equipamento** (ícone de caixa com +) e escolha o equipamento.
 - Clique numa **U vazia** do rack para instalar um equipamento exatamente ali.
 
-Na janela de instalação você ajusta a **Posição** (a U de baixo) e a **Altura (U)**. A altura vem pronta pelo
-tamanho do equipamento (DIO de até 24 portas = 1U, 48 = 2U, 72 = 3U, 144 = 4U; OLT de 1 ou 2 slots = 1U ou 2U;
-switch = 1U) e pode ser trocada. O editor não deixa sobrepor dois equipamentos nem passar do topo do rack.
+Na janela de instalação você ajusta a **Posição** (a U de baixo) e a **Altura (U)**. A altura vem do modelo
+escolhido no cadastro (ou do campo **Altura (U)** do equipamento) e pode ser trocada. O editor não deixa sobrepor dois
+equipamentos nem passar do topo do rack.
 
-Clique num equipamento dentro do rack para mudar a posição ou **Retirar do rack**. O card do equipamento continua no
-canvas com as portas, e o rodapé dele mostra onde está instalado (por exemplo *Rack 1 · U40–41*). Se você diminuir o
-rack e algum equipamento deixar de caber, ele fica com borda vermelha até ser reposicionado. Excluir o rack não
-exclui os equipamentos: eles só ficam fora do rack. O rack também sai no **PNG** do POP.
+**Equipamento recolhido e expandido.** Todo equipamento instalado fica **recolhido** dentro do rack: ele aparece só
+como uma faixa na cor do tipo, com o nome, o modelo e os mesmos ícones do card (**Matriz de fusão**, **Vincular
+cabos**, **Patch**, **Posição no rack**, **Editar**, **Excluir**). Clique na faixa para **expandir**: o card completo,
+com as portas, abre ao lado do rack, na altura do equipamento, com uma borda laranja. Clique de novo na faixa (ou no
+ícone **Recolher** do card) para recolher. Só um equipamento fica expandido por vez. O rodapé do card mostra onde ele
+está (por exemplo *Rack 1 · U40–41*).
+
+**Cabo chegando no rack.** Quando o DIO está no rack, a linha do cabo vinculado chega primeiro na **lateral do
+rack**, na altura do DIO, e daí segue para a faixa do DIO. Com o DIO expandido, a linha continua da faixa até o card.
+Os cordões de um equipamento recolhido saem da ponta direita da faixa.
+
+Para tirar um equipamento do rack, use **Posição no rack** › **Retirar do rack**: ele volta a ser um card solto no
+canvas. Se você diminuir o rack e algum equipamento deixar de caber, a faixa fica com borda vermelha até ser
+reposicionada. Excluir o rack não exclui os equipamentos: eles só ficam fora do rack. O rack (com as faixas) também
+sai no **PNG** do POP.
+
+**Cadastro de equipamentos**
+
+Clique em **Cadastro** na barra do editor (ou no link **Cadastro de equipamentos** dentro das janelas de OLT, DIO e
+Ativo). Há três abas: **OLT**, **DIO** e **Ativos**. Cada uma lista os modelos **padrão** do sistema e os que você
+cadastrou. Para cadastrar, clique em **Cadastrar** e preencha:
+
+- **Fabricante** e **Modelo**;
+- **OLT**: **Slots**, **PON/slot**, **Uplinks** e **TX dBm**; **DIO**: **Portas**; **Ativo**: **Tipo** e **Portas**;
+- **Altura (U)**: quantas unidades de rack o equipamento ocupa.
+
+Ao criar uma OLT, um DIO ou um Ativo, escolha o modelo no campo **Modelo (fabricante)**: portas, slots e altura são
+preenchidos sozinhos (e ainda podem ser ajustados). O fabricante e o modelo aparecem no card e na faixa do rack.
+Seus modelos valem para todos os seus projetos; quem é da equipe de um projeto vê também os modelos do dono do
+projeto, mas só pode editar os próprios.
 
 **Adicionar o DIO**
 

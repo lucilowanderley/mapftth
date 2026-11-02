@@ -23,6 +23,10 @@ import {
   ImageDown,
   PackagePlus,
   Rows4,
+  BookOpen,
+  ChevronsUpDown,
+  Minimize2,
+  MoveVertical,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage } from '../../lib/api';
@@ -55,7 +59,8 @@ import {
 import type { Cable, Diagram, DiagramComponent, End, NetNode, Network, Status } from '../../lib/types';
 import { ActiveDialog, DioDialog, LinkDialog, MountDialog, OltDialog, RackDialog, useCableItems } from './dialogs';
 import FusionMatrix from './FusionMatrix';
-import { G, RACK, anySize, cardPorts, cardSize, portBox, rackSize, rackUTop, rowLabels, textOn, type PopComp } from './geometry';
+import { G, RACK, anySize, cardPorts, cardSize, portBox, rackSize, rackStrip, rackUTop, rowLabels, textOn, type PopComp } from './geometry';
+import EquipmentCatalog, { useEquipmentModels } from './EquipmentCatalog';
 import ManobraView from './ManobraView';
 
 type Olt = Extract<DiagramComponent, { kind: 'olt' }>;
@@ -68,6 +73,7 @@ type Dialog =
   | { t: 'active'; edit?: Active }
   | { t: 'rack'; edit?: Rack }
   | { t: 'mount'; rack: string; item?: string; u?: number }
+  | { t: 'catalog'; kind?: 'olt' | 'dio' | 'active'; back?: Dialog }
   | { t: 'linkDio'; dio: string }
   | { t: 'linkCable'; cable: string }
   | null;
@@ -145,6 +151,9 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   const [dialog, setDialog] = useState<Dialog>(null);
   const [matrixDio, setMatrixDio] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; error?: boolean } | null>(null);
+  /** Equipamento instalado em rack que está expandido (os demais ficam recolhidos na faixa do rack). */
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const catalog = useEquipmentModels(node.project_id);
   const history = useRef<Diagram[]>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ key?: string; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
@@ -181,8 +190,30 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   const racks = diagram.components.filter(isRack);
   const rackById = new Map(racks.map((r) => [r.id, r]));
   const conflicts = useMemo(() => rackConflicts(diagram), [diagram]);
-  /** Cards do canvas (equipamentos e racks), para enquadrar e exportar. */
-  const cards = [...comps, ...racks];
+  /** Rack onde o equipamento está instalado (só quando a posição é válida o bastante para desenhar). */
+  const mountedIn = (c: PopComp) => (c.rack && typeof c.u === 'number' ? rackById.get(c.rack) : undefined);
+  /** Faixa do equipamento no rack, no sistema do canvas. */
+  const stripOf = (c: PopComp) => {
+    const r = mountedIn(c);
+    return r ? rackStrip(r, c.u!, rackHeight(c)) : null;
+  };
+  /**
+   * Onde o card do equipamento aparece: fora do rack, na posição dele; no rack, só quando expandido,
+   * ao lado direito do rack e na altura da sua faixa. Recolhido = null.
+   */
+  const shownPos = (c: PopComp): { x: number; y: number } | null => {
+    const r = mountedIn(c);
+    if (!r) return { x: c.x, y: c.y };
+    if (expanded !== c.id) return null;
+    const st = stripOf(c)!;
+    return { x: r.x + rackSize(r).w + 60, y: Math.max(r.y, st.y - G.HEADER / 2) };
+  };
+  const shownComps = comps.flatMap((c) => {
+    const p = shownPos(c);
+    return p ? [{ ...c, ...p }] : [];
+  });
+  /** Cards do canvas (equipamentos visíveis e racks), para enquadrar e exportar. */
+  const cards = [...shownComps, ...racks];
   const usedEnds = useMemo(() => new Map(diagram.connections.flatMap((c) => [[endKey(c.a), c] as const, [endKey(c.b), c] as const])), [diagram.connections]);
 
   const dioPorts = dios.reduce((a, d) => a + d.ports, 0);
@@ -200,9 +231,15 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   const portCenter = (e: End) => {
     const c = compById.get(e.c);
     if (!c || !isPopComp(c)) return null;
+    const pos = shownPos(c);
+    if (!pos) {
+      // Recolhido no rack: o cordão chega na borda direita da faixa.
+      const st = stripOf(c)!;
+      return { x: st.x + st.w, y: st.y + st.h / 2 };
+    }
     const p = c.kind === 'dio' ? `b${e.p.slice(1)}` : e.p;
     const b = portBox(c, p);
-    return { x: c.x + b.x + G.PORT / 2, y: c.y + b.y + G.PORT / 2 };
+    return { x: pos.x + b.x + G.PORT / 2, y: pos.y + b.y + G.PORT / 2 };
   };
 
   const vflResult = useMemo(() => (vfl && vflStart ? vflTrace(diagram, vflStart) : null), [vfl, vflStart, diagram]);
@@ -526,9 +563,13 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         const p = cablePos(key);
         const sx = p.x + G.CABLE_W;
         const sy = p.y + G.HEADER / 2;
-        const by = dio.y + G.HEADER + G.CHIPS / 2;
-        const dx = Math.max(40, Math.abs(dio.x - sx) / 2);
-        parts.push(`<path d="M${sx},${sy} C${sx + dx},${sy} ${dio.x - dx},${by} ${dio.x},${by}" fill="none" stroke="${cable.color}" stroke-width="2.5"/>`);
+        // No rack: o cabo chega na borda do rack e segue até a faixa do DIO.
+        const rack = mountedIn(dio);
+        const st = stripOf(dio);
+        const tx = rack && st ? rack.x : dio.x;
+        const by = rack && st ? st.y + st.h / 2 : dio.y + G.HEADER + G.CHIPS / 2;
+        const dx = Math.max(40, Math.abs(tx - sx) / 2);
+        parts.push(`<path d="M${sx},${sy} C${sx + dx},${sy} ${tx - dx},${by} ${tx},${by}${st ? ` L${st.x},${by}` : ''}" fill="none" stroke="${cable.color}" stroke-width="2.5"/>`);
       }),
     );
     cables.forEach((c) => {
@@ -542,7 +583,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         `<text x="${p.x + 12}" y="${p.y + 74}" font-size="10" fill="#475569">${esc((incoming ? `de ${nodeName(c.from_node_id)}` : `para ${nodeName(c.to_node_id)}`).slice(0, 30))}</text>`,
       );
     });
-    comps.forEach((c) => {
+    comps.filter((c) => !mountedIn(c)).forEach((c) => {
       const { w: cw, h: ch } = cardSize(c);
       const tag = c.kind === 'olt' ? `${c.slots}×${c.ports}` : c.kind === 'dio' ? `${c.ports}P` : c.type;
       parts.push(
@@ -716,6 +757,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
           <Tool icon={<Box size={14} />} label="DIO" onClick={() => setDialog({ t: 'dio' })} disabled={readOnly} />
           <Tool icon={<NetIcon size={14} />} label="Ativo" onClick={() => setDialog({ t: 'active' })} disabled={readOnly} />
           <Tool icon={<Rows4 size={14} />} label="Rack" title="Rack de piso ou suspenso (ex.: 44U, 48U)" onClick={() => setDialog({ t: 'rack' })} disabled={readOnly} />
+          <Tool icon={<BookOpen size={14} />} label="Cadastro" title="Cadastro de equipamentos: fabricante, modelo, portas e altura em U" onClick={() => setDialog({ t: 'catalog' })} />
         </div>
         <div className="hidden md:flex items-center gap-3 pl-3 ml-1 border-l border-slate-700 text-[11px] font-medium uppercase tracking-wide text-slate-400">
           {racks.length > 0 && <span>Rack: {racks.length}</span>}
@@ -804,28 +846,54 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
             onWheel={onWheel}
           >
             <div className="absolute left-0 top-0 origin-top-left" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
-              {/* Ligações cabo → DIO */}
+              {/* Ligações cabo → DIO (passando pelo rack quando o DIO está instalado nele) */}
               <svg className="absolute left-0 top-0 overflow-visible pointer-events-none" width={1} height={1}>
                 {dios.flatMap((dio) =>
                   linkedCables(diagram, dio).map((key) => {
                     const cable = cableMap.get(key);
                     if (!cable) return null;
                     const p = cablePos(key);
-                    const ax = p.x + G.CABLE_W;
                     const ay = p.y + G.HEADER / 2;
-                    const toLeft = dio.x >= p.x + G.CABLE_W / 2;
-                    const bx = toLeft ? dio.x : dio.x + cardSize(dio).w;
-                    const by = dio.y + G.HEADER + G.CHIPS / 2;
-                    const sx = toLeft ? ax : p.x;
-                    const dx = Math.max(40, Math.abs(bx - sx) / 2);
-                    const d = `M${sx},${ay} C${sx + (toLeft ? dx : -dx)},${ay} ${bx + (toLeft ? -dx : dx)},${by} ${bx},${by}`;
                     const hot = vflResult?.exits.some((x) => x.cable === key);
+                    const color = hot ? VFL : cable.color;
+                    const curve = (sx: number, sy: number, bx: number, by: number, right: boolean) => {
+                      const dx = Math.max(40, Math.abs(bx - sx) / 2);
+                      return `M${sx},${sy} C${sx + (right ? dx : -dx)},${sy} ${bx + (right ? -dx : dx)},${by} ${bx},${by}`;
+                    };
+                    const rack = mountedIn(dio);
+                    const st = stripOf(dio);
+                    const segs: string[] = [];
+                    const dots: { x: number; y: number }[] = [];
+                    if (rack && st) {
+                      // Cabo → borda do rack → faixa do DIO; expandido, segue da faixa até o card.
+                      const right = rack.x >= p.x + G.CABLE_W / 2;
+                      const sx = right ? p.x + G.CABLE_W : p.x;
+                      const ex = right ? rack.x : rack.x + rackSize(rack).w;
+                      const sy = st.y + st.h / 2;
+                      segs.push(curve(sx, ay, ex, sy, right), `M${ex},${sy} L${right ? st.x : st.x + st.w},${sy}`);
+                      dots.push({ x: sx, y: ay }, { x: ex, y: sy });
+                      const pos = shownPos(dio);
+                      if (pos) {
+                        const by = pos.y + G.HEADER + G.CHIPS / 2;
+                        segs.push(curve(st.x + st.w, sy, pos.x, by, true));
+                        dots.push({ x: pos.x, y: by });
+                      }
+                    } else {
+                      const toLeft = dio.x >= p.x + G.CABLE_W / 2;
+                      const bx = toLeft ? dio.x : dio.x + cardSize(dio).w;
+                      const by = dio.y + G.HEADER + G.CHIPS / 2;
+                      const sx = toLeft ? p.x + G.CABLE_W : p.x;
+                      segs.push(curve(sx, ay, bx, by, toLeft));
+                      dots.push({ x: sx, y: ay }, { x: bx, y: by });
+                    }
+                    const d = segs.join(' ');
                     return (
                       <g key={`${dio.id}-${key}`}>
                         <path d={d} fill="none" stroke="#020617" strokeWidth={5} strokeOpacity={0.6} />
-                        <path d={d} fill="none" stroke={hot ? VFL : cable.color} strokeWidth={2.5} />
-                        <circle cx={sx} cy={ay} r={3.5} fill={cable.color} stroke="#020617" />
-                        <circle cx={bx} cy={by} r={3.5} fill={cable.color} stroke="#020617" />
+                        <path d={d} fill="none" stroke={color} strokeWidth={2.5} />
+                        {dots.map((o, i) => (
+                          <circle key={i} cx={o.x} cy={o.y} r={3.5} fill={cable.color} stroke="#020617" />
+                        ))}
                       </g>
                     );
                   }),
@@ -886,17 +954,38 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                   readOnly={readOnly}
                   onDrag={(e) => startDrag(e, r.id)}
                   onAdd={(u) => setDialog({ t: 'mount', rack: r.id, u })}
-                  onItem={(id) => setDialog({ t: 'mount', rack: r.id, item: id })}
                   onEdit={() => setDialog({ t: 'rack', edit: r })}
                   onDelete={() => deleteComponent(r)}
+                  expanded={expanded}
+                  hot={(id) => !!vflResult && [...vflResult.ends].some((k) => k.startsWith(`${id}:`))}
+                  inUse={(id) => [...usedEnds.keys()].some((k) => k.startsWith(`${id}:`))}
+                  item={{
+                    toggle: (id) => setExpanded((x) => (x === id ? null : id)),
+                    move: (id) => setDialog({ t: 'mount', rack: r.id, item: id }),
+                    matrix: (id) => setMatrixDio(id),
+                    link: (id) => setDialog({ t: 'linkDio', dio: id }),
+                    patch: (id) => {
+                      setManobraFocus(id);
+                      setMode('manobra');
+                    },
+                    edit: (id) => {
+                      const c = comps.find((x) => x.id === id);
+                      if (c) setDialog({ t: c.kind, edit: c } as Dialog);
+                    },
+                    remove: (id) => {
+                      const c = comps.find((x) => x.id === id);
+                      if (c) deleteComponent(c);
+                    },
+                  }}
                 />
               ))}
 
               {/* Equipamentos */}
-              {comps.map((c) => (
+              {shownComps.map((c) => (
                 <EquipmentCard
                   key={c.id}
                   comp={c}
+                  onCollapse={mountedIn(c) ? () => setExpanded(null) : undefined}
                   rack={c.rack ? rackById.get(c.rack) : undefined}
                   rackConflict={conflicts.has(c.id)}
                   diagram={diagram}
@@ -907,7 +996,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                   selConn={selConn}
                   lit={lit}
                   endLabel={endLabel}
-                  onDrag={(e) => startDrag(e, c.id)}
+                  onDrag={(e) => (mountedIn(c) ? e.stopPropagation() : startDrag(e, c.id))}
                   onPort={clickPort}
                   onMatrix={() => setMatrixDio(c.id)}
                   onLink={() => setDialog({ t: 'linkDio', dio: c.id })}
@@ -1062,6 +1151,8 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
           defaultTx={network.settings.olt_tx_dbm}
           count={olts.length}
           racks={racks}
+          models={catalog.models}
+          onCatalog={() => setDialog({ t: 'catalog', kind: 'olt', back: dialog })}
           onClose={() => setDialog(null)}
           onSubmit={(c) => (dialog.edit ? editComponent(c) : addComponent(c))}
         />
@@ -1071,6 +1162,8 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
           initial={dialog.edit}
           count={dios.length}
           racks={racks}
+          models={catalog.models}
+          onCatalog={() => setDialog({ t: 'catalog', kind: 'dio', back: dialog })}
           onClose={() => setDialog(null)}
           onSubmit={(c) => (dialog.edit ? editComponent(c) : addComponent({ ...c, cables: cables.length === 1 && !dios.length ? [`c${cables[0].id}`] : [] }))}
         />
@@ -1080,8 +1173,19 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
           initial={dialog.edit}
           count={comps.filter((c) => c.kind === 'active').length}
           racks={racks}
+          models={catalog.models}
+          onCatalog={() => setDialog({ t: 'catalog', kind: 'active', back: dialog })}
           onClose={() => setDialog(null)}
           onSubmit={(c) => (dialog.edit ? editComponent(c) : addComponent(c))}
+        />
+      )}
+      {dialog?.t === 'catalog' && (
+        <EquipmentCatalog
+          models={catalog.models}
+          initialKind={dialog.kind}
+          readOnly={readOnly}
+          onChanged={catalog.reload}
+          onClose={() => setDialog(dialog.back ?? null)}
         />
       )}
       {dialog?.t === 'rack' && (
@@ -1219,6 +1323,8 @@ function PowerLine({ power, onBudget }: { power: BudgetResult | null; onBudget: 
 
 interface CardProps {
   comp: PopComp;
+  /** Equipamento instalado em rack e expandido: botão para recolher (e sem arrastar). */
+  onCollapse?: () => void;
   rack?: Rack;
   rackConflict?: boolean;
   diagram: Diagram;
@@ -1239,30 +1345,35 @@ interface CardProps {
 }
 
 /** Card de OLT, DIO ou equipamento ativo em vista frontal. */
-function EquipmentCard({ comp: c, rack, rackConflict, diagram, cableMap, usedEnds, readOnly, pending, selConn, lit, endLabel, onDrag, onPort, onMatrix, onLink, onPatch, onEdit, onDelete }: CardProps) {
+function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cableMap, usedEnds, readOnly, pending, selConn, lit, endLabel, onDrag, onPort, onMatrix, onLink, onPatch, onEdit, onDelete }: CardProps) {
   const { w, h } = cardSize(c);
   const linked = c.kind === 'dio' ? linkedCables(diagram, c) : [];
   const fusedCount = c.kind === 'dio' ? Array.from({ length: c.ports }, (_, i) => usedEnds.has(`${c.id}:a${i + 1}`)).filter(Boolean).length : 0;
   const anyUsed = cardPorts(c).some((p) => usedEnds.has(`${c.id}:${p}`)) || fusedCount > 0;
   const icon = c.kind === 'olt' ? <Server size={15} className="text-violet-400" /> : c.kind === 'dio' ? <Box size={15} className="text-sky-400" /> : <NetIcon size={15} className="text-emerald-400" />;
-  const tag = c.kind === 'olt' ? `${c.slots}×${c.ports}` : c.kind === 'dio' ? `${c.ports}P` : c.type;
+  const tag = [c.modelName, c.kind === 'olt' ? `${c.slots}×${c.ports}` : c.kind === 'dio' ? `${c.ports}P` : c.type].filter(Boolean).join(' · ');
   const footLeft =
     c.kind === 'dio' ? `${trays(c.ports)} bandeja${trays(c.ports) > 1 ? 's' : ''}` : c.kind === 'olt' ? `${c.slots} slot${c.slots > 1 ? 's' : ''} · TX ${c.tx_dbm} dBm` : `${c.ports} portas`;
   const footRight = c.kind === 'dio' ? `${fusedCount}/${c.ports} fusões` : c.kind === 'olt' ? 'GPON' : 'ETH';
 
   return (
     <div
-      className="absolute rounded-lg border border-slate-800 bg-slate-900 shadow-xl"
+      className={`absolute rounded-lg border bg-slate-900 shadow-xl ${onCollapse ? 'border-amber-500/60 z-10' : 'border-slate-800'}`}
       style={{ left: c.x, top: c.y, width: w, height: h }}
       onPointerDown={(e) => e.stopPropagation()}
     >
       {/* Cabeçalho com as ferramentas do equipamento */}
-      <div className="absolute inset-x-0 top-0 flex items-center gap-2 px-2.5 border-b border-slate-800 cursor-move" style={{ height: G.HEADER }} onPointerDown={onDrag}>
+      <div className={`absolute inset-x-0 top-0 flex items-center gap-2 px-2.5 border-b border-slate-800 ${onCollapse ? '' : 'cursor-move'}`} style={{ height: G.HEADER }} onPointerDown={onDrag}>
         <span className={`w-2.5 h-2.5 rounded-full ${anyUsed ? 'bg-emerald-400' : 'bg-slate-600'}`} />
         {icon}
         <span className="text-sm font-semibold truncate">{c.name}</span>
         <span className="text-[10px] text-slate-500 shrink-0">{tag}</span>
         <div className="ml-auto flex items-center">
+          {onCollapse && (
+            <CardBtn title="Recolher no rack" onClick={onCollapse}>
+              <Minimize2 size={13} />
+            </CardBtn>
+          )}
           {c.kind === 'dio' && (
             <CardBtn title="Matriz de fusão" onClick={onMatrix}>
               <Grid3x3 size={14} />
@@ -1397,13 +1508,18 @@ interface RackCardProps {
   onDrag: (e: React.PointerEvent) => void;
   /** Instalar equipamento (u = U vazia clicada). */
   onAdd: (u?: number) => void;
-  onItem: (id: string) => void;
   onEdit: () => void;
   onDelete: () => void;
+  /** Equipamento expandido agora (os demais ficam recolhidos na faixa). */
+  expanded: string | null;
+  hot: (id: string) => boolean;
+  inUse: (id: string) => boolean;
+  /** Ações da faixa de cada equipamento instalado. */
+  item: Record<'toggle' | 'move' | 'matrix' | 'link' | 'patch' | 'edit' | 'remove', (id: string) => void>;
 }
 
 /** Rack em vista frontal: U numeradas (U1 embaixo) e os equipamentos instalados ocupando suas U. */
-function RackCard({ rack: r, diagram, conflicts, readOnly, onDrag, onAdd, onItem, onEdit, onDelete }: RackCardProps) {
+function RackCard({ rack: r, diagram, conflicts, readOnly, onDrag, onAdd, onEdit, onDelete, expanded, hot, inUse, item }: RackCardProps) {
   const { w, h } = rackSize(r);
   const items = rackItems(diagram, r.id);
   const used = rackUsed(diagram, r.id);
@@ -1469,33 +1585,72 @@ function RackCard({ rack: r, diagram, conflicts, readOnly, onDrag, onAdd, onItem
         );
       })}
 
-      {/* Equipamentos instalados */}
+      {/* Equipamentos instalados: faixa recolhida com as ferramentas do equipamento; clique expande o card */}
       {items.map((it) => {
-        const hh = rackHeight(it);
-        const y = rackUTop(r, Math.min(r.units, it.u! + hh - 1));
+        const st = rackStrip(r, it.u!, rackHeight(it));
         const col = KIND_COLOR[it.kind];
         const bad = conflicts.has(it.id);
-        const detail = it.kind === 'olt' ? `${it.slots}×${it.ports} PON` : it.kind === 'dio' ? `${it.ports}P` : it.type;
+        const open = expanded === it.id;
+        const lit = hot(it.id);
+        const fg = textOn(col);
+        const detail = [it.modelName, it.kind === 'olt' ? `${it.slots}×${it.ports} PON` : it.kind === 'dio' ? `${it.ports}P` : it.type].filter(Boolean).join(' · ');
         return (
-          <button
+          <div
             key={it.id}
-            title={`${it.name} · U${it.u}${hh > 1 ? `–${it.u! + hh - 1}` : ''} (${hh}U)${bad ? '\nPosição inválida: reposicione' : ''}`}
+            title={`${it.name} · U${it.u}${rackHeight(it) > 1 ? `–${it.u! + rackHeight(it) - 1}` : ''} (${rackHeight(it)}U)${bad ? '\nPosição inválida: reposicione' : ''}\nClique para ${open ? 'recolher' : 'expandir'}`}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => !readOnly && onItem(it.id)}
-            className="absolute flex items-center gap-1.5 rounded-[3px] px-2 text-left text-[10px] font-semibold overflow-hidden cursor-pointer hover:brightness-110"
+            onClick={() => item.toggle(it.id)}
+            className="absolute flex items-center gap-1 rounded-[3px] pl-1.5 pr-1 text-[10px] font-semibold overflow-hidden cursor-pointer hover:brightness-110"
             style={{
-              left: inner + 1,
-              top: y + 1,
-              width: RACK.INNER - 2,
-              height: Math.max(1, Math.min(hh, it.u! + hh - 1, r.units - it.u! + 1)) * RACK.RU - 2,
+              left: st.x - r.x,
+              top: st.y - r.y,
+              width: st.w,
+              height: st.h,
               background: `linear-gradient(180deg, ${col}, ${col}cc)`,
-              color: textOn(col),
-              outline: bad ? '2px solid #ef4444' : undefined,
+              color: fg,
+              outline: lit ? `2px solid ${VFL}` : bad ? '2px solid #ef4444' : open ? '2px solid #f59e0b' : undefined,
+              boxShadow: lit ? `0 0 10px ${VFL}` : undefined,
             }}
           >
+            <span className={`w-2 h-2 rounded-full shrink-0 border border-black/30 ${inUse(it.id) ? 'bg-emerald-300' : 'bg-slate-500'}`} />
             <span className="truncate">{it.name}</span>
-            <span className="ml-auto shrink-0 opacity-75 font-normal">{detail}</span>
-          </button>
+            <span className="truncate font-normal opacity-75 hidden sm:inline">{detail}</span>
+            <span className="ml-auto flex items-center">
+              {it.kind === 'dio' && (
+                <StripBtn title="Matriz de fusão" onClick={() => item.matrix(it.id)}>
+                  <Grid3x3 size={12} />
+                </StripBtn>
+              )}
+              {it.kind === 'dio' && !readOnly && (
+                <StripBtn title="Vincular cabos" onClick={() => item.link(it.id)}>
+                  <Link2 size={12} />
+                </StripBtn>
+              )}
+              {it.kind !== 'active' && (
+                <StripBtn title="Patch (manobra)" onClick={() => item.patch(it.id)}>
+                  <Plug size={12} />
+                </StripBtn>
+              )}
+              {!readOnly && (
+                <StripBtn title="Posição no rack" onClick={() => item.move(it.id)}>
+                  <MoveVertical size={12} />
+                </StripBtn>
+              )}
+              {!readOnly && (
+                <StripBtn title="Editar" onClick={() => item.edit(it.id)}>
+                  <Pencil size={11} />
+                </StripBtn>
+              )}
+              {!readOnly && (
+                <StripBtn title="Excluir" onClick={() => item.remove(it.id)}>
+                  <Trash2 size={11} />
+                </StripBtn>
+              )}
+              <StripBtn title={open ? 'Recolher' : 'Expandir'} onClick={() => item.toggle(it.id)}>
+                {open ? <Minimize2 size={12} /> : <ChevronsUpDown size={12} />}
+              </StripBtn>
+            </span>
+          </div>
         );
       })}
 
@@ -1509,5 +1664,22 @@ function RackCard({ rack: r, diagram, conflicts, readOnly, onDrag, onAdd, onItem
         </span>
       </div>
     </div>
+  );
+}
+
+/** Botão pequeno da faixa do equipamento no rack (não arrasta nem expande ao clicar). */
+function StripBtn({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      title={title}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className="w-[18px] h-[18px] rounded flex items-center justify-center cursor-pointer hover:bg-black/25 shrink-0"
+    >
+      {children}
+    </button>
   );
 }

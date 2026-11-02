@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Activity, Area, Cable, LatLng, Member, NetNode, Project, Role, Settings } from './types';
+import type { Activity, Area, Cable, EquipmentModel, LatLng, Member, NetNode, Project, Role, Settings } from './types';
 
 export const http = axios.create({
   headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
@@ -21,6 +21,11 @@ export function errorMessage(error: unknown): string {
 }
 
 export const api = {
+  equipmentModels: (projectId?: number) =>
+    http.get<EquipmentModel[]>('/api/equipment-models', { params: projectId ? { project: projectId } : {} }).then((r) => r.data),
+  createEquipmentModel: (data: Partial<EquipmentModel>) => http.post<EquipmentModel>('/api/equipment-models', data).then((r) => r.data),
+  updateEquipmentModel: (id: number, data: Partial<EquipmentModel>) => http.put<EquipmentModel>(`/api/equipment-models/${id}`, data).then((r) => r.data),
+  deleteEquipmentModel: (id: number) => http.delete(`/api/equipment-models/${id}`),
   projects: () => http.get<Project[]>('/api/projects').then((r) => r.data),
   createProject: (data: Partial<Project>) => http.post<Project>('/api/projects', data).then((r) => r.data),
   updateProject: (id: number, data: Partial<Project> & { settings?: Partial<Settings> }) =>

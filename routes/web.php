@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\ActivityController;
 use App\Http\Controllers\Api\AreaController;
 use App\Http\Controllers\Api\CableController;
+use App\Http\Controllers\Api\EquipmentModelController;
 use App\Http\Controllers\Api\KmzController;
 use App\Http\Controllers\Api\MemberController;
 use App\Http\Controllers\Api\NodeController;
@@ -47,5 +48,6 @@ Route::middleware('auth')->group(function () {
         Route::put('/projects/{project}/members/{member}', [MemberController::class, 'update']);
         Route::delete('/projects/{project}/members/{member}', [MemberController::class, 'destroy']);
         Route::get('/projects/{project}/activity', [ActivityController::class, 'index']);
+        Route::apiResource('equipment-models', EquipmentModelController::class)->except('show');
     });
 });
