@@ -528,6 +528,7 @@ export default function MapPage() {
     return <div className="h-full flex items-center justify-center text-slate-400">Carregando projeto...</div>;
   }
 
+  const overlayOpen = !!(diagramNode || modal || budget || history || report || otdr);
   const deployed = nodes.filter((n) => n.status === 'deployed' || n.status === 'certified').length;
   const pct = nodes.length ? Math.round((deployed / nodes.length) * 100) : 0;
   const hint =
@@ -919,66 +920,70 @@ export default function MapPage() {
           {ruler.length > 0 && <Polyline positions={cursor && tool === 'ruler' ? [...ruler, cursor] : ruler} pathOptions={{ color: '#f472b6', weight: 3 }} />}
         </MapContainer>
 
-        {/* Barra de ferramentas */}
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] panel flex p-1 gap-0.5">
-          {TOOLS.filter((t) => !readOnly || READ_TOOLS.includes(t.id)).map((t) => (
-            <button
-              key={t.id}
-              onClick={() => {
-                setTool(t.id);
-                setDraft(null);
-                setAreaDraft([]);
-                if (t.id !== 'ruler') setRuler([]);
-                if (t.id === 'viability') setSelection(null);
-              }}
-              className={`flex flex-col items-center gap-0.5 rounded-md px-2.5 py-1.5 text-[10px] uppercase tracking-wide cursor-pointer ${
-                tool === t.id ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800'
-              }`}
-              title={t.label}
-            >
-              {t.icon}
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Inserir objeto por coordenadas */}
-        {!readOnly && tool in NODE_TYPES && (
-          <form
-            className="absolute top-20 left-1/2 -translate-x-1/2 z-[1000] panel flex items-end gap-2 p-2 text-xs"
-            onSubmit={(e) => {
-              e.preventDefault();
-              addNodeAtCoords();
-            }}
-          >
-            <div className="text-slate-300 self-center flex items-center gap-1 pr-1">
-              <Crosshair size={14} /> {NODE_TYPES[tool as NodeType].label} por coordenadas
-            </div>
-            <label className="flex flex-col gap-0.5 text-slate-400">
-              Latitude
-              <input
-                className="input !py-1 !w-32"
-                placeholder="-8.047600"
-                value={placeLat}
-                onChange={(e) => {
-                  // Colar "lat, lng" (Google Maps) no 1º campo preenche os dois.
-                  const pair = parsePair(e.target.value);
-                  if (pair) {
-                    setPlaceLat(formatCoord(pair[0]));
-                    setPlaceLng(formatCoord(pair[1]));
-                  } else setPlaceLat(e.target.value);
+        {/* Barra de ferramentas, com o aviso e o painel de coordenadas empilhados logo abaixo dela */}
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex flex-col items-center gap-1.5 pointer-events-none max-w-[calc(100%-1.5rem)]">
+          <div className="panel flex p-1 gap-0.5 pointer-events-auto">
+            {TOOLS.filter((t) => !readOnly || READ_TOOLS.includes(t.id)).map((t) => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  setTool(t.id);
+                  setDraft(null);
+                  setAreaDraft([]);
+                  if (t.id !== 'ruler') setRuler([]);
+                  if (t.id === 'viability') setSelection(null);
                 }}
-              />
-            </label>
-            <label className="flex flex-col gap-0.5 text-slate-400">
-              Longitude
-              <input className="input !py-1 !w-32" placeholder="-34.877000" value={placeLng} onChange={(e) => setPlaceLng(e.target.value)} />
-            </label>
-            <button type="submit" className="btn-primary !py-1.5 text-xs">
-              Adicionar
-            </button>
-          </form>
-        )}
+                className={`flex flex-col items-center gap-0.5 rounded-md px-2.5 py-1.5 text-[10px] uppercase tracking-wide cursor-pointer ${
+                  tool === t.id ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800'
+                }`}
+                title={t.label}
+              >
+                {t.icon}
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {toast && !overlayOpen && <Toast inline message={toast.message} kind={toast.kind} onClose={() => setToast(null)} />}
+
+          {/* Inserir objeto por coordenadas */}
+          {!readOnly && tool in NODE_TYPES && (
+            <form
+              className="panel flex items-end gap-2 p-2 text-xs pointer-events-auto"
+              onSubmit={(e) => {
+                e.preventDefault();
+                addNodeAtCoords();
+              }}
+            >
+              <div className="text-slate-300 self-center flex items-center gap-1 pr-1">
+                <Crosshair size={14} /> {NODE_TYPES[tool as NodeType].label} por coordenadas
+              </div>
+              <label className="flex flex-col gap-0.5 text-slate-400">
+                Latitude
+                <input
+                  className="input !py-1 !w-32"
+                  placeholder="-8.047600"
+                  value={placeLat}
+                  onChange={(e) => {
+                    // Colar "lat, lng" (Google Maps) no 1º campo preenche os dois.
+                    const pair = parsePair(e.target.value);
+                    if (pair) {
+                      setPlaceLat(formatCoord(pair[0]));
+                      setPlaceLng(formatCoord(pair[1]));
+                    } else setPlaceLat(e.target.value);
+                  }}
+                />
+              </label>
+              <label className="flex flex-col gap-0.5 text-slate-400">
+                Longitude
+                <input className="input !py-1 !w-32" placeholder="-34.877000" value={placeLng} onChange={(e) => setPlaceLng(e.target.value)} />
+              </label>
+              <button type="submit" className="btn-primary !py-1.5 text-xs">
+                Adicionar
+              </button>
+            </form>
+          )}
+        </div>
 
         {/* Dica e ações do desenho */}
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2">
@@ -1246,7 +1251,8 @@ export default function MapPage() {
           }}
         />
       )}
-      {toast && <Toast message={toast.message} kind={toast.kind} onClose={() => setToast(null)} />}
+      {/* Com uma janela aberta por cima do mapa, o aviso fica fixo no topo para não ficar escondido. */}
+      {toast && overlayOpen && <Toast message={toast.message} kind={toast.kind} onClose={() => setToast(null)} />}
     </div>
   );
 }
