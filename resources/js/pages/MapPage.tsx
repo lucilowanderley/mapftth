@@ -46,6 +46,7 @@ import type { Activity as ActivityItem, Area, Cable, CableCategory, CondoKind, L
 import { viability } from '../lib/analysis';
 import { LAYERS, MAP_ENGINES, MAP_STYLES, availableEngines, googleTileUrl, loadEngine, loadStyle, saveEngine, saveStyle, type MapEngine, type MapStyle } from '../lib/basemaps';
 import { appConfig } from '../lib/user';
+import { AutoResize, RememberView, TILE_OPTIONS, loadView } from '../lib/mapview';
 import { connectIcon, midpointIcon, nodeIcon, slackIcon, vertexIcon } from '../components/markers';
 import { ALONG_TOLERANCE_M, nearestOnPath, planBoxesAlong, pointOnPath, type AlongPlan } from '../lib/connect';
 import { formatCoord, parseLatLng, parsePair } from '../lib/coords';
@@ -249,6 +250,8 @@ export default function MapPage() {
     return p;
   };
   const mapRef = useRef<L.Map | null>(null);
+  /** Último enquadramento salvo deste projeto (lido uma vez, ao abrir). */
+  const initialView = useMemo(() => loadView(projectId), [projectId]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = () =>
@@ -873,13 +876,15 @@ export default function MapPage() {
       {/* Mapa */}
       <div className="relative flex-1 min-w-0">
         <MapContainer
-          center={[project.center_lat, project.center_lng]}
-          zoom={project.zoom}
+          center={initialView ? [initialView.lat, initialView.lng] : [project.center_lat, project.center_lng]}
+          zoom={initialView?.zoom ?? project.zoom}
           maxZoom={21}
           className="h-full w-full"
           doubleClickZoom={false}
           ref={mapRef}
         >
+          <AutoResize />
+          <RememberView projectId={projectId} />
           <BaseTiles
             engine={engine}
             mapStyle={mapStyle}
@@ -1801,7 +1806,7 @@ function BaseTiles({ engine, mapStyle, onError }: { engine: MapEngine; mapStyle:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine, mapStyle]);
   if (!url) return null;
-  return <TileLayer key={url} url={url} attribution={layer.attribution} maxZoom={21} maxNativeZoom={layer.maxNativeZoom} />;
+  return <TileLayer key={url} url={url} attribution={layer.attribution} maxZoom={21} maxNativeZoom={layer.maxNativeZoom} {...TILE_OPTIONS} />;
 }
 
 function MapEvents({
