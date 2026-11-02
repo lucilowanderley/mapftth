@@ -181,7 +181,7 @@ export function buildReport(net: Network, polygon?: LatLng[]): Report {
       const comp = comps.get(e.c);
       return comp?.kind === 'olt' || (comp?.kind === 'dio' && e.p.startsWith('b'));
     };
-    report.fusions += (n.diagram?.connections ?? []).filter((k) => !isPatch(k.a) && !isPatch(k.b)).length;
+    report.fusions += (n.diagram?.connections ?? []).filter((k) => !k.pass && !isPatch(k.a) && !isPatch(k.b)).length;
     if (n.type === 'cto') {
       const u = portUsage(n);
       report.ports.total += u.total;

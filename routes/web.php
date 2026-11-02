@@ -36,6 +36,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/projects/{project}/cables', [CableController::class, 'store']);
         Route::put('/cables/{cable}', [CableController::class, 'update']);
         Route::delete('/cables/{cable}', [CableController::class, 'destroy']);
+        Route::post('/cables/{cable}/split', [CableController::class, 'split']);
         Route::post('/projects/{project}/import', [KmzController::class, 'import']);
         Route::get('/projects/{project}/export', [KmzController::class, 'export']);
         Route::post('/projects/{project}/areas', [AreaController::class, 'store']);

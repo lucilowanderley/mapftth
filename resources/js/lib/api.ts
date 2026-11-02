@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Activity, Area, Cable, Member, NetNode, Project, Role, Settings } from './types';
+import type { Activity, Area, Cable, LatLng, Member, NetNode, Project, Role, Settings } from './types';
 
 export const http = axios.create({
   headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
@@ -41,6 +41,9 @@ export const api = {
     http.post<Cable>(`/api/projects/${projectId}/cables`, data).then((r) => r.data),
   updateCable: (id: number, data: Partial<Cable>) =>
     http.put<{ cable: Cable; nodes: NetNode[] }>(`/api/cables/${id}`, data).then((r) => r.data),
+  /** Sangria: divide o cabo nas caixas dos vértices indicados. */
+  splitCable: (id: number, path: LatLng[], cuts: { index: number; node_id: number }[]) =>
+    http.post<{ cables: Cable[]; nodes: NetNode[] }>(`/api/cables/${id}/split`, { path, cuts }).then((r) => r.data),
   deleteCable: (id: number) => http.delete<{ nodes: NetNode[] }>(`/api/cables/${id}`).then((r) => r.data),
 
   importKmz: (projectId: number, file: File) => {

@@ -151,6 +151,63 @@ class NetworkApiTest extends TestCase
         $this->assertSame('x2', $connections[0]['id']);
     }
 
+    public function test_split_cable_at_boxes_creates_segments_with_pass_through(): void
+    {
+        $user = User::factory()->create();
+        $project = $this->project($user);
+        $pop = $project->nodes()->create(['type' => 'pop', 'name' => 'POP', 'lat' => 0, 'lng' => 0]);
+        $cto1 = $project->nodes()->create(['type' => 'cto', 'name' => 'CTO-1', 'lat' => 0, 'lng' => 0.001]);
+        $cto2 = $project->nodes()->create(['type' => 'cto', 'name' => 'CTO-2', 'lat' => 0, 'lng' => 0.002]);
+        $end = $project->nodes()->create(['type' => 'ceo', 'name' => 'CEO', 'lat' => 0, 'lng' => 0.003]);
+        $cable = $project->cables()->create([
+            'name' => 'Lance', 'fiber_count' => 4, 'slack_m' => 20,
+            'path' => [[0, 0], [0.0001, 0.003]], 'from_node_id' => $pop->id, 'to_node_id' => $end->id,
+        ]);
+        $end->update(['diagram' => ['components' => [], 'cablePos' => ["c{$cable->id}" => ['x' => 5, 'y' => 5]], 'connections' => [
+            ['id' => 'x1', 'a' => ['c' => "c{$cable->id}", 'p' => 'f1'], 'b' => ['c' => 'c999', 'p' => 'f1']],
+        ]]]);
+
+        $r = $this->actingAs($user)->postJson("/api/cables/{$cable->id}/split", [
+            'path' => [[0, 0], [0.00002, 0.00099], [0.00001, 0.00201], [0.0001, 0.003]],
+            'cuts' => [['index' => 2, 'node_id' => $cto2->id], ['index' => 1, 'node_id' => $cto1->id]],
+        ])->assertOk()->assertJsonCount(3, 'cables');
+
+        [$a, $b, $c] = $r->json('cables');
+        $this->assertSame($cable->id, $a['id']);
+        $this->assertSame('Lance · T1', $a['name']);
+        $this->assertSame(['Lance · T2', 'Lance · T3'], [$b['name'], $c['name']]);
+        $this->assertSame([$pop->id, $cto1->id], [$a['from_node_id'], $a['to_node_id']]);
+        $this->assertSame([$cto1->id, $cto2->id], [$b['from_node_id'], $b['to_node_id']]);
+        $this->assertSame([$cto2->id, $end->id], [$c['from_node_id'], $c['to_node_id']]);
+        $this->assertEquals([0, 0.001], $a['path'][1]);
+        $this->assertEquals([0, 0.003], $c['path'][1]);
+        $this->assertSame(20, $a['slack_m']);
+        $this->assertSame(0, $b['slack_m']);
+
+        $conns = $cto1->fresh()->diagram['connections'];
+        $this->assertCount(4, $conns);
+        $this->assertTrue($conns[0]['pass']);
+        $this->assertSame(["c{$a['id']}", "c{$b['id']}"], [$conns[0]['a']['c'], $conns[0]['b']['c']]);
+
+        // A caixa do fim agora enxerga o último trecho.
+        $diagram = $end->fresh()->diagram;
+        $this->assertSame("c{$c['id']}", $diagram['connections'][0]['a']['c']);
+        $this->assertArrayHasKey("c{$c['id']}", $diagram['cablePos']);
+    }
+
+    public function test_split_rejects_box_already_on_the_cable(): void
+    {
+        $user = User::factory()->create();
+        $project = $this->project($user);
+        $cto = $project->nodes()->create(['type' => 'cto', 'name' => 'CTO', 'lat' => 0, 'lng' => 0]);
+        $cable = $project->cables()->create(['name' => 'C', 'path' => [[0, 0], [0, 0.002]], 'from_node_id' => $cto->id]);
+
+        $this->actingAs($user)->postJson("/api/cables/{$cable->id}/split", [
+            'path' => [[0, 0], [0, 0.001], [0, 0.002]],
+            'cuts' => [['index' => 1, 'node_id' => $cto->id]],
+        ])->assertUnprocessable();
+    }
+
     public function test_reducing_fiber_count_prunes_extra_fibers(): void
     {
         $user = User::factory()->create();

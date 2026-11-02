@@ -50,6 +50,8 @@ export interface Connection {
   id: string;
   a: End;
   b: End;
+  /** Passagem direta da fibra pela caixa (sangria): não é fusão e não soma perda. */
+  pass?: boolean;
 }
 
 export interface Diagram {

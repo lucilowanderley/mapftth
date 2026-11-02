@@ -51,3 +51,11 @@ export const midpointIcon = L.divIcon({
   iconSize: [10, 10],
   iconAnchor: [5, 5],
 });
+
+/** Alça do modo "Conectar a caixa": pontos do cabo que podem ser soltos sobre um objeto. */
+export const connectIcon = L.divIcon({
+  className: 'vertex-handle',
+  html: '<div style="width:14px;height:14px;background:#fff;border:3px solid #10b981;border-radius:50%;box-shadow:0 0 0 2px rgba(15,23,42,.6)"></div>',
+  iconSize: [14, 14],
+  iconAnchor: [7, 7],
+});

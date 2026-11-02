@@ -176,7 +176,7 @@ export function traceUpstream(net: Network, nodeId: number, start: End): BudgetR
     if (!link) {
       return fail(`Porta sem conexão em ${nextNode.name}.`);
     }
-    if (!isPatch(nextNode, idx, nextEnd) && !isPatch(nextNode, idx, link.other)) {
+    if (!link.conn.pass && !isPatch(nextNode, idx, nextEnd) && !isPatch(nextNode, idx, link.other)) {
       steps.push({ kind: 'fusion', label: 'F', detail: `Fusão em ${nextNode.name}`, loss: round(s.fusion_loss_db), nodeId: nextNode.id });
     }
     node = nextNode;
