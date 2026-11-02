@@ -108,7 +108,8 @@ export interface RackLocation {
 /** Componente dentro do diagrama de uma caixa ou POP. */
 export type DiagramComponent =
   /** dio: no POP, o splitter fica dentro da matriz de fusão desse DIO. */
-  | { id: string; kind: 'splitter'; model: string; name?: string; dio?: string; x: number; y: number }
+  /** rot: rotação em graus (0, 90, 180, 270), pelo botão Girar do diagrama da CTO. */
+  | { id: string; kind: 'splitter'; model: string; name?: string; dio?: string; rot?: number; x: number; y: number }
   /** Portas PON "p1..pN" (slot a slot) e uplinks "u1..uN". */
   | ({ id: string; kind: 'olt'; name: string; model: string; slots: number; ports: number; uplinks?: number; tx_dbm: number; x: number; y: number } & RackMount & ModelRef)
   /** Lado "a" = fusão com o cabo; lado "b" = conector frontal (patch). cables = cabos vinculados ("c12"). */
@@ -130,6 +131,10 @@ export interface Connection {
   b: End;
   /** Passagem direta da fibra pela caixa (sangria): não é fusão e não soma perda. */
   pass?: boolean;
+  /** Tipo de emenda no diagrama da CTO/CEO: fusão (padrão) ou conector/acoplador (soma a perda de conector). */
+  joint?: 'fusion' | 'connector';
+  /** Posição x da pista vertical da fibra no diagrama (ajuste manual do traçado em 90°). */
+  lane?: number;
 }
 
 export interface Diagram {
