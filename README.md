@@ -86,6 +86,8 @@ Para alterar o frontend: `npm install` e `npm run dev` (recarrega ao salvar) ou 
 
 4. Edite o `.env`: `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://seu-dominio.com.br` e os dados
    `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` do banco criado.
+   Opcional: `GOOGLE_MAPS_KEY` com uma chave da Google Map Tiles API para liberar os mapas do Google
+   (veja "Mapa base" no `docs/MANUAL.md`).
 5. Rode:
 
    ```bash

@@ -34,7 +34,8 @@ import { CABLE_CATEGORIES, CABLE_MODELS, NODE_TYPES } from '../lib/catalog';
 import { distance, pathLength } from '../lib/geo';
 import type { Activity as ActivityItem, Area, Cable, CableCategory, LatLng, NetNode, NodeType, Project, Role, Settings } from '../lib/types';
 import { viability } from '../lib/analysis';
-import { BASE_LAYERS, type BaseLayerId } from '../lib/basemaps';
+import { BASE_LAYERS, availableLayers, googleTileUrl, loadBase, saveBase, type BaseLayer, type BaseLayerId } from '../lib/basemaps';
+import { appConfig } from '../lib/user';
 import { midpointIcon, nodeIcon, vertexIcon } from '../components/markers';
 import { formatCoord, parseLatLng, parsePair } from '../lib/coords';
 import { movePath, roundLatLng } from '../lib/move';
@@ -112,7 +113,13 @@ export default function MapPage() {
   } | null>(null);
   const [ruler, setRuler] = useState<LatLng[]>([]);
   const [cursor, setCursor] = useState<LatLng | null>(null);
-  const [base, setBase] = useState<BaseLayerId>('satellite');
+  const baseOptions = useMemo(() => availableLayers(!!appConfig.googleMapsKey), []);
+  // Lembra o último mapa base escolhido neste navegador.
+  const [base, setBaseState] = useState<BaseLayerId>(() => loadBase(baseOptions));
+  const setBase = (id: BaseLayerId) => {
+    setBaseState(id);
+    saveBase(id);
+  };
   const [visible, setVisible] = useState<Record<string, boolean>>({
     cto: true,
     ceo: true,
@@ -141,6 +148,23 @@ export default function MapPage() {
   const [drag, setDrag] = useState<{ id: number; from: LatLng; at: LatLng } | null>(null);
   /** Vértice de cabo sendo arrastado; insert = novo vértice criado a partir do ponto médio. */
   const [vertexDrag, setVertexDrag] = useState<{ cableId: number; index: number; at: LatLng; insert: boolean } | null>(null);
+  /** Objeto solto numa nova posição, aguardando confirmação. */
+  const [pendingMove, setPendingMove] = useState<{ node: NetNode; at: LatLng; marker: L.Marker } | null>(null);
+  const [confirmMoves, setConfirmMovesState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('mapftth.confirmMove') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const setConfirmMoves = (v: boolean) => {
+    setConfirmMovesState(v);
+    try {
+      localStorage.setItem('mapftth.confirmMove', v ? '1' : '0');
+    } catch {
+      // ignora
+    }
+  };
   const [lastMove, setLastMove] = useState<{ id: number; from: LatLng; name: string } | null>(null);
   const [placeLat, setPlaceLat] = useState('');
   const [placeLng, setPlaceLng] = useState('');
@@ -184,6 +208,11 @@ export default function MapPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest('input,textarea,select')) return;
+      if (pendingMove) {
+        if (e.key === 'Enter') confirmPendingMove();
+        if (e.key === 'Escape') cancelPendingMove();
+        return;
+      }
       if (e.key === 'Escape') {
         setDraft(null);
         setRuler([]);
@@ -286,6 +315,21 @@ export default function MapPage() {
       notify(errorMessage(e), 'error');
       load();
     }
+  }
+
+  function confirmPendingMove() {
+    if (!pendingMove) return;
+    moveNode(pendingMove.node, pendingMove.at);
+    setPendingMove(null);
+    setDrag(null);
+  }
+
+  /** Cancelar devolve o marcador (e os cabos) à posição original. */
+  function cancelPendingMove() {
+    if (!pendingMove) return;
+    pendingMove.marker.setLatLng([pendingMove.node.lat, pendingMove.node.lng]);
+    setPendingMove(null);
+    setDrag(null);
   }
 
   function undoMove() {
@@ -592,7 +636,13 @@ export default function MapPage() {
           doubleClickZoom={false}
           ref={mapRef}
         >
-          <TileLayer key={base} url={BASE_LAYERS[base].url} attribution={BASE_LAYERS[base].attribution} maxZoom={21} maxNativeZoom={BASE_LAYERS[base].maxNativeZoom} />
+          <BaseTiles
+            id={base}
+            onError={(m) => {
+              notify(m, 'error');
+              setBase('satellite');
+            }}
+          />
           <MapEvents
             onClick={(at) => {
               if (tool === 'select') setSelection(null);
@@ -678,15 +728,25 @@ export default function MapPage() {
                       nodeClicked(n);
                       if (tool === 'select' && isDoubleClick(`n${n.id}`)) openEditor(n);
                     },
-                    dragstart: () => setDrag({ id: n.id, from: [n.lat, n.lng], at: [n.lat, n.lng] }),
+                    dragstart: () => {
+                      cancelPendingMove();
+                      setDrag({ id: n.id, from: [n.lat, n.lng], at: [n.lat, n.lng] });
+                    },
                     drag: (e) => {
                       const ll = (e.target as L.Marker).getLatLng();
                       setDrag({ id: n.id, from: [n.lat, n.lng], at: [ll.lat, ll.lng] });
                     },
                     dragend: (e) => {
-                      const ll = (e.target as L.Marker).getLatLng();
-                      setDrag(null);
-                      moveNode(n, [ll.lat, ll.lng]);
+                      const marker = e.target as L.Marker;
+                      const ll = marker.getLatLng();
+                      if (confirmMoves) {
+                        // Mantém a prévia (marcador e cabos na nova posição) até o usuário confirmar.
+                        setDrag({ id: n.id, from: [n.lat, n.lng], at: [ll.lat, ll.lng] });
+                        setPendingMove({ node: n, at: [ll.lat, ll.lng], marker });
+                      } else {
+                        setDrag(null);
+                        moveNode(n, [ll.lat, ll.lng]);
+                      }
                     },
                   }}
                 >
@@ -916,13 +976,28 @@ export default function MapPage() {
 
         {/* Dica e ações do desenho */}
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2">
-          <div className="panel px-3 py-1.5 text-xs text-slate-300">{hint}</div>
+          {pendingMove ? (
+            <div className="panel px-3 py-1.5 text-xs text-slate-200 flex items-center gap-2 !border-yellow-500">
+              <span>
+                Mover <b>{pendingMove.node.name}</b> {formatLength(distance([pendingMove.node.lat, pendingMove.node.lng], pendingMove.at))} para{' '}
+                {formatCoord(roundLatLng(pendingMove.at)[0])}, {formatCoord(roundLatLng(pendingMove.at)[1])}?
+              </span>
+              <button className="btn-primary !py-1 text-xs" onClick={confirmPendingMove} title="Enter">
+                Confirmar
+              </button>
+              <button className="btn-ghost !py-1 text-xs" onClick={cancelPendingMove} title="Esc">
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <div className="panel px-3 py-1.5 text-xs text-slate-300">{hint}</div>
+          )}
           {areaDraft.length >= 3 && (
             <button className="btn-primary !py-1.5 text-xs" onClick={() => finishArea()}>
               Finalizar área
             </button>
           )}
-          {lastMove && !readOnly && (
+          {lastMove && !readOnly && !pendingMove && (
             <button className="btn-ghost !py-1.5 text-xs" onClick={undoMove} title="Ctrl+Z">
               Desfazer movimento
             </button>
@@ -945,17 +1020,20 @@ export default function MapPage() {
             <div className="label flex items-center gap-1">
               <Layers size={12} /> Mapa base
             </div>
-            <div className="flex gap-1">
-              {(Object.keys(BASE_LAYERS) as BaseLayerId[]).map((k) => (
-                <button
-                  key={k}
-                  onClick={() => setBase(k)}
-                  className={`flex-1 rounded px-1 py-1 text-xs cursor-pointer ${base === k ? 'bg-emerald-600' : 'bg-slate-800 hover:bg-slate-700'}`}
-                >
-                  {BASE_LAYERS[k].label}
-                </button>
-              ))}
-            </div>
+            <select className="input !py-1 text-xs" value={base} onChange={(e) => setBase(e.target.value as BaseLayerId)} aria-label="Mapa base">
+              {(['Esri', 'OpenStreetMap', 'Google'] as const).map((g) => {
+                const ids = baseOptions.filter((k) => BASE_LAYERS[k].group === g);
+                return ids.length ? (
+                  <optgroup key={g} label={g}>
+                    {ids.map((k) => (
+                      <option key={k} value={k}>
+                        {BASE_LAYERS[k].label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null;
+              })}
+            </select>
           </div>
           <div>
             <div className="label">Elementos</div>
@@ -973,6 +1051,7 @@ export default function MapPage() {
             ))}
             <Toggle label="Áreas" color="#a855f7" on={visible.areas ?? true} onChange={(v) => setVisible({ ...visible, areas: v })} />
             <Toggle label="Rótulos" on={labels} onChange={setLabels} />
+            {!readOnly && <Toggle label="Confirmar ao mover" on={confirmMoves} onChange={setConfirmMoves} />}
           </div>
         </div>
 
@@ -1159,6 +1238,34 @@ export default function MapPage() {
       )}
       {toast && <Toast message={toast.message} kind={toast.kind} onClose={() => setToast(null)} />}
     </div>
+  );
+}
+
+/** Mapa base escolhido, com camadas extras (híbrido) e sessão do Google quando necessário. */
+function BaseTiles({ id, onError }: { id: BaseLayerId; onError: (message: string) => void }) {
+  const layer: BaseLayer = BASE_LAYERS[id];
+  const [url, setUrl] = useState(layer.google ? '' : layer.url);
+  useEffect(() => {
+    if (!layer.google) {
+      setUrl(layer.url);
+      return;
+    }
+    let alive = true;
+    setUrl('');
+    googleTileUrl(layer, appConfig.googleMapsKey ?? '')
+      .then((u) => alive && setUrl(u))
+      .catch((e: Error) => alive && onError(e.message));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+  if (!url) return null;
+  return (
+    <>
+      <TileLayer key={`${id}-${url}`} url={url} attribution={layer.attribution} maxZoom={21} maxNativeZoom={layer.maxNativeZoom} zIndex={1} />
+      {layer.overlays?.map((o) => <TileLayer key={`${id}-${o}`} url={o} maxZoom={21} maxNativeZoom={layer.maxNativeZoom} zIndex={2} />)}
+    </>
   );
 }
 
