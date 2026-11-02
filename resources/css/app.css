@@ -33,7 +33,14 @@
     background: #0f172a;
     font-family: inherit;
 }
-.node-marker {
+.node-marker,
+.vertex-handle {
     background: transparent;
     border: none;
+}
+.leaflet-marker-draggable.node-marker {
+    cursor: move;
+}
+.vertex-handle {
+    cursor: grab;
 }

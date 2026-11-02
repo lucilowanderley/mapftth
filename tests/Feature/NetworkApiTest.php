@@ -105,6 +105,29 @@ class NetworkApiTest extends TestCase
         $this->assertSame([-2.44, -54.71], $cable->fresh()->path[0]);
     }
 
+    public function test_moving_a_pole_moves_cables_routed_through_it(): void
+    {
+        $user = User::factory()->create();
+        $project = $this->project($user);
+        $pole = $project->nodes()->create(['type' => 'pole', 'name' => 'P-1', 'lat' => -2.4405, 'lng' => -54.7105]);
+        $cable = $project->cables()->create([
+            'name' => 'C1', 'path' => [[-2.44, -54.71], [-2.4405, -54.7105], [-2.441, -54.71]],
+        ]);
+        $other = $project->cables()->create([
+            'name' => 'C2', 'path' => [[-2.43, -54.70], [-2.431, -54.701]],
+        ]);
+        $before = $cable->length_m;
+
+        $this->actingAs($user)
+            ->putJson("/api/nodes/{$pole->id}", ['lat' => -2.4406, 'lng' => -54.7107])
+            ->assertOk()
+            ->assertJsonCount(1, 'cables')
+            ->assertJsonPath('cables.0.path.1', [-2.4406, -54.7107]);
+
+        $this->assertNotEquals($before, $cable->fresh()->length_m);
+        $this->assertSame([-2.43, -54.70], $other->fresh()->path[0]);
+    }
+
     public function test_deleting_a_cable_removes_its_fusions(): void
     {
         $user = User::factory()->create();

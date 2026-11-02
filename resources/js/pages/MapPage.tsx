@@ -12,6 +12,7 @@ import {
   Download,
   Hexagon,
   Home,
+  Crosshair,
   Layers,
   MousePointer2,
   Ruler,
@@ -34,7 +35,9 @@ import { distance, pathLength } from '../lib/geo';
 import type { Activity as ActivityItem, Area, Cable, CableCategory, LatLng, NetNode, NodeType, Project, Role, Settings } from '../lib/types';
 import { viability } from '../lib/analysis';
 import { BASE_LAYERS, type BaseLayerId } from '../lib/basemaps';
-import { nodeIcon } from '../components/markers';
+import { midpointIcon, nodeIcon, vertexIcon } from '../components/markers';
+import { formatCoord, parseLatLng, parsePair } from '../lib/coords';
+import { movePath, roundLatLng } from '../lib/move';
 import { Logo, Toast, formatLength } from '../components/ui';
 import Inspector from '../components/Inspector';
 import DiagramEditor from '../components/DiagramEditor';
@@ -134,6 +137,26 @@ export default function MapPage() {
     kind?: 'ok' | 'error';
   } | null>(null);
   const [search, setSearch] = useState('');
+  /** Objeto sendo arrastado (para o traçado dos cabos acompanhar em tempo real). */
+  const [drag, setDrag] = useState<{ id: number; from: LatLng; at: LatLng } | null>(null);
+  /** Vértice de cabo sendo arrastado; insert = novo vértice criado a partir do ponto médio. */
+  const [vertexDrag, setVertexDrag] = useState<{ cableId: number; index: number; at: LatLng; insert: boolean } | null>(null);
+  const [lastMove, setLastMove] = useState<{ id: number; from: LatLng; name: string } | null>(null);
+  const [placeLat, setPlaceLat] = useState('');
+  const [placeLng, setPlaceLng] = useState('');
+  const [editorFocus, setEditorFocus] = useState(0);
+  const lastClick = useRef<{ key: string; t: number }>({ key: '', t: 0 });
+  /**
+   * O react-leaflet reposiciona o marcador sempre que recebe um array de posição novo.
+   * Reaproveitar o mesmo array enquanto o objeto não muda evita que uma renderização
+   * no meio do arrasto (ex.: movimento do mouse) devolva o marcador ao lugar original.
+   */
+  const positions = useRef(new WeakMap<NetNode, LatLng>());
+  const positionOf = (n: NetNode): LatLng => {
+    let p = positions.current.get(n);
+    if (!p) positions.current.set(n, (p = [n.lat, n.lng]));
+    return p;
+  };
   const mapRef = useRef<L.Map | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -166,6 +189,10 @@ export default function MapPage() {
         setRuler([]);
         setAreaDraft([]);
         setTool('select');
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && lastMove && !readOnly) {
+        e.preventDefault();
+        undoMove();
       }
       if (e.key === 'Enter' && draft) finishCable();
       if (e.key === 'Enter' && areaDraft.length >= 3) finishArea();
@@ -230,10 +257,81 @@ export default function MapPage() {
     }
   }
 
-  async function moveNode(node: NetNode, at: LatLng) {
+  async function addNodeAtCoords() {
+    if (tool === 'select' || !(tool in NODE_TYPES)) return;
+    const r = parseLatLng(placeLat, placeLng);
+    if (typeof r === 'string') return notify(r, 'error');
+    await addNode(tool as NodeType, r);
+    mapRef.current?.setView(r, Math.max(mapRef.current.getZoom(), 18));
+    setPlaceLat('');
+    setPlaceLng('');
+  }
+
+  /** Move um objeto; as pontas dos cabos ligados e os cabos que passam por ele acompanham. */
+  async function moveNode(node: NetNode, target: LatLng, record = true) {
+    const from: LatLng = [node.lat, node.lng];
+    const at = roundLatLng(target);
+    if (from[0] === at[0] && from[1] === at[1]) return;
     setNodes((list) => list.map((n) => (n.id === node.id ? { ...n, lat: at[0], lng: at[1] } : n)));
-    const r = await api.updateNode(node.id, { lat: at[0], lng: at[1] });
-    mergeCables(r.cables);
+    setCables((list) => list.map((c) => ({ ...c, path: movePath(c, node.id, from, at) })));
+    try {
+      const r = await api.updateNode(node.id, { lat: at[0], lng: at[1] });
+      mergeNodes([r.node]);
+      mergeCables(r.cables);
+      if (record) {
+        setLastMove({ id: node.id, from, name: node.name });
+        notify(`${node.name} movido para ${formatCoord(at[0])}, ${formatCoord(at[1])}. Ctrl+Z desfaz.`);
+      }
+    } catch (e) {
+      notify(errorMessage(e), 'error');
+      load();
+    }
+  }
+
+  function undoMove() {
+    if (!lastMove) return;
+    const node = nodes.find((n) => n.id === lastMove.id);
+    setLastMove(null);
+    if (!node) return;
+    moveNode(node, lastMove.from, false).then(() => notify(`Movimento de ${lastMove.name} desfeito`));
+  }
+
+  async function saveCablePath(cable: Cable, raw: LatLng[]) {
+    const path = raw.map(roundLatLng);
+    setCables((list) => list.map((c) => (c.id === cable.id ? { ...c, path } : c)));
+    try {
+      const r = await api.updateCable(cable.id, { path });
+      mergeCables([r.cable]);
+      mergeNodes(r.nodes);
+    } catch (e) {
+      notify(errorMessage(e), 'error');
+      load();
+    }
+  }
+
+  /** Traçado exibido de um cabo, considerando um arrasto em andamento. */
+  function displayPath(c: Cable): LatLng[] {
+    let path = drag ? movePath(c, drag.id, drag.from, drag.at) : c.path;
+    if (vertexDrag && vertexDrag.cableId === c.id) {
+      const { index, at, insert } = vertexDrag;
+      path = insert ? [...path.slice(0, index), at, ...path.slice(index)] : path.map((p, i) => (i === index ? at : p));
+    }
+    return path;
+  }
+
+  /** Detecta duplo clique "na mão": o 1º clique troca o ícone (seleção), o que impede o dblclick nativo. */
+  function isDoubleClick(key: string) {
+    const now = Date.now();
+    const double = lastClick.current.key === key && now - lastClick.current.t < 450;
+    lastClick.current = double ? { key: '', t: 0 } : { key, t: now };
+    return double;
+  }
+
+  /** Duplo clique: caixas e POP abrem o diagrama/editor; demais objetos abrem o painel de edição. */
+  function openEditor(n: NetNode) {
+    setSelection({ kind: 'node', id: n.id });
+    if (['cto', 'ceo', 'pop'].includes(n.type)) setDiagramNodeId(n.id);
+    else setEditorFocus(Date.now());
   }
 
   function nodeClicked(node: NetNode) {
@@ -333,11 +431,29 @@ export default function MapPage() {
   const selectedCable = selection?.kind === 'cable' ? cables.find((c) => c.id === selection.id) : undefined;
   const selectedArea = selection?.kind === 'area' ? areas.find((a) => a.id === selection.id) : undefined;
   const diagramNode = nodes.find((n) => n.id === diagramNodeId);
+  // Pontos médios do cabo selecionado (memorizados pelo mesmo motivo de positionOf).
+  const selectedPath = selectedCable?.path;
+  const midpoints = useMemo<LatLng[]>(
+    () => (selectedPath ? selectedPath.slice(1).map((p, i) => [(selectedPath[i][0] + p[0]) / 2, (selectedPath[i][1] + p[1]) / 2]) : []),
+    [selectedPath],
+  );
 
   const searchResults = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return [];
+    const pair = parsePair(search);
     return [
+      ...(pair
+        ? [
+            {
+              kind: 'coord' as const,
+              id: 0,
+              label: `${formatCoord(pair[0])}, ${formatCoord(pair[1])}`,
+              sub: 'Ir para coordenada',
+              at: pair,
+            },
+          ]
+        : []),
       ...nodes
         .filter((n) => n.name.toLowerCase().includes(q))
         .map((n) => ({
@@ -379,8 +495,10 @@ export default function MapPage() {
             : tool === 'ruler'
               ? `Régua: ${formatLength(pathLength(ruler))} · clique para medir, Esc limpa.`
               : tool !== 'select'
-                ? `Clique no mapa para adicionar ${NODE_TYPES[tool].label}.`
-                : 'Clique num elemento para editar. Arraste caixas para mover.';
+                ? `Clique no mapa para adicionar ${NODE_TYPES[tool].label} ou digite as coordenadas no painel acima.`
+                : selectedCable
+                  ? 'Arraste os quadrados para mover vértices e os círculos para criar novos. Botão direito num vértice o remove.'
+                  : 'Clique para selecionar, duplo clique abre o editor. Arraste um objeto para reposicioná-lo.';
 
   return (
     <div className="h-full flex">
@@ -402,7 +520,7 @@ export default function MapPage() {
         </div>
         <div className="p-3 relative">
           <Search size={14} className="absolute left-5 top-5.5 text-slate-500" />
-          <input className="input pl-8 py-1.5" placeholder="Buscar CTO, POP ou cabo" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input className="input pl-8 py-1.5" placeholder="Buscar CTO, cabo ou lat, lng" value={search} onChange={(e) => setSearch(e.target.value)} />
           {searchResults.length > 0 && (
             <ul className="absolute left-3 right-3 z-[1100] mt-1 rounded-md border border-slate-700 bg-slate-900 text-sm shadow-xl">
               {searchResults.map((r) => (
@@ -411,10 +529,12 @@ export default function MapPage() {
                     className="w-full text-left px-3 py-1.5 hover:bg-slate-800 cursor-pointer"
                     onClick={() => {
                       mapRef.current?.setView(r.at, 18);
-                      setSelection({
-                        kind: r.kind,
-                        id: r.id,
-                      });
+                      if (r.kind === 'coord') setMarker({ at: r.at, label: r.label, route: [] });
+                      else
+                        setSelection({
+                          kind: r.kind,
+                          id: r.id,
+                        });
                       setSearch('');
                     }}
                   >
@@ -515,8 +635,8 @@ export default function MapPage() {
             .filter((c) => visible[c.category])
             .map((c) => (
               <Polyline
-                key={`${c.id}-${c.path.length}-${c.path[0].join()}-${c.path[c.path.length - 1].join()}`}
-                positions={c.path}
+                key={c.id}
+                positions={displayPath(c)}
                 pathOptions={{
                   color: selection?.kind === 'cable' && selection.id === c.id ? '#facc15' : c.color,
                   weight: c.width + (selection?.kind === 'cable' && selection.id === c.id ? 2 : 0),
@@ -531,6 +651,7 @@ export default function MapPage() {
                       kind: 'cable',
                       id: c.id,
                     });
+                    if (isDoubleClick(`c${c.id}`)) setEditorFocus(Date.now());
                   },
                 }}
               >
@@ -545,7 +666,7 @@ export default function MapPage() {
               return (
                 <Marker
                   key={n.id}
-                  position={[n.lat, n.lng]}
+                  position={positionOf(n)}
                   icon={nodeIcon(n, {
                     selected: selection?.kind === 'node' && selection.id === n.id,
                     fill: level ? POWER_COLORS[level] : undefined,
@@ -555,12 +676,16 @@ export default function MapPage() {
                     click: (e) => {
                       L.DomEvent.stopPropagation(e);
                       nodeClicked(n);
+                      if (tool === 'select' && isDoubleClick(`n${n.id}`)) openEditor(n);
                     },
-                    dblclick: () => {
-                      if (['cto', 'ceo', 'pop'].includes(n.type)) setDiagramNodeId(n.id);
+                    dragstart: () => setDrag({ id: n.id, from: [n.lat, n.lng], at: [n.lat, n.lng] }),
+                    drag: (e) => {
+                      const ll = (e.target as L.Marker).getLatLng();
+                      setDrag({ id: n.id, from: [n.lat, n.lng], at: [ll.lat, ll.lng] });
                     },
                     dragend: (e) => {
                       const ll = (e.target as L.Marker).getLatLng();
+                      setDrag(null);
                       moveNode(n, [ll.lat, ll.lng]);
                     },
                   }}
@@ -578,6 +703,71 @@ export default function MapPage() {
                 </Marker>
               );
             })}
+
+          {selectedCable && tool === 'select' && !readOnly && visible[selectedCable.category] && (
+            <>
+              {selectedCable.path.map((p, i) => {
+                const last = selectedCable.path.length - 1;
+                // Pontas ligadas a um objeto se movem arrastando o próprio objeto.
+                if ((i === 0 && selectedCable.from_node_id) || (i === last && selectedCable.to_node_id)) return null;
+                return (
+                  <Marker
+                    key={`v${selectedCable.id}-${i}-${selectedCable.path.length}`}
+                    position={p}
+                    icon={vertexIcon}
+                    draggable
+                    zIndexOffset={1000}
+                    eventHandlers={{
+                      click: (e) => L.DomEvent.stopPropagation(e),
+                      drag: (e) => {
+                        const ll = (e.target as L.Marker).getLatLng();
+                        setVertexDrag({ cableId: selectedCable.id, index: i, at: [ll.lat, ll.lng], insert: false });
+                      },
+                      dragend: (e) => {
+                        const ll = (e.target as L.Marker).getLatLng();
+                        setVertexDrag(null);
+                        saveCablePath(
+                          selectedCable,
+                          selectedCable.path.map((q, j) => (j === i ? [ll.lat, ll.lng] : q)),
+                        );
+                      },
+                      contextmenu: (e) => {
+                        L.DomEvent.stopPropagation(e);
+                        if (selectedCable.path.length > 2) saveCablePath(selectedCable, selectedCable.path.filter((_, j) => j !== i));
+                      },
+                    }}
+                  >
+                    <Tooltip direction="top" offset={[0, -6]}>
+                      Vértice {i + 1}: {formatCoord(p[0])}, {formatCoord(p[1])}
+                    </Tooltip>
+                  </Marker>
+                );
+              })}
+              {midpoints.map((mid, i) => {
+                return (
+                  <Marker
+                    key={`m${selectedCable.id}-${i}-${selectedCable.path.length}`}
+                    position={mid}
+                    icon={midpointIcon}
+                    draggable
+                    zIndexOffset={900}
+                    eventHandlers={{
+                      click: (e) => L.DomEvent.stopPropagation(e),
+                      drag: (e) => {
+                        const ll = (e.target as L.Marker).getLatLng();
+                        setVertexDrag({ cableId: selectedCable.id, index: i + 1, at: [ll.lat, ll.lng], insert: true });
+                      },
+                      dragend: (e) => {
+                        const ll = (e.target as L.Marker).getLatLng();
+                        setVertexDrag(null);
+                        saveCablePath(selectedCable, [...selectedCable.path.slice(0, i + 1), [ll.lat, ll.lng], ...selectedCable.path.slice(i + 1)]);
+                      },
+                    }}
+                  />
+                );
+              })}
+            </>
+          )}
 
           {draft && (
             <Polyline
@@ -686,12 +876,55 @@ export default function MapPage() {
           ))}
         </div>
 
+        {/* Inserir objeto por coordenadas */}
+        {!readOnly && tool in NODE_TYPES && (
+          <form
+            className="absolute top-20 left-1/2 -translate-x-1/2 z-[1000] panel flex items-end gap-2 p-2 text-xs"
+            onSubmit={(e) => {
+              e.preventDefault();
+              addNodeAtCoords();
+            }}
+          >
+            <div className="text-slate-300 self-center flex items-center gap-1 pr-1">
+              <Crosshair size={14} /> {NODE_TYPES[tool as NodeType].label} por coordenadas
+            </div>
+            <label className="flex flex-col gap-0.5 text-slate-400">
+              Latitude
+              <input
+                className="input !py-1 !w-32"
+                placeholder="-8.047600"
+                value={placeLat}
+                onChange={(e) => {
+                  // Colar "lat, lng" (Google Maps) no 1º campo preenche os dois.
+                  const pair = parsePair(e.target.value);
+                  if (pair) {
+                    setPlaceLat(formatCoord(pair[0]));
+                    setPlaceLng(formatCoord(pair[1]));
+                  } else setPlaceLat(e.target.value);
+                }}
+              />
+            </label>
+            <label className="flex flex-col gap-0.5 text-slate-400">
+              Longitude
+              <input className="input !py-1 !w-32" placeholder="-34.877000" value={placeLng} onChange={(e) => setPlaceLng(e.target.value)} />
+            </label>
+            <button type="submit" className="btn-primary !py-1.5 text-xs">
+              Adicionar
+            </button>
+          </form>
+        )}
+
         {/* Dica e ações do desenho */}
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2">
           <div className="panel px-3 py-1.5 text-xs text-slate-300">{hint}</div>
           {areaDraft.length >= 3 && (
             <button className="btn-primary !py-1.5 text-xs" onClick={() => finishArea()}>
               Finalizar área
+            </button>
+          )}
+          {lastMove && !readOnly && (
+            <button className="btn-ghost !py-1.5 text-xs" onClick={undoMove} title="Ctrl+Z">
+              Desfazer movimento
             </button>
           )}
           {marker && (
@@ -803,6 +1036,8 @@ export default function MapPage() {
               })
             }
             key={`${selection?.kind}${selection?.id}`}
+            focusKey={editorFocus}
+            onLocate={(at) => mapRef.current?.setView(at, Math.max(mapRef.current.getZoom(), 18))}
             node={selectedNode}
             cable={selectedCable}
             nodes={nodes}

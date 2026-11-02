@@ -1,12 +1,13 @@
-import { Activity, History, Link2, Network, Radar, Trash2, X } from 'lucide-react';
-import { useState } from 'react';
+import { Activity, Copy, Crosshair, History, Link2, Network, Radar, Trash2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, POWER_LABEL, powerLevel, type BudgetResult } from '../lib/budget';
 import { CABLE_CATEGORIES, CABLE_MODELS, NODE_TYPES, STATUSES } from '../lib/catalog';
-import type { Cable, CableCategory, NetNode, PoleAttributes, Settings, Status } from '../lib/types';
+import type { Cable, CableCategory, LatLng, NetNode, PoleAttributes, Settings, Status } from '../lib/types';
 import { POLE_MATERIALS } from './PolesModal';
 import { cablesNear } from '../lib/analysis';
 import { Field, formatLength } from './ui';
+import { formatCoord, parseLatLng, parsePair } from '../lib/coords';
 
 const SWATCHES = ['#0ea5e9', '#2563eb', '#22c55e', '#ef4444', '#f97316', '#eab308', '#a855f7', '#ec4899', '#ffffff', '#0f172a'];
 
@@ -28,6 +29,22 @@ interface Props {
   cables?: Cable[];
   onHistory?: (kind: 'node' | 'cable', id: number, name: string) => void;
   onOtdr?: (n: NetNode) => void;
+  /** Muda a cada duplo clique no objeto: coloca o cursor no primeiro campo. */
+  focusKey?: number;
+  onLocate?: (at: LatLng) => void;
+}
+
+/** Foca e seleciona o campo quando focusKey muda (duplo clique no mapa). */
+function useFocusOn(focusKey?: number) {
+  const ref = useRef<HTMLInputElement>(null);
+  const initial = useRef(focusKey);
+  useEffect(() => {
+    if (focusKey && focusKey !== initial.current) {
+      ref.current?.focus();
+      ref.current?.select();
+    }
+  }, [focusKey]);
+  return ref;
 }
 
 export default function Inspector(props: Props) {
@@ -113,7 +130,17 @@ function NodeForm({
   onError,
   onHistory,
   onOtdr,
+  focusKey,
+  onLocate,
 }: Props & { node: NetNode }) {
+  const nameRef = useFocusOn(focusKey);
+  const [lat, setLat] = useState(formatCoord(node.lat));
+  const [lng, setLng] = useState(formatCoord(node.lng));
+  // Se o objeto for arrastado no mapa com o painel aberto, os campos acompanham.
+  useEffect(() => {
+    setLat(formatCoord(node.lat));
+    setLng(formatCoord(node.lng));
+  }, [node.lat, node.lng]);
   const [name, setName] = useState(node.name);
   const [status, setStatus] = useState<Status>(node.status);
   const [notes, setNotes] = useState(node.notes ?? '');
@@ -126,9 +153,13 @@ function NodeForm({
   const level = budget ? powerLevel(budget.power, settings) : null;
 
   async function save() {
+    const pos = parseLatLng(lat, lng);
+    if (typeof pos === 'string') return onError(pos);
+    const moved = Math.abs(pos[0] - node.lat) > 1e-9 || Math.abs(pos[1] - node.lng) > 1e-9;
     setSaving(true);
     try {
       const r = await api.updateNode(node.id, {
+        ...(moved ? { lat: pos[0], lng: pos[1] } : {}),
         name,
         status,
         notes: notes || null,
@@ -139,6 +170,7 @@ function NodeForm({
         },
       });
       onNodeSaved(r.node, r.cables);
+      if (moved) onLocate?.([r.node.lat, r.node.lng]);
     } catch (e) {
       onError(errorMessage(e));
     }
@@ -193,11 +225,48 @@ function NodeForm({
         {/* fieldset desabilitado: quem tem acesso de leitura só visualiza os campos */}
         <fieldset disabled={readOnly} className="space-y-3">
           <Field label="Nome">
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+            <input ref={nameRef} className="input" value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label="Status">
             <StatusSelect value={status} onChange={setStatus} />
           </Field>
+          <div>
+            <div className="label flex items-center justify-between">
+              <span>Posição (graus decimais ou GMS)</span>
+              <span className="flex gap-2 normal-case">
+                {onLocate && (
+                  <button type="button" className="text-slate-400 hover:text-white cursor-pointer" title="Centralizar no mapa" onClick={() => onLocate([node.lat, node.lng])}>
+                    <Crosshair size={13} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="text-slate-400 hover:text-white cursor-pointer"
+                  title="Copiar coordenadas"
+                  onClick={() => navigator.clipboard?.writeText(`${formatCoord(node.lat)}, ${formatCoord(node.lng)}`)}
+                >
+                  <Copy size={13} />
+                </button>
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                className="input font-mono text-xs"
+                aria-label="Latitude"
+                placeholder="Latitude"
+                value={lat}
+                onChange={(e) => {
+                  // Colar "lat, lng" no campo de latitude preenche os dois.
+                  const pair = parsePair(e.target.value);
+                  if (pair) {
+                    setLat(formatCoord(pair[0]));
+                    setLng(formatCoord(pair[1]));
+                  } else setLat(e.target.value);
+                }}
+              />
+              <input className="input font-mono text-xs" aria-label="Longitude" placeholder="Longitude" value={lng} onChange={(e) => setLng(e.target.value)} />
+            </div>
+          </div>
           {node.type === 'client' && (
             <Field label="Endereço">
               <input className="input" value={address} onChange={(e) => setAddress(e.target.value)} />
@@ -258,7 +327,8 @@ function NodeForm({
   );
 }
 
-function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, onError, onHistory }: Props & { cable: Cable }) {
+function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, onError, onHistory, focusKey }: Props & { cable: Cable }) {
+  const nameRef = useFocusOn(focusKey);
   const [form, setForm] = useState({
     name: cable.name,
     model: cable.model ?? '',
@@ -331,7 +401,7 @@ function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, o
             </select>
           </Field>
           <Field label="Nome do cabo">
-            <input className="input" value={form.name} onChange={(e) => set({ name: e.target.value })} />
+            <input ref={nameRef} className="input" value={form.name} onChange={(e) => set({ name: e.target.value })} />
           </Field>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Fibras">
