@@ -1,6 +1,6 @@
 import { FolderOpen, LogOut, MapPin, Plus, Search, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { BASE_LAYERS } from '../lib/basemaps';
+import { STREETS_LAYER } from '../lib/basemaps';
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import { useNavigate } from 'react-router-dom';
 import L from 'leaflet';
@@ -238,7 +238,7 @@ function CreateProjectModal({ onClose, onCreated }: { onClose: () => void; onCre
           </div>
           <div className="mt-2 h-52 rounded-md overflow-hidden border border-slate-700">
             <MapContainer center={center} zoom={4} className="h-full w-full">
-              <TileLayer url={BASE_LAYERS.streets.url} attribution={BASE_LAYERS.streets.attribution} />
+              <TileLayer url={STREETS_LAYER.url} attribution={STREETS_LAYER.attribution} />
               <Marker position={center} icon={pin} />
               <Recenter center={center} />
               <ClickToSet onPick={(lat, lng) => setCenter([lat, lng])} />

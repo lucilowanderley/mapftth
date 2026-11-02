@@ -1,131 +1,115 @@
 /**
- * Mapas base usados no app.
- * - Esri e OpenStreetMap/OpenTopoMap funcionam sem chave de API.
- * - Google usa a Map Tiles API oficial e só aparece quando GOOGLE_MAPS_KEY está no .env.
- * (O CARTO passou a exigir chave e foi removido.)
+ * Mapas base. O usuário escolhe:
+ *  - o ESTILO no próprio mapa: Satélite, Ruas ou Relevo;
+ *  - o MOTOR (provedor) em Configurações: OpenStreetMap (padrão), Esri ou Google.
+ * As duas escolhas ficam salvas neste navegador.
+ *
+ * OpenStreetMap e Esri não exigem chave. O Google usa a Map Tiles API oficial e só
+ * aparece com GOOGLE_MAPS_KEY no .env (usar os tiles do Google sem chave viola os termos).
  */
 export interface BaseLayer {
-  label: string;
-  group: 'Esri' | 'OpenStreetMap' | 'Google';
   /** URL dos tiles (vazio nas camadas do Google, montada após criar a sessão). */
   url: string;
   attribution: string;
   /** Maior zoom em que o servidor tem imagens; acima disso o Leaflet amplia. */
   maxNativeZoom: number;
-  /** Camadas transparentes por cima (ex.: nomes de ruas no modo híbrido). */
-  overlays?: string[];
   /** Pedido de sessão da Google Map Tiles API. */
   google?: { mapType: 'satellite' | 'roadmap' | 'terrain'; layerTypes?: string[] };
+  /** Aviso quando o motor não tem o estilo e outro provedor é usado no lugar. */
+  note?: string;
 }
+
+export type MapStyle = 'satellite' | 'streets' | 'relief';
+export type MapEngine = 'osm' | 'esri' | 'google';
+
+export const MAP_STYLES: Record<MapStyle, string> = {
+  satellite: 'Satélite',
+  streets: 'Ruas',
+  relief: 'Relevo',
+};
+
+export const MAP_ENGINES: Record<MapEngine, { label: string; needsKey?: boolean }> = {
+  osm: { label: 'OpenStreetMap' },
+  esri: { label: 'Esri (ArcGIS)' },
+  google: { label: 'Google Maps', needsKey: true },
+};
 
 const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services';
 
-export const BASE_LAYERS = {
-  satellite: {
-    label: 'Satélite',
-    group: 'Esri',
-    url: `${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`,
-    attribution: 'Imagens &copy; Esri',
-    maxNativeZoom: 19,
-  },
-  hybrid: {
-    label: 'Híbrido (satélite + ruas)',
-    group: 'Esri',
-    url: `${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`,
-    attribution: 'Imagens &copy; Esri',
-    maxNativeZoom: 19,
-    overlays: [`${ESRI}/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}`, `${ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`],
-  },
-  esriStreets: {
-    label: 'Ruas',
-    group: 'Esri',
-    url: `${ESRI}/World_Street_Map/MapServer/tile/{z}/{y}/{x}`,
-    attribution: 'Mapa &copy; Esri',
-    maxNativeZoom: 19,
-  },
-  topo: {
-    label: 'Topográfico',
-    group: 'Esri',
-    url: `${ESRI}/World_Topo_Map/MapServer/tile/{z}/{y}/{x}`,
-    attribution: 'Mapa &copy; Esri',
-    maxNativeZoom: 19,
-  },
-  dark: {
-    label: 'Escuro',
-    group: 'Esri',
-    url: `${ESRI}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`,
-    attribution: 'Mapa &copy; Esri',
-    maxNativeZoom: 16,
-  },
-  streets: {
-    label: 'Ruas (OSM)',
-    group: 'OpenStreetMap',
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; OpenStreetMap',
-    maxNativeZoom: 19,
-  },
-  openTopo: {
-    label: 'Relevo (OpenTopoMap)',
-    group: 'OpenStreetMap',
-    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; OpenStreetMap, SRTM | &copy; OpenTopoMap (CC-BY-SA)',
-    maxNativeZoom: 17,
-  },
-  googleSatellite: {
-    label: 'Google Satélite',
-    group: 'Google',
-    url: '',
-    attribution: 'Imagens &copy; Google',
-    maxNativeZoom: 21,
-    google: { mapType: 'satellite' },
-  },
-  googleHybrid: {
-    label: 'Google Híbrido',
-    group: 'Google',
-    url: '',
-    attribution: 'Mapa e imagens &copy; Google',
-    maxNativeZoom: 21,
-    google: { mapType: 'satellite', layerTypes: ['layerRoadmap'] },
-  },
-  googleRoadmap: {
-    label: 'Google Mapa',
-    group: 'Google',
-    url: '',
-    attribution: 'Dados do mapa &copy; Google',
-    maxNativeZoom: 21,
-    google: { mapType: 'roadmap' },
-  },
-} satisfies Record<string, BaseLayer>;
+const ESRI_IMAGERY: BaseLayer = {
+  url: `${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`,
+  attribution: 'Imagens &copy; Esri',
+  maxNativeZoom: 19,
+};
 
-export type BaseLayerId = keyof typeof BASE_LAYERS;
+/** Camada usada para cada motor e estilo. */
+export const LAYERS: Record<MapEngine, Record<MapStyle, BaseLayer>> = {
+  osm: {
+    satellite: { ...ESRI_IMAGERY, note: 'O OpenStreetMap não tem imagens de satélite; o estilo Satélite usa as imagens da Esri.' },
+    streets: {
+      url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      attribution: '&copy; OpenStreetMap',
+      maxNativeZoom: 19,
+    },
+    relief: {
+      url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+      attribution: '&copy; OpenStreetMap, SRTM | &copy; OpenTopoMap (CC-BY-SA)',
+      maxNativeZoom: 17,
+    },
+  },
+  esri: {
+    satellite: ESRI_IMAGERY,
+    streets: {
+      url: `${ESRI}/World_Street_Map/MapServer/tile/{z}/{y}/{x}`,
+      attribution: 'Mapa &copy; Esri',
+      maxNativeZoom: 19,
+    },
+    relief: {
+      url: `${ESRI}/World_Topo_Map/MapServer/tile/{z}/{y}/{x}`,
+      attribution: 'Mapa &copy; Esri',
+      maxNativeZoom: 19,
+    },
+  },
+  google: {
+    satellite: { url: '', attribution: 'Imagens &copy; Google', maxNativeZoom: 21, google: { mapType: 'satellite' } },
+    streets: { url: '', attribution: 'Dados do mapa &copy; Google', maxNativeZoom: 21, google: { mapType: 'roadmap' } },
+    relief: { url: '', attribution: 'Dados do mapa &copy; Google', maxNativeZoom: 21, google: { mapType: 'terrain', layerTypes: ['layerRoadmap'] } },
+  },
+};
 
-export const DEFAULT_BASE: BaseLayerId = 'satellite';
+/** Mapa de ruas usado nas miniaturas da lista de projetos. */
+export const STREETS_LAYER = LAYERS.osm.streets;
 
-/** Camadas disponíveis: as do Google só com chave configurada. */
-export function availableLayers(hasGoogleKey: boolean): BaseLayerId[] {
-  return (Object.keys(BASE_LAYERS) as BaseLayerId[]).filter((id) => hasGoogleKey || !(BASE_LAYERS[id] as BaseLayer).google);
+export const DEFAULT_ENGINE: MapEngine = 'osm';
+export const DEFAULT_STYLE: MapStyle = 'streets';
+
+/** Motores disponíveis: o Google só com chave configurada. */
+export function availableEngines(hasGoogleKey: boolean): MapEngine[] {
+  return (Object.keys(MAP_ENGINES) as MapEngine[]).filter((e) => hasGoogleKey || !MAP_ENGINES[e].needsKey);
 }
 
-const STORAGE_KEY = 'mapftth.baseLayer';
-
-/** Último mapa base escolhido neste navegador (volta ao padrão se não estiver mais disponível). */
-export function loadBase(available: BaseLayerId[]): BaseLayerId {
+function load<T extends string>(key: string, allowed: T[], fallback: T): T {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY) as BaseLayerId | null;
-    if (saved && available.includes(saved)) return saved;
+    const saved = localStorage.getItem(key) as T | null;
+    if (saved && allowed.includes(saved)) return saved;
   } catch {
     // navegação privada / armazenamento bloqueado
   }
-  return DEFAULT_BASE;
+  return fallback;
 }
 
-export function saveBase(id: BaseLayerId) {
+function save(key: string, value: string) {
   try {
-    localStorage.setItem(STORAGE_KEY, id);
+    localStorage.setItem(key, value);
   } catch {
     // ignora
   }
 }
+
+export const loadEngine = (available: MapEngine[]) => load('mapftth.mapEngine', available, DEFAULT_ENGINE);
+export const saveEngine = (e: MapEngine) => save('mapftth.mapEngine', e);
+export const loadStyle = () => load('mapftth.mapStyle', Object.keys(MAP_STYLES) as MapStyle[], DEFAULT_STYLE);
+export const saveStyle = (s: MapStyle) => save('mapftth.mapStyle', s);
 
 /** Cria (ou reaproveita) a sessão da Google Map Tiles API e devolve a URL dos tiles. */
 export async function googleTileUrl(layer: BaseLayer, key: string): Promise<string> {

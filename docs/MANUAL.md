@@ -96,23 +96,25 @@ A tela tem quatro partes:
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
 
-**Mapa base** (painel da direita): escolha na lista. O sistema lembra o último mapa escolhido neste navegador,
-mesmo depois de fechar ou apertar F5.
+**Mapa base** (painel da direita): clique em **Satélite**, **Ruas** ou **Relevo**. Abaixo dos botões aparece o
+**motor** de mapas em uso. O motor é escolhido em **Configurações** ([seção 21](#21-configurações-do-projeto)) e o
+padrão é o **OpenStreetMap**. O sistema lembra o último estilo e o último motor escolhidos neste navegador, mesmo
+depois de fechar ou apertar F5.
 
-| Grupo | Opções | Chave? |
-| --- | --- | --- |
-| Esri | **Satélite**, **Híbrido (satélite + ruas)**, **Ruas**, **Topográfico**, **Escuro** | Não precisa |
-| OpenStreetMap | **Ruas (OSM)**, **Relevo (OpenTopoMap)** | Não precisa |
-| Google | **Google Satélite**, **Google Híbrido**, **Google Mapa** | Só aparecem com a chave configurada (abaixo) |
+| Motor | Satélite | Ruas | Relevo | Chave? |
+| --- | --- | --- | --- | --- |
+| **OpenStreetMap** (padrão) | Imagens da Esri (o OpenStreetMap não tem satélite) | OpenStreetMap | OpenTopoMap | Não precisa |
+| **Esri (ArcGIS)** | World Imagery | World Street Map | World Topo Map | Não precisa |
+| **Google Maps** | Google Satélite | Google Mapa | Google Relevo | Só aparece com a chave configurada (abaixo) |
 
 O zoom vai até 21; acima do zoom máximo de cada mapa a imagem é ampliada.
 
 > **Mapas do Google**: o Google só permite usar os mapas dele com uma chave da **Map Tiles API** (o uso direto dos
 > tiles, sem chave, é proibido pelos termos do Google). Para ativar: no Google Cloud Console crie um projeto, ative
 > a cobrança e a **Map Tiles API**, crie uma chave de API e restrinja-a ao domínio do sistema (restrição por site
-> HTTP). Depois coloque `GOOGLE_MAPS_KEY=sua-chave` no `.env` do servidor e rode `php artisan config:cache` (no Laragon, `php artisan config:clear`). O
-> Google dá uma cota mensal gratuita e cobra acima dela. Se a chave for recusada, o sistema avisa e volta para o
-> Satélite da Esri.
+> HTTP). Depois coloque `GOOGLE_MAPS_KEY=sua-chave` no `.env` do servidor e rode `php artisan config:cache` (no
+> Laragon, `php artisan config:clear`). O Google dá uma cota mensal gratuita e cobra acima dela. Se a chave for
+> recusada, o sistema avisa e volta para o OpenStreetMap.
 
 **Camadas** (painel da direita): ligue e desligue **POPs, CEOs, CTOs, Postes, Clientes**, **Cabos backbone,
 distribuição e drop**, **Áreas** e **Rótulos** (nomes). Os nomes das caixas aparecem a partir do zoom 17 (o POP
@@ -477,8 +479,13 @@ Cada criação, alteração, movimentação e edição de diagrama aparece com o
 
 ## 21. Configurações do projeto
 
-Barra lateral → **Configurações** (só dono e administradores). Aqui você muda **Nome do projeto**, **Cidade** e os
-**parâmetros do orçamento óptico**:
+Barra lateral → **Configurações**.
+
+**Motor de mapas** (todos os usuários): escolha **OpenStreetMap** (padrão), **Esri (ArcGIS)** ou **Google Maps**
+(este só com a chave configurada, veja a [seção 4](#4-a-tela-do-mapa)). A troca vale na hora e fica salva neste
+navegador. Embaixo da lista aparece de onde vem cada estilo (Satélite, Ruas, Relevo) no motor escolhido.
+
+**Projeto** (só dono e administradores): **Nome do projeto**, **Cidade** e os **parâmetros do orçamento óptico**:
 
 | Parâmetro | Padrão |
 | --- | --- |
