@@ -162,7 +162,7 @@ class NodeController extends Controller
 
     private function prefix(string $type): string
     {
-        return ['cto' => 'CTO', 'ceo' => 'CEO', 'pop' => 'POP', 'pole' => 'P', 'client' => 'Cliente', 'condo' => 'Cond'][$type];
+        return ['cto' => 'CTO', 'ceo' => 'CEO', 'pop' => 'POP', 'dc' => 'DC', 'tower' => 'TR', 'pole' => 'P', 'client' => 'Cliente', 'condo' => 'Cond'][$type];
     }
 
     private function nextName(Project $project, string $type): string

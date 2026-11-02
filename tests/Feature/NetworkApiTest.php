@@ -108,6 +108,39 @@ class NetworkApiTest extends TestCase
         ])->assertOk()->assertJsonCount(2, 'cables');
     }
 
+    public function test_datacenter_is_created_and_keeps_rack_diagram(): void
+    {
+        $user = User::factory()->create();
+        $project = $this->project($user);
+        $this->actingAs($user);
+
+        $dc = $this->postJson("/api/projects/{$project->id}/nodes", ['type' => 'dc', 'lat' => 0, 'lng' => 0])
+            ->assertCreated()->assertJsonPath('name', 'DC-1')->json();
+
+        $diagram = ['components' => [[
+            'id' => 'r1', 'kind' => 'rack', 'name' => 'DC1.1A-AJ05', 'mount' => 'floor', 'units' => 44, 'x' => 0, 'y' => 0,
+            'loc' => ['site' => 'DC1', 'floor' => '1', 'room' => 'A', 'row' => 'AJ', 'pos' => 5],
+        ]], 'connections' => []];
+        $this->putJson("/api/nodes/{$dc['id']}", ['diagram' => $diagram])
+            ->assertOk()
+            ->assertJsonPath('node.diagram.components.0.loc.row', 'AJ');
+    }
+
+    public function test_tower_is_created_with_radios(): void
+    {
+        $user = User::factory()->create();
+        $project = $this->project($user);
+        $this->actingAs($user);
+
+        $this->postJson("/api/projects/{$project->id}/nodes", [
+            'type' => 'tower', 'lat' => 0, 'lng' => 0,
+            'attributes' => ['tower_kind' => 'self', 'height_m' => 42, 'radios' => [['id' => 'r1', 'kind' => 'ptp', 'freq_ghz' => 5.8, 'azimuth' => 90]]],
+        ])->assertCreated()
+            ->assertJsonPath('name', 'TR-1')
+            ->assertJsonPath('attributes.height_m', 42)
+            ->assertJsonPath('attributes.radios.0.freq_ghz', 5.8);
+    }
+
     public function test_moving_a_box_moves_the_cable_ends(): void
     {
         $user = User::factory()->create();

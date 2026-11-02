@@ -1,4 +1,4 @@
-export type NodeType = 'cto' | 'ceo' | 'pop' | 'pole' | 'client' | 'condo';
+export type NodeType = 'cto' | 'ceo' | 'pop' | 'dc' | 'tower' | 'pole' | 'client' | 'condo';
 export type Status = 'planned' | 'not_deployed' | 'deployed' | 'certified';
 export type CableCategory = 'backbone' | 'distribution' | 'drop';
 export type LatLng = [number, number];
@@ -225,6 +225,42 @@ export interface CondoAttributes extends Record<string, unknown> {
   address?: string;
   manager?: string;
   phone?: string;
+}
+
+export type TowerKind = 'self' | 'guyed' | 'monopole' | 'mast' | 'rooftop';
+export type RadioKind = 'ptp' | 'ap' | 'sector' | 'omni' | 'dish' | 'cpe' | 'other';
+
+/** Equipamento wireless instalado na torre (ou no mastro do POP). */
+export interface TowerRadio {
+  id: string;
+  kind: RadioKind;
+  name?: string;
+  vendor?: string;
+  model?: string;
+  /** Frequência em GHz (ex.: 5.8). */
+  freq_ghz?: number;
+  /** Altura de instalação na torre (m). */
+  height_m?: number;
+  /** Direção (graus, 0 = norte, sentido horário). */
+  azimuth?: number;
+  /** Abertura do feixe (graus). Sem valor = típica do tipo. */
+  beam?: number;
+  /** Inclinação (tilt, graus; negativo = para baixo). */
+  tilt?: number;
+  /** Enlace PtP: id do objeto do outro lado. */
+  link?: number;
+}
+
+/** Atributos da torre (guardados em node.attributes). O POP usa só `radios`. */
+export interface TowerAttributes extends Record<string, unknown> {
+  tower_kind?: TowerKind;
+  height_m?: number;
+  site_code?: string;
+  owner?: string;
+  address?: string;
+  /** Tem shelter/abrigo com racks. */
+  shelter?: boolean;
+  radios?: TowerRadio[];
 }
 
 /** Atributos de poste (guardados em node.attributes). */

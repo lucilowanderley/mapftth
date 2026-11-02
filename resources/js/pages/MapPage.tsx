@@ -33,6 +33,8 @@ import {
   Infinity as SlackToolIcon,
   Building2,
   Houses,
+  Warehouse,
+  RadioTower,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Circle, CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
@@ -40,8 +42,9 @@ import { Link, useParams } from 'react-router-dom';
 import L from 'leaflet';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, clientBudget, powerLevel, type BudgetResult } from '../lib/budget';
-import { BOX_TYPES, CABLE_CATEGORIES, CABLE_MODELS, CONDO_KINDS, NODE_TYPES, NODE_TYPE_LIST, SLACK_KINDS, effectiveLineStyle, lineDash } from '../lib/catalog';
+import { BOX_TYPES, CABLE_CATEGORIES, CABLE_MODELS, CONDO_KINDS, NODE_TYPES, NODE_TYPE_LIST, RACK_HOST_TYPES, SLACK_KINDS, effectiveLineStyle, lineDash } from '../lib/catalog';
 import { distance, pathLength } from '../lib/geo';
+import { RADIO_HOST_TYPES, RADIO_KINDS, radioBeam, radioLinks, radiosOf, sectorPolygon } from '../lib/tower';
 import type { Activity as ActivityItem, Area, Cable, CableCategory, CondoKind, LatLng, NetNode, NodeType, Project, Role, Settings, Slack, SlackKind } from '../lib/types';
 import { viability } from '../lib/analysis';
 import { LAYERS, MAP_ENGINES, MAP_STYLES, availableEngines, googleTileUrl, loadEngine, loadStyle, saveEngine, saveStyle, type MapEngine, type MapStyle } from '../lib/basemaps';
@@ -74,6 +77,8 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'cto', label: 'CTO', icon: <SquareStack size={18} /> },
   { id: 'ceo', label: 'CEO', icon: <Hexagon size={18} /> },
   { id: 'pop', label: 'POP', icon: <Server size={18} /> },
+  { id: 'dc', label: 'Datacenter', icon: <Warehouse size={18} /> },
+  { id: 'tower', label: 'Torre', icon: <RadioTower size={18} /> },
   { id: 'pole', label: 'Poste', icon: <Zap size={18} /> },
   { id: 'client', label: 'Cliente', icon: <User size={18} /> },
   { id: 'condo', label: 'Condomínio', icon: <Building2 size={18} /> },
@@ -145,6 +150,9 @@ export default function MapPage() {
     cto: true,
     ceo: true,
     pop: true,
+    dc: true,
+    tower: true,
+    wireless: true,
     pole: true,
     client: true,
     condo: true,
@@ -862,7 +870,7 @@ export default function MapPage() {
           }}
         />
         <div className="mt-auto p-3 text-xs text-slate-500 grid grid-cols-2 gap-1">
-          {(['pop', 'ceo', 'cto', 'condo', 'client'] as NodeType[]).map((t) => (
+          {(['dc', 'pop', 'tower', 'ceo', 'cto', 'condo', 'client'] as NodeType[]).map((t) => (
             <span key={t}>
               {NODE_TYPES[t].plural}: <b className="text-slate-300">{nodes.filter((n) => n.type === t).length}</b>
             </span>
@@ -1000,6 +1008,45 @@ export default function MapPage() {
               </Polyline>
             ))}
 
+          {/* Wireless: setores de cobertura (sem enlace) e linhas dos enlaces PtP entre torres/POPs. */}
+          {visible.wireless &&
+            zoom >= 13 &&
+            nodes
+              .filter((n) => visible[n.type] && RADIO_HOST_TYPES.includes(n.type))
+              .flatMap((n) =>
+                radiosOf(n)
+                  .filter((r) => !r.link && typeof r.azimuth === 'number')
+                  .map((r) => {
+                    const k = RADIO_KINDS[r.kind] ?? RADIO_KINDS.other;
+                    return (
+                      <Polygon
+                        key={`rs${n.id}-${r.id}`}
+                        positions={sectorPolygon([n.lat, n.lng], r.azimuth ?? 0, radioBeam(r), k.reach)}
+                        interactive={false}
+                        pathOptions={{ color: k.color, weight: 1, fillColor: k.color, fillOpacity: 0.15, opacity: 0.7 }}
+                      />
+                    );
+                  }),
+              )}
+          {visible.wireless &&
+            radioLinks(
+              nodes.filter((n) => visible[n.type]),
+              distance,
+            ).map((l) => (
+              <Polyline
+                key={`rl${l.key}`}
+                positions={[
+                  [l.from.lat, l.from.lng],
+                  [l.to.lat, l.to.lng],
+                ]}
+                pathOptions={{ color: '#38bdf8', weight: 2.5, dashArray: l.mutual ? undefined : '6 6', opacity: 0.9 }}
+              >
+                <Tooltip sticky>
+                  {`Enlace ${l.from.name} ↔ ${l.to.name} · ${formatLength(l.dist)}${l.radio.freq_ghz ? ` · ${String(l.radio.freq_ghz).replace('.', ',')} GHz` : ''}${l.mutual ? '' : ' (só uma ponta cadastrada)'}`}
+                </Tooltip>
+              </Polyline>
+            ))}
+
           {nodes
             .filter((n) => visible[n.type])
             .map((n) => {
@@ -1041,7 +1088,7 @@ export default function MapPage() {
                     },
                   }}
                 >
-                  {labels && (zoom >= 17 || n.type === 'pop' || n.type === 'condo') && n.type !== 'pole' && (
+                  {labels && (zoom >= 17 || n.type === 'pop' || n.type === 'dc' || n.type === 'tower' || n.type === 'condo') && n.type !== 'pole' && (
                     <Tooltip
                       permanent
                       direction="bottom"
@@ -1572,6 +1619,7 @@ export default function MapPage() {
               />
             ))}
             <Toggle label="Áreas" color="#a855f7" on={visible.areas ?? true} onChange={(v) => setVisible({ ...visible, areas: v })} />
+            <Toggle label="Cobertura e enlaces wireless" color="#f43f5e" on={visible.wireless ?? true} onChange={(v) => setVisible({ ...visible, wireless: v })} />
             <Toggle label="Rótulos" on={labels} onChange={setLabels} />
             {!readOnly && <Toggle label="Confirmar ao mover" on={confirmMoves} onChange={setConfirmMoves} />}
           </div>
@@ -1690,7 +1738,7 @@ export default function MapPage() {
         )}
       </div>
 
-      {diagramNode?.type === 'pop' && (
+      {diagramNode && RACK_HOST_TYPES.includes(diagramNode.type) && (
         <PopEditor
           node={diagramNode}
           network={network}
@@ -1698,12 +1746,12 @@ export default function MapPage() {
           onClose={() => setDiagramNodeId(null)}
           onSaved={(n) => {
             mergeNodes([n]);
-            notify('POP salvo');
+            notify(`${NODE_TYPES[n.type].label} salvo`);
           }}
           onShowBudget={(title, result) => setBudget({ title, result })}
         />
       )}
-      {diagramNode && diagramNode.type !== 'pop' && (
+      {diagramNode && !RACK_HOST_TYPES.includes(diagramNode.type) && (
         <DiagramEditor
           node={diagramNode}
           network={network}

@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, POWER_LABEL, powerLevel, type BudgetResult } from '../lib/budget';
 import { BOX_TYPES, CABLE_CATEGORIES, CABLE_MODELS, CONDO_KINDS, LINE_STYLES, NODE_TYPES, SLACK_KINDS, STATUSES, effectiveLineStyle, lineDash } from '../lib/catalog';
-import type { Cable, CableCategory, CondoAttributes, CondoKind, LatLng, LineStyle, NetNode, Slack, SlackKind, PoleAttributes, Settings, Status } from '../lib/types';
+import type { Cable, CableCategory, CondoAttributes, CondoKind, LatLng, LineStyle, NetNode, Slack, SlackKind, PoleAttributes, Settings, Status, TowerAttributes, TowerKind, TowerRadio } from '../lib/types';
+import { RADIO_HOST_TYPES, TOWER_KINDS, radiosOf } from '../lib/tower';
+import RadiosEditor from './RadiosEditor';
 import { POLE_MATERIALS } from './PolesModal';
 import { cablesNear } from '../lib/analysis';
 import { Field, formatLength } from './ui';
@@ -121,6 +123,7 @@ function Actions({
 
 function NodeForm({
   node,
+  nodes,
   budget,
   settings,
   readOnly,
@@ -153,6 +156,11 @@ function NodeForm({
   const setP = (patch: PoleAttributes) => setPole((p) => ({ ...p, ...patch }));
   const [condo, setCondo] = useState<CondoAttributes>(() => ({ condo_kind: 'buildings', ...((node.attributes as CondoAttributes) ?? {}) }));
   const setC = (patch: CondoAttributes) => setCondo((c) => ({ ...c, ...patch }));
+  const [tower, setTower] = useState<TowerAttributes>(() => ({ ...((node.attributes as TowerAttributes) ?? {}) }));
+  const setT = (patch: TowerAttributes) => setTower((t) => ({ ...t, ...patch }));
+  const [radios, setRadios] = useState<TowerRadio[]>(() => radiosOf(node));
+  const hasRadios = RADIO_HOST_TYPES.includes(node.type);
+  const dec = (v: string) => (v.trim() === '' ? undefined : Math.max(0, Number(v.replace(',', '.')) || 0));
   const num = (v: string) => (v === '' ? undefined : Math.max(0, Math.round(Number(v)) || 0));
   const cablesHere = cablesNear([node.lat, node.lng], cables ?? []);
   const [saving, setSaving] = useState(false);
@@ -175,6 +183,8 @@ function NodeForm({
           ...(node.type === 'client' ? { address } : {}),
           ...(node.type === 'pole' ? pole : {}),
           ...(node.type === 'condo' ? condo : {}),
+          ...(node.type === 'tower' ? tower : {}),
+          ...(hasRadios ? { radios } : {}),
         },
       });
       onNodeSaved(r.node, r.cables);
@@ -201,7 +211,7 @@ function NodeForm({
       <div className="p-4 space-y-3">
         {hasDiagram && (
           <button className="btn-primary w-full" onClick={() => onOpenDiagram(node)}>
-            <Network size={16} /> {node.type === 'pop' ? 'Editor do POP' : 'Diagrama de fusão'}
+            <Network size={16} /> {node.type === 'pop' ? 'Editor do POP' : node.type === 'dc' ? 'Editor do Datacenter' : node.type === 'tower' ? 'Shelter da torre (racks)' : 'Diagrama de fusão'}
           </button>
         )}
         {node.type === 'client' && budget && level && (
@@ -231,7 +241,7 @@ function NodeForm({
           </button>
         )}
         {/* fieldset desabilitado: quem tem acesso de leitura só visualiza os campos */}
-        <fieldset disabled={readOnly} className="space-y-3">
+        <fieldset disabled={readOnly} className="min-w-0 space-y-3">
           <Field label="Nome">
             <input ref={nameRef} className="input" value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
@@ -280,6 +290,39 @@ function NodeForm({
               <input className="input" value={address} onChange={(e) => setAddress(e.target.value)} />
             </Field>
           )}
+          {node.type === 'tower' && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Tipo de torre">
+                  <select className="input" value={tower.tower_kind ?? ''} onChange={(e) => setT({ tower_kind: (e.target.value || undefined) as TowerKind | undefined })}>
+                    <option value="">—</option>
+                    {(Object.keys(TOWER_KINDS) as TowerKind[]).map((k) => (
+                      <option key={k} value={k}>
+                        {TOWER_KINDS[k]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Altura (m)">
+                  <input className="input" inputMode="decimal" value={tower.height_m ?? ''} onChange={(e) => setT({ height_m: dec(e.target.value) })} />
+                </Field>
+                <Field label="Código do site">
+                  <input className="input" placeholder="SP-STM-001" value={tower.site_code ?? ''} onChange={(e) => setT({ site_code: e.target.value || undefined })} />
+                </Field>
+                <Field label="Detentora / proprietário">
+                  <input className="input" value={tower.owner ?? ''} onChange={(e) => setT({ owner: e.target.value || undefined })} />
+                </Field>
+              </div>
+              <Field label="Endereço">
+                <input className="input" value={tower.address ?? ''} onChange={(e) => setT({ address: e.target.value || undefined })} />
+              </Field>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={!!tower.shelter} onChange={(e) => setT({ shelter: e.target.checked || undefined })} />
+                Tem shelter / abrigo com racks
+              </label>
+            </>
+          )}
+          {hasRadios && <RadiosEditor node={node} nodes={nodes} radios={radios} onChange={setRadios} readOnly={readOnly} />}
           {node.type === 'condo' && (
             <>
               <div>
