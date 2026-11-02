@@ -245,7 +245,11 @@ O menu do botão direito no cabo também tem **Editar** (abre o painel do cabo) 
   **fundo branco com borda na cor do cabo**. O cabo selecionado ganha um halo amarelo e mantém a própria cor.
 - **Traçado**: com o cabo selecionado, os pontos viram alças arrastáveis. Arraste um **ponto** para movê-lo;
   arraste uma **bolinha menor e translúcida** (no meio de cada trecho) para criar um ponto novo; clique com o
-  **botão direito** num ponto para removê-lo. As pontas ligadas a uma caixa não têm alça: elas se movem quando
+  **botão direito** num ponto para removê-lo.
+  Ao passar o mouse sobre um ponto (não precisa ser exatamente em cima, há uma folga de alguns pixels), ele
+  **cresce, fica preenchido com a cor do cabo e ganha um anel amarelo**, e o cursor vira a seta de mover; o destaque
+  continua enquanto você arrasta. Nas bolinhas de criar ponto o cursor mostra um **+**. As caixas, postes e
+  clientes também crescem um pouco quando o mouse passa por cima. As pontas ligadas a uma caixa não têm alça: elas se movem quando
   você arrasta a própria caixa. A alteração é salva ao soltar.
 - **Duplo clique** no cabo coloca o cursor no campo **Nome do cabo**.
 - **Salvar alterações**. Se você reduzir o número de fibras, as fusões das fibras que sobrarem são removidas
