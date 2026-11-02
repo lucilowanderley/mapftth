@@ -39,8 +39,8 @@ Para ver a rede funcionando de ponta a ponta, faça nesta ordem:
 2. **Crie um projeto** e escolha a cidade no mapa ([seção 3](#3-meus-projetos)).
 3. No mapa, coloque **1 POP**, **1 CTO** e **1 cliente** ([seção 5](#5-adicionar-pop-ceo-cto-poste-e-cliente)).
 4. Com a ferramenta **Cabo**, desenhe um cabo do **POP até a CTO** ([seção 6](#6-desenhar-e-editar-cabos)).
-5. Abra o **Editor do POP**: adicione uma **OLT** e um **DIO**, ligue a porta PON da OLT ao DIO e o DIO à fibra 1
-   do cabo ([seção 7](#7-editor-do-pop-olt-e-dio)).
+5. Abra o **Editor do POP**: adicione um **DIO** e uma **OLT**, vincule o cabo ao DIO, use **Auto Fusão** na matriz
+   de fusão e depois **Auto-Patch** ([seção 7](#7-editor-do-pop-olt-e-dio)).
 6. Abra o **Diagrama de fusão** da CTO: adicione um **splitter 1:8**, ligue a fibra 1 do cabo à entrada do
    splitter ([seção 8](#8-diagrama-de-fusão-da-ceo-e-da-cto)).
 7. Selecione o cliente e clique em **Ligar drop à CTO mais próxima**. Volte ao diagrama da CTO e ligue a fibra do
@@ -290,29 +290,103 @@ dentro dela).
 
 ## 7. Editor do POP: OLT e DIO
 
-Selecione o POP e clique em **Editor do POP** (ou duplo clique no POP). Os cabos que saem do POP já aparecem como
-blocos, com as fibras coloridas.
+Selecione o POP e clique em **Editor do POP** (ou duplo clique no POP). O editor abre um **canvas** escuro com
+**cards** que você arrasta pelo cabeçalho: um card para cada **cabo** que chega ao POP, e um card para cada **DIO**,
+**OLT** e **equipamento ativo** que você adicionar. Na primeira vez os cards já vêm organizados (cabos à esquerda,
+DIOs no meio, OLTs à direita).
+
+**Barra de ferramentas**
+
+| Botão | O que faz |
+| --- | --- |
+| **OLT**, **DIO**, **Ativo** | Adicionam um equipamento ao canvas. |
+| Contadores | **OLT** e **DIO** (quantidade), **Portas** (portas do DIO com cordão / total) e **PON** (em uso / total). |
+| **Canvas 2D** / **Manobra** | Alterna entre o canvas com os cards e a tabela de manobra porta a porta. |
+| **Cordões** | Mostra ou esconde no canvas os cordões (patch) entre DIO, OLT e ativos. |
+| **Traço VFL** | Liga a "caneta de luz vermelha": clique numa porta e veja o caminho aceso. |
+| **PNG** | Baixa uma imagem do POP com os cards, vínculos e cordões. |
+| ↶ (desfazer) | Desfaz a última alteração (também **Ctrl+Z**). |
+| **Salvar** / **Salvar e sair** | Grava o POP (e fecha, no segundo). |
+| **Auto-Patch** | Liga automaticamente as portas do DIO que já têm fusão às portas PON livres da OLT. |
+
+No canto inferior direito ficam o **zoom** e o **enquadrar tudo**. Arraste o fundo para mover a vista e use a
+roda do mouse para o zoom. O status do POP (*Em projeto*, *Implantado*...) fica ao lado do título.
+
+**Adicionar o DIO**
+
+1. Clique em **DIO**.
+2. Escolha a especificação: **12, 24, 36, 48, 72 ou 144** portas. Cada **bandeja** tem **12 portas**, então o
+   quadro mostra *portas totais* e *bandejas*.
+3. Clique em **Criar dispositivo**.
+
+O DIO aparece em **vista frontal**: uma linha por bandeja (**T1**, **T2**...) com as portas numeradas. No cabeçalho
+do card ficam as ferramentas do DIO:
+
+| Ícone | Ferramenta |
+| --- | --- |
+| Grade | **Matriz de fusão** do DIO. |
+| Corrente | **Vincular cabos**: escolha quais cabos entram neste DIO. |
+| Plugue | **Patch**: abre a vista Manobra já neste DIO. |
+| Lápis | **Editar** nome e número de portas. |
+| Lixeira | **Excluir** o DIO (e os splitters e conexões dele). |
+
+Depois de vincular, o nome do cabo aparece como etiqueta logo abaixo do cabeçalho e uma linha na cor do cabo liga o
+card do cabo ao DIO. Cada porta que recebe uma fibra fundida ganha uma **bolinha na cor do cabo** no canto. A porta
+fica **azul** quando tem cordão na frente (patch).
+
+**Matriz de fusão do DIO**
+
+Abra pelo ícone de grade. A tela tem três colunas:
+
+- **Cabos vinculados**: cada cabo com seus tubos (**T1**, **T2**...) e as fibras nas cores ABNT.
+- **Splitters**: clique em **Adicionar** para colocar um splitter dentro do DIO. A entrada recebe uma fibra e as
+  saídas podem ser fundidas nas portas do DIO.
+- **Bandejas**: as portas do DIO, 12 por bandeja.
+
+Para fundir, clique numa **fibra** (ou numa **saída do splitter**) e depois numa **porta da bandeja**. Para ligar
+uma fibra no splitter, clique na fibra e depois em **Entrada livre**. Clique num item já fundido para desfazer.
+**Auto Fusão** funde as fibras livres dos cabos vinculados, em ordem, nas portas livres do DIO. **Vincular cabos**
+também está no topo da matriz. Clique em **Concluir** para voltar ao canvas (as fusões só são gravadas quando você
+salva o POP).
 
 **Adicionar a OLT**
 
 1. Clique em **OLT**.
-2. Escolha o **Modelo** (Huawei MA5608T, V-Sol 8 portas, ZTE C320) ou **Configuração personalizada**.
-3. Ajuste **Nome**, **Slots**, **PON/slot** e **TX (dBm)** (potência de saída; o padrão vem das Configurações).
-4. Clique em **Criar OLT**. As portas aparecem como *slot/porta* (ex.: 1/3).
+2. No campo **Modelo**, procure e escolha: **Configuração personalizada**, **OLT Huawei MA5608T** (2×16),
+   **OLT V-Sol 8 portas** (1×8) ou **OLT ZTE C320** (2×16).
+3. Ajuste **Nome**, **Slots**, **PON/slot**, **Uplinks** e **TX dBm** (o padrão vem das Configurações). A miniatura
+   mostra como fica a frente da OLT.
+4. Clique em **Criar OLT**.
 
-**Adicionar o DIO**
+A OLT aparece em **vista frontal**: uma linha por slot (**S1**, **S2**...) com as portas PON e uma linha **UP** com
+os uplinks. Portas PON com cordão ficam **roxas**; uplinks com cordão ficam **laranja**. Ferramentas do card:
+**Patch**, **Editar** e **Excluir**.
 
-1. Clique em **DIO** e escolha o tamanho: **12, 24, 36, 48, 72 ou 144** portas.
-2. Clique em **Criar DIO com N portas**.
-3. O DIO tem dois lados: o **esquerdo** recebe o cordão da OLT (conector) e o **direito** é fundido com o cabo.
+**Equipamento ativo**
 
-**Fazer as ligações**
+Clique em **Ativo** para adicionar um switch, roteador, BNG ou servidor com o número de portas que quiser. As portas
+do ativo recebem cordões dos **uplinks da OLT** (ou da frente do DIO, em links ponto a ponto). O ativo não é fonte
+de sinal PON: o orçamento óptico só conta caminhos que chegam numa porta PON de OLT.
 
-1. Clique numa **porta PON da OLT** e depois na porta do **lado esquerdo do DIO**.
-2. Para ligar o DIO ao cabo, clique numa porta do **lado direito do DIO** e depois numa **fibra do cabo**.
-3. Para ligar várias fibras de uma vez, use **Auto-fusão** ([seção 8](#auto-fusão)) com o cabo como origem e o
-   DIO como destino.
-4. Clique em **Salvar e sair** (ou **Aplicar** para salvar e continuar).
+**Cordões (patch)**
+
+Há três jeitos:
+
+1. **Auto-Patch** (barra de ferramentas): liga em sequência cada porta do DIO que tem fusão a uma PON livre.
+2. **No canvas**: clique numa porta (do DIO, da OLT ou do ativo) e depois na porta de destino. Clique numa porta já
+   ligada para ver o cordão, a potência na fibra de saída e o botão **Remover** (ou tecla **Delete**).
+3. **Na vista Manobra**: para cada porta do DIO aparecem a bandeja, a **fusão** (cabo, fibra e cor), uma lista para
+   escolher a **porta PON** (ou porta de ativo) e a **potência** em dBm. Em cada OLT aparecem as PON em uso e os
+   uplinks, com a lista para ligá-los aos ativos.
+
+**Traço VFL**
+
+Clique em **Traço VFL** (o botão fica vermelho) e depois em qualquer porta. O caminho da luz acende em vermelho: as
+portas, os cordões, o DIO, a linha do cabo e o card do cabo por onde a luz sai. O painel no canto mostra por qual
+**cabo e fibra** a luz sai do POP e para qual caixa ela segue. Clique de novo em **Traço VFL** para desligar.
+
+> POPs feitos antes desta versão abrem normalmente: os cards são organizados na primeira abertura e os cabos já
+> fundidos em cada DIO aparecem como vinculados.
 
 ---
 
@@ -348,14 +422,14 @@ O sistema não deixa ligar duas portas do mesmo elemento nem uma porta que já e
    às fibras que saem (drops ou outros cabos).
 4. Splitters conectorizados (APC/UPC) somam também a perda de conector no orçamento.
 
-Para remover um splitter, OLT ou DIO, selecione o bloco e clique em **Remover**. Num bloco de cabo, **Remover** apaga
+Para remover um splitter, selecione o bloco e clique em **Remover**. Num bloco de cabo, **Remover** apaga
 só as fusões desse cabo nesta caixa (o cabo em si se exclui no mapa).
 
 <a id="auto-fusão"></a>
 **Auto-fusão** (sangria e emendas em sequência)
 
 1. Clique em **Auto-fusão**.
-2. Escolha o **Cabo de origem** e o **Destino** (outro cabo ou um DIO).
+2. Escolha o **Cabo de origem** e o **Destino** (outro cabo).
 3. Em **Começar na porta/fibra do destino**, informe onde a sequência começa (ex.: 1 para 1↔1, 2↔2...; 13 para
    começar no segundo tubo).
 4. Clique em **Fundir**. As fibras que já estiverem ocupadas são puladas.
@@ -404,7 +478,8 @@ diagrama). A janela mostra:
 
 ## 11. Exportar o unifilar em PNG
 
-No **Editor do POP** ou no **Diagrama de fusão**, clique em **PNG** (canto superior direito). O arquivo baixa com o
+No **Editor do POP** (botão **PNG** na barra de ferramentas) ou no **Diagrama de fusão** (canto superior direito),
+clique em **PNG**. O arquivo baixa com o
 diagrama completo, o nome da caixa, a data, as coordenadas e o status. Use para mandar à equipe de campo ou anexar
 ao projeto.
 
@@ -605,6 +680,10 @@ Ao salvar, todos os sinais, cores e relatórios são recalculados.
 | **Delete** | Diagrama | Remove a fusão ou o bloco selecionado. |
 | **Esc** | Diagrama | Cancela a porta selecionada. |
 | **Rolar o mouse** | Diagrama | Zoom. |
+| **Ctrl+Z** | Editor do POP | Desfaz a última alteração. |
+| **Delete** | Editor do POP | Remove o cordão ou a conexão selecionada. |
+| **Esc** | Editor do POP | Cancela a porta selecionada e apaga o Traço VFL. |
+| **Arrastar** o cabeçalho do card | Editor do POP | Move o card; arrastar o fundo move a vista. |
 
 - Monte a rede **do POP para o cliente**: cabos primeiro, depois POP, CEOs, CTOs e por último os drops. Assim o
   sinal aparece em cada porta enquanto você funde.

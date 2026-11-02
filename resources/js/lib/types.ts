@@ -48,9 +48,14 @@ export interface Project {
 
 /** Componente dentro do diagrama de uma caixa ou POP. */
 export type DiagramComponent =
-  | { id: string; kind: 'splitter'; model: string; name?: string; x: number; y: number }
-  | { id: string; kind: 'olt'; name: string; model: string; slots: number; ports: number; tx_dbm: number; x: number; y: number }
-  | { id: string; kind: 'dio'; name: string; ports: number; x: number; y: number };
+  /** dio: no POP, o splitter fica dentro da matriz de fusão desse DIO. */
+  | { id: string; kind: 'splitter'; model: string; name?: string; dio?: string; x: number; y: number }
+  /** Portas PON "p1..pN" (slot a slot) e uplinks "u1..uN". */
+  | { id: string; kind: 'olt'; name: string; model: string; slots: number; ports: number; uplinks?: number; tx_dbm: number; x: number; y: number }
+  /** Lado "a" = fusão com o cabo; lado "b" = conector frontal (patch). cables = cabos vinculados ("c12"). */
+  | { id: string; kind: 'dio'; name: string; ports: number; cables?: string[]; x: number; y: number }
+  /** Equipamento ativo (switch, roteador, BNG...). Portas "e1..eN", só cordões. */
+  | { id: string; kind: 'active'; name: string; type: string; ports: number; x: number; y: number };
 
 /** Ponta de uma conexão: componente ("c12" = cabo 12, ou id do componente) e porta. */
 export interface End {
@@ -70,6 +75,8 @@ export interface Diagram {
   components: DiagramComponent[];
   cablePos: Record<string, { x: number; y: number; side?: 'left' | 'right' }>;
   connections: Connection[];
+  /** true quando os cards já foram organizados pelo editor de POP. */
+  popLayout?: boolean;
 }
 
 export interface NetNode {

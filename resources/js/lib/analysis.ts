@@ -1,6 +1,7 @@
 import { clientBudget, powerLevel, traceUpstream, type BudgetResult, type PowerLevel } from './budget';
 import { splitterModel } from './catalog';
 import { distance } from './geo';
+import { isPatchEnd } from './pop';
 import type { Cable, LatLng, NetNode, Network, NodeType, SlackKind, Status } from './types';
 
 // ---------------- Geometria ----------------
@@ -180,10 +181,7 @@ export function buildReport(net: Network, polygon?: LatLng[]): Report {
     });
     // Fusões: conexões que não são cordão (porta de OLT ou frente do DIO).
     const comps = new Map((n.diagram?.components ?? []).map((c) => [c.id, c]));
-    const isPatch = (e: { c: string; p: string }) => {
-      const comp = comps.get(e.c);
-      return comp?.kind === 'olt' || (comp?.kind === 'dio' && e.p.startsWith('b'));
-    };
+    const isPatch = (e: { c: string; p: string }) => isPatchEnd(comps.get(e.c), e.p);
     report.fusions += (n.diagram?.connections ?? []).filter((k) => !k.pass && !isPatch(k.a) && !isPatch(k.b)).length;
     if (n.type === 'cto') {
       const u = portUsage(n);
