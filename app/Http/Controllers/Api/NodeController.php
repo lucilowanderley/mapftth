@@ -58,25 +58,38 @@ class NodeController extends Controller
         $this->authorizeProject($request, $node->project, 'edit');
         $data = $this->validated($request, partial: true);
         $changed = $this->describeChanges($node, $data);
+        $old = [(float) $node->lat, (float) $node->lng];
         $moved = (isset($data['lat']) && (float) $data['lat'] !== $node->lat)
             || (isset($data['lng']) && (float) $data['lng'] !== $node->lng);
         $node->update($data);
 
-        // Ao mover a caixa, as pontas dos cabos ligados a ela acompanham.
+        // Ao mover o objeto, as pontas dos cabos ligados a ele acompanham, assim como
+        // os vértices de cabos que passam exatamente por ele (ex.: cabo apoiado num poste).
         $cables = collect();
         if ($moved) {
-            $point = [$node->lat, $node->lng];
-            $cables = Cable::where('from_node_id', $node->id)->orWhere('to_node_id', $node->id)->get();
-            foreach ($cables as $cable) {
-                $path = $cable->path;
-                if ($cable->from_node_id === $node->id) {
-                    $path[0] = $point;
+            $point = [(float) $node->lat, (float) $node->lng];
+            $same = fn ($p) => is_array($p) && count($p) === 2
+                && abs((float) $p[0] - $old[0]) < 1e-8 && abs((float) $p[1] - $old[1]) < 1e-8;
+            foreach ($node->project->cables()->get() as $cable) {
+                $path = $cable->path ?? [];
+                $last = count($path) - 1;
+                $changedPath = false;
+                foreach ($path as $i => $p) {
+                    $attached = ($i === 0 && $cable->from_node_id === $node->id)
+                        || ($i === $last && $cable->to_node_id === $node->id);
+                    // Pontas ligadas a outro objeto não são arrastadas junto.
+                    $otherEnd = ($i === 0 && $cable->from_node_id && $cable->from_node_id !== $node->id)
+                        || ($i === $last && $cable->to_node_id && $cable->to_node_id !== $node->id);
+                    if ($attached || (! $otherEnd && $same($p))) {
+                        $path[$i] = $point;
+                        $changedPath = true;
+                    }
                 }
-                if ($cable->to_node_id === $node->id) {
-                    $path[count($path) - 1] = $point;
+                if ($changedPath) {
+                    $cable->path = $path;
+                    $cable->save();
+                    $cables->push($cable);
                 }
-                $cable->path = $path;
-                $cable->save();
             }
         }
         if ($changed) {
@@ -100,7 +113,7 @@ class NodeController extends Controller
     {
         $req = $partial ? 'sometimes' : 'required';
 
-        return $request->validate([
+        $data = $request->validate([
             'type' => [$partial ? 'prohibited' : 'required', Rule::in(NetworkNode::TYPES)],
             'name' => ['sometimes', 'string', 'max:255'],
             'lat' => [$req, 'numeric', 'between:-90,90'],
@@ -110,6 +123,14 @@ class NodeController extends Controller
             'attributes' => ['nullable', 'array'],
             'diagram' => ['nullable', 'array'],
         ]);
+        // Mesma precisão da coluna (7 casas ≈ 1 cm) para pontas de cabo e objeto coincidirem.
+        foreach (['lat', 'lng'] as $k) {
+            if (isset($data[$k])) {
+                $data[$k] = round((float) $data[$k], 7);
+            }
+        }
+
+        return $data;
     }
 
     /** Resume o que mudou para o histórico: diagrama, posição ou campos. */

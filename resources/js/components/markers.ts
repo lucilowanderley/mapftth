@@ -12,15 +12,42 @@ const SHAPES: Record<NetNode['type'], (fill: string, ring: string) => string> = 
 
 const SIZES: Record<NetNode['type'], number> = { cto: 24, ceo: 24, pop: 30, pole: 14, client: 20 };
 
+/**
+ * Os ícones ficam em cache: devolver sempre a mesma instância evita que o Leaflet
+ * troque o elemento do marcador a cada renderização, o que interrompia o arrasto
+ * e o duplo clique.
+ */
+const cache = new Map<string, L.DivIcon>();
+
 export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: string } = {}) {
   const size = SIZES[node.type];
   const fill = opts.fill ?? NODE_TYPES[node.type].color;
   const ring = opts.selected ? '#facc15' : STATUSES[node.status].color;
+  const key = `${node.type}|${fill}|${ring}|${opts.selected ? 1 : 0}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
   const glow = opts.selected ? 'filter:drop-shadow(0 0 6px #facc15);' : 'filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));';
-  return L.divIcon({
+  const icon = L.divIcon({
     className: 'node-marker',
     html: `<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}">${SHAPES[node.type](fill, ring)}</svg>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
+  cache.set(key, icon);
+  return icon;
 }
+
+/** Alça para arrastar vértices de um cabo (quadrado) ou inserir um novo (círculo). */
+export const vertexIcon = L.divIcon({
+  className: 'vertex-handle',
+  html: '<div style="width:12px;height:12px;background:#facc15;border:2px solid #0f172a;border-radius:2px"></div>',
+  iconSize: [12, 12],
+  iconAnchor: [6, 6],
+});
+
+export const midpointIcon = L.divIcon({
+  className: 'vertex-handle',
+  html: '<div style="width:10px;height:10px;background:rgba(250,204,21,.45);border:2px solid #facc15;border-radius:50%"></div>',
+  iconSize: [10, 10],
+  iconAnchor: [5, 5],
+});

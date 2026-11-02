@@ -104,7 +104,8 @@ distribuição e drop**, **Áreas** e **Rótulos** (nomes). Os nomes das caixas 
 aparece sempre).
 
 **Buscar** (barra lateral): digite parte do nome de uma caixa, cliente ou cabo e clique no resultado; o mapa vai
-até ele e já o seleciona.
+até ele e já o seleciona. Também aceita coordenadas, como `-8.0476, -34.8770` (formato do Google Maps) ou
+`8°03'12"S 34°52'37"W`: clique em **Ir para coordenada** e o ponto fica marcado no mapa (**Limpar marcação** tira).
 
 **Régua**: escolha **Régua** e clique nos pontos do trajeto. A distância total aparece na dica do rodapé.
 **Esc** limpa a medição.
@@ -118,19 +119,30 @@ até ele e já o seleciona.
    à esquerda. Você pode continuar clicando para colocar vários do mesmo tipo.
 3. Volte para **Selecionar** (ou aperte **Esc**) quando terminar.
 
-**Editar um elemento**: com **Selecionar**, clique nele. No painel:
+**Inserir por coordenadas**: com a ferramenta do elemento escolhida, aparece abaixo da barra de ferramentas o painel
+**(Elemento) por coordenadas**. Digite **Latitude** e **Longitude** e clique em **Adicionar** (ou Enter). O mapa vai
+até o novo elemento. Aceita graus decimais com ponto ou vírgula (`-8.0476` ou `-8,0476`) e graus/minutos/segundos
+(`8°03'12"S`; use S/W/O para sul e oeste). Se colar o par inteiro, como `-8.0476, -34.8770`, no campo Latitude,
+os dois campos são preenchidos.
+
+**Editar um elemento**: com **Selecionar**, clique nele. **Duplo clique** abre o editor direto: na CTO, CEO ou POP
+abre o diagrama de fusão / editor do POP; no poste e no cliente coloca o cursor no campo **Nome** do painel. No painel:
 
 - **Nome**, **Status** (*Em projeto*, *Não implantado*, *Implantado*, *Certificado*) e **Observações**.
+- **Posição**: latitude e longitude do elemento. Digite os valores exatos (mesmos formatos aceitos acima) e salve
+  para reposicionar com precisão. O ícone de mira centraliza o mapa no elemento e o ícone de copiar copia
+  `latitude, longitude` para colar em outro programa.
 - **Cliente**: campo **Endereço**, potência na ONU e os botões de drop e OTDR ([seção 9](#9-ligar-o-cliente-e-ver-o-sinal)).
 - **Poste**: **Código / plaqueta**, **Material**, **Altura (m)**, **Esforço (daN)**, **Distribuidora / proprietário**
   e a lista de **cabos neste poste**.
 - **POP, CEO e CTO**: botão **Editor do POP** ou **Diagrama de fusão**.
 - Clique em **Salvar alterações**. A lixeira exclui; o relógio mostra o histórico daquele elemento.
 
-**Mover**: com **Selecionar**, arraste a caixa. As pontas dos cabos ligados a ela acompanham e o comprimento é
-recalculado.
-
-**Atalho**: dê **duplo clique** numa CTO, CEO ou POP para abrir direto o diagrama.
+**Mover (arrastar)**: com **Selecionar**, clique e arraste qualquer elemento (POP, CEO, CTO, poste ou cliente).
+Enquanto você arrasta, os cabos acompanham: as pontas ligadas ao elemento e os pontos de cabos que passam
+exatamente por ele (por exemplo, um cabo apoiado num poste). Ao soltar, a posição é salva e o comprimento dos
+cabos é recalculado. Errou? Aperte **Ctrl+Z** ou clique em **Desfazer movimento** no rodapé para voltar o último
+movimento.
 
 ---
 
@@ -158,6 +170,11 @@ O cabo nasce como **Cabo 12FO** de distribuição. Se uma das pontas for um clie
 - **Reserva técnica (m)**: somada ao comprimento geométrico no **Total** (e usada no orçamento óptico e nos
   relatórios).
 - **Cor no mapa** e **Espessura**.
+- **Traçado**: com o cabo selecionado aparecem alças amarelas no mapa. Arraste um **quadrado** para mover aquele
+  ponto do trajeto; arraste um **círculo** (no meio de cada trecho) para criar um ponto novo; clique com o
+  **botão direito** num quadrado para removê-lo. As pontas ligadas a uma caixa não têm alça: elas se movem quando
+  você arrasta a própria caixa. A alteração é salva ao soltar.
+- **Duplo clique** no cabo coloca o cursor no campo **Nome do cabo**.
 - **Salvar alterações**. Se você reduzir o número de fibras, as fusões das fibras que sobrarem são removidas
   (o sistema pergunta antes). Excluir o cabo também remove as fusões dele nas caixas.
 
@@ -464,7 +481,10 @@ Ao salvar, todos os sinais, cores e relatórios são recalculados.
 | **Esc** | Mapa | Cancela o cabo, a área ou a régua e volta para Selecionar. |
 | **Enter** | Mapa | Finaliza o cabo ou a área em desenho. |
 | **Duplo clique** numa caixa | Mapa | Abre o diagrama de fusão / editor do POP. |
-| **Arrastar** caixa | Mapa | Move a caixa e as pontas dos cabos. |
+| **Duplo clique** em poste, cliente ou cabo | Mapa | Abre o painel de edição no campo Nome. |
+| **Arrastar** elemento | Mapa | Move o elemento e os cabos ligados a ele. |
+| **Ctrl+Z** | Mapa | Desfaz o último movimento de elemento. |
+| **Arrastar** alça do cabo | Mapa | Move ou cria um ponto do traçado (botão direito remove). |
 | **Delete** | Diagrama | Remove a fusão ou o bloco selecionado. |
 | **Esc** | Diagrama | Cancela a porta selecionada. |
 | **Rolar o mouse** | Diagrama | Zoom. |
