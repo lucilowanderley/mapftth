@@ -2,6 +2,7 @@ export type NodeType = 'cto' | 'ceo' | 'pop' | 'pole' | 'client';
 export type Status = 'planned' | 'not_deployed' | 'deployed' | 'certified';
 export type CableCategory = 'backbone' | 'distribution' | 'drop';
 export type LatLng = [number, number];
+export type LineStyle = 'solid' | 'dashed' | 'dotted';
 
 export interface Settings {
   olt_tx_dbm: number;
@@ -84,6 +85,8 @@ export interface Cable {
   status: Status;
   color: string;
   width: number;
+  /** null = automático (tracejado quando "Em projeto"). */
+  line_style: LineStyle | null;
   path: LatLng[];
   from_node_id: number | null;
   to_node_id: number | null;

@@ -26,6 +26,7 @@ const cable = (path: [number, number][], from: number | null = null, to: number 
   status: 'planned',
   color: '#0ea5e9',
   width: 4,
+  line_style: null,
   path,
   from_node_id: from,
   to_node_id: to,
@@ -108,5 +109,17 @@ describe('caixas no traçado', () => {
         [node(1, 'cto', 0.01, 0.001)],
       ),
     ).toBeNull();
+  });
+});
+
+describe('estilo da linha do cabo', () => {
+  it('automático segue o status; escolhido prevalece', async () => {
+    const { effectiveLineStyle, lineDash } = await import('../../resources/js/lib/catalog');
+    expect(effectiveLineStyle({ line_style: null, status: 'planned' })).toBe('dashed');
+    expect(effectiveLineStyle({ line_style: null, status: 'deployed' })).toBe('solid');
+    expect(effectiveLineStyle({ line_style: 'dotted', status: 'planned' })).toBe('dotted');
+    expect(lineDash('solid', 4)).toBeUndefined();
+    expect(lineDash('dashed', 4)).toBe('14 9');
+    expect(lineDash('dotted', 4)).toBe('0.1 11');
   });
 });

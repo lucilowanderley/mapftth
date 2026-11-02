@@ -234,13 +234,18 @@ O menu do botão direito no cabo também tem **Editar** (abre o painel do cabo) 
 - **Fibras** e **Fibras/tubo**: as cores seguem o padrão **ABNT** (verde, amarelo, branco, azul, vermelho,
   violeta, marrom, rosa, preto, cinza, laranja, água-marinha). Acima de 12 fibras o diagrama mostra também a cor
   do tubo.
-- **Tipo** (Backbone, Distribuição, Drop) e **Status**. Cabos *Em projeto* aparecem tracejados no mapa.
+- **Tipo** (Backbone, Distribuição, Drop) e **Status**.
 - **Reserva técnica (m)**: somada ao comprimento geométrico no **Total** (e usada no orçamento óptico e nos
   relatórios).
 - **Cor no mapa** e **Espessura**.
-- **Traçado**: com o cabo selecionado aparecem alças amarelas no mapa. Arraste um **quadrado** para mover aquele
-  ponto do trajeto; arraste um **círculo** (no meio de cada trecho) para criar um ponto novo; clique com o
-  **botão direito** num quadrado para removê-lo. As pontas ligadas a uma caixa não têm alça: elas se movem quando
+- **Estilo da linha**: **Contínuo**, **Tracejado** ou **Pontilhado**. Em **Automático** (o padrão), o cabo fica
+  tracejado enquanto estiver *Em projeto* e contínuo nos demais status. Cada botão mostra uma prévia com a cor e a
+  espessura do cabo.
+- **Pontos do cabo**: a partir do zoom 16, cada ponto (vértice) de todos os cabos aparece como uma bolinha de
+  **fundo branco com borda na cor do cabo**. O cabo selecionado ganha um halo amarelo e mantém a própria cor.
+- **Traçado**: com o cabo selecionado, os pontos viram alças arrastáveis. Arraste um **ponto** para movê-lo;
+  arraste uma **bolinha menor e translúcida** (no meio de cada trecho) para criar um ponto novo; clique com o
+  **botão direito** num ponto para removê-lo. As pontas ligadas a uma caixa não têm alça: elas se movem quando
   você arrasta a própria caixa. A alteração é salva ao soltar.
 - **Duplo clique** no cabo coloca o cursor no campo **Nome do cabo**.
 - **Salvar alterações**. Se você reduzir o número de fibras, as fusões das fibras que sobrarem são removidas

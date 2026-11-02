@@ -43,7 +43,7 @@ import type { Cable, LatLng } from '../../resources/js/lib/types';
 
 const cab = (path: LatLng[], from: number | null, to: number | null): Cable => ({
   id: 1, project_id: 1, name: 'C', category: 'distribution', model: null, fiber_count: 12, fibers_per_tube: 12,
-  status: 'planned', color: '#000', width: 3, path, from_node_id: from, to_node_id: to, slack_m: 0, length_m: 0, notes: null,
+  status: 'planned', color: '#000', width: 3, line_style: null, path, from_node_id: from, to_node_id: to, slack_m: 0, length_m: 0, notes: null,
 });
 
 describe('mover objeto', () => {

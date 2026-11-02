@@ -44,3 +44,8 @@
 .vertex-handle {
     cursor: grab;
 }
+
+/* Sem contorno de foco do navegador ao clicar num cabo (a seleção já tem o halo amarelo). */
+path.leaflet-interactive:focus {
+  outline: none;
+}

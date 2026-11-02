@@ -11,7 +11,7 @@ const node = (id: number, type: NetNode['type'], lat: number, lng: number, diagr
 });
 const cable = (id: number, from: number, to: number, path: LatLng[], length: number, fibers = 12, slack = 0): Cable => ({
   id, project_id: 1, name: `C${id}`, category: fibers === 1 ? 'drop' : 'distribution', model: null, fiber_count: fibers, fibers_per_tube: 12,
-  status: 'planned', color: '#000000', width: 3, path, from_node_id: from, to_node_id: to, slack_m: slack, length_m: length, notes: null,
+  status: 'planned', color: '#000000', width: 3, line_style: null, path, from_node_id: from, to_node_id: to, slack_m: slack, length_m: length, notes: null,
 });
 
 // POP (0,0) → CTO (0.01,0) [~1112 m] → Cliente (0.01,0.001)

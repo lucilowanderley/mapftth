@@ -18,7 +18,7 @@ const node = (id: number, type: NetNode['type'], diagram: NetNode['diagram'] = n
 
 const cable = (id: number, from: number, to: number, length: number, fibers = 12): Cable => ({
   id, project_id: 1, name: `Cabo ${id}`, category: 'distribution', model: null, fiber_count: fibers, fibers_per_tube: 12,
-  status: 'planned', color: '#000000', width: 3, path: [[0, 0], [0, 0]], from_node_id: from, to_node_id: to, slack_m: 0,
+  status: 'planned', color: '#000000', width: 3, line_style: null, path: [[0, 0], [0, 0]], from_node_id: from, to_node_id: to, slack_m: 0,
   length_m: length, notes: null,
 });
 

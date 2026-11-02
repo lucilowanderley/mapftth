@@ -10,8 +10,10 @@ class Cable extends Model
 {
     public const CATEGORIES = ['backbone', 'distribution', 'drop'];
 
+    public const LINE_STYLES = ['solid', 'dashed', 'dotted'];
+
     protected $fillable = [
-        'name', 'category', 'model', 'fiber_count', 'fibers_per_tube', 'status', 'color', 'width',
+        'name', 'category', 'model', 'fiber_count', 'fibers_per_tube', 'status', 'color', 'width', 'line_style',
         'path', 'from_node_id', 'to_node_id', 'slack_m', 'notes',
     ];
 
