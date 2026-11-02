@@ -4,7 +4,14 @@ import {
   autoFuseDio,
   autoPatch,
   canMount,
+  compareRacks,
   defaultRackHeight,
+  duplicateRackCodes,
+  nextRackPos,
+  nextRow,
+  rackCode,
+  rackLabel,
+  searchRacks,
   firstFreeU,
   fusionSource,
   linkedCables,
@@ -15,7 +22,8 @@ import {
   unmount,
   vflTrace,
 } from '../../resources/js/lib/pop';
-import type { Cable, Diagram, NetNode, Network, Settings } from '../../resources/js/lib/types';
+import type { Rack } from '../../resources/js/lib/pop';
+import type { Cable, Diagram, NetNode, Network, RackLocation, Settings } from '../../resources/js/lib/types';
 
 const settings: Settings = {
   olt_tx_dbm: 5, fusion_loss_db: 0.1, connector_loss_db: 0.5, fiber_loss_db_km: 0.35, onu_min_dbm: -27, onu_warn_dbm: -25, onu_max_dbm: -8,
@@ -145,5 +153,43 @@ describe('rack do POP', () => {
     const d = withRack();
     d.connections.push({ id: 'z', a: { c: 'r1', p: 'p1' }, b: { c: 'dio', p: 'b1' } });
     expect(pruneConnections(d, new Set(['c10']))).toEqual([]);
+  });
+});
+
+describe('endereçamento de rack (TIA-606)', () => {
+  const rk = (id: string, loc?: RackLocation, name = id): Rack => ({ id, kind: 'rack', name, mount: 'floor', units: 44, loc, x: 0, y: 0 });
+
+  it('monta o código prédio.andarSala-FileiraPosição', () => {
+    expect(rackCode({ site: 'dc1', floor: '1', room: 'a', row: 'aj', pos: 5 })).toBe('DC1.1A-AJ05');
+    expect(rackCode({ row: 'B', pos: 12 })).toBe('B12');
+    expect(rackCode({ floor: '2', room: 'DH1' })).toBe('2DH1');
+    expect(rackCode({})).toBe('');
+    expect(rackCode(undefined)).toBe('');
+  });
+
+  it('fileiras seguem a ordem de colunas de planilha', () => {
+    expect(nextRow('A')).toBe('B');
+    expect(nextRow('Z')).toBe('AA');
+    expect(nextRow('AZ')).toBe('BA');
+  });
+
+  it('ordena por sala, fileira (A < Z < AA) e posição numérica', () => {
+    const list = [rk('3', { room: 'A', row: 'AA', pos: 1 }), rk('x'), rk('2', { room: 'A', row: 'B', pos: 10 }), rk('1', { room: 'A', row: 'B', pos: 2 })];
+    expect([...list].sort(compareRacks).map((r) => r.id)).toEqual(['1', '2', '3', 'x']);
+  });
+
+  it('sugere a próxima posição livre e acha duplicados', () => {
+    const list = [rk('a', { room: 'A', row: 'C', pos: 1 }), rk('b', { room: 'A', row: 'C', pos: 2 }), rk('c', { room: 'A', row: 'C', pos: 4 }), rk('d', { room: 'B', row: 'C', pos: 3 })];
+    expect(nextRackPos(list, { room: 'A', row: 'C' })).toBe(3);
+    expect(nextRackPos(list, { room: 'B', row: 'C' })).toBe(1);
+    expect(duplicateRackCodes([...list, rk('e', { room: 'A', row: 'C', pos: 4 })])).toEqual(new Set(['A-C04']));
+  });
+
+  it('busca por código sem pontuação e mostra rótulo sem repetir', () => {
+    const list = [rk('a', { site: 'DC1', floor: '1', room: 'A', row: 'AJ', pos: 5 }, 'Core'), rk('b', { row: 'B', pos: 1 }, 'B01')];
+    expect(searchRacks(list, 'aj05').map((r) => r.id)).toEqual(['a']);
+    expect(searchRacks(list, 'dc1 1a').map((r) => r.id)).toEqual(['a']);
+    expect(rackLabel(list[0])).toBe('DC1.1A-AJ05 · Core');
+    expect(rackLabel(list[1])).toBe('B01');
   });
 });

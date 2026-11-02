@@ -1,8 +1,8 @@
 import { Box, Check, LogOut, Link2, Network as NetIcon, PackagePlus, Rows4, Search, Server, Spline, X, Zap } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { ACTIVE_TYPES, DIO_SIZES, DIO_TRAY, RACK_MOUNTS, RACK_SIZES, equipmentLabel } from '../../lib/catalog';
-import { canMount, defaultRackHeight, firstFreeU, rackHeight, rackUsed, uid, type Rack, type Rackable } from '../../lib/pop';
-import type { Cable, Diagram, DiagramComponent, EquipmentModel, RackMountType } from '../../lib/types';
+import { MAX_RACK_BATCH, canMount, compareRacks, defaultRackHeight, firstFreeU, nextRackPos, normalizeRow, rackCode, rackGroup, rackHeight, rackLabel, rackUsed, uid, type Rack, type Rackable } from '../../lib/pop';
+import type { Cable, Diagram, DiagramComponent, EquipmentModel, RackLocation, RackMountType } from '../../lib/types';
 import { Field } from '../ui';
 
 type Olt = Extract<DiagramComponent, { kind: 'olt' }>;
@@ -250,31 +250,156 @@ function rackFields(initial: Rackable | undefined, rack: string): { rack?: strin
 
 /** Escolha do rack onde o equipamento fica instalado (opcional). */
 function RackSelect({ racks, value, onChange }: { racks: Rack[]; value: string; onChange: (v: string) => void }) {
+  const [q, setQ] = useState('');
+  const groups = useMemo(() => {
+    const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const k = norm(q);
+    const list = [...racks].sort(compareRacks).filter((r) => !k || r.id === value || norm(rackLabel(r)).includes(k));
+    const m = new Map<string, Rack[]>();
+    list.forEach((r) => m.set(rackGroup(r), [...(m.get(rackGroup(r)) ?? []), r]));
+    return [...m];
+  }, [racks, q, value]);
   if (!racks.length) return null;
   return (
     <Field label="Instalar no rack">
+      {racks.length > 8 && (
+        <div className="relative mb-1.5">
+          <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
+          <input className="input !py-1 !pl-7 text-xs" placeholder="Filtrar por código ou nome (ex.: AJ05)" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+      )}
       <select className="input" value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">Fora do rack</option>
-        {racks.map((r) => (
-          <option key={r.id} value={r.id}>
-            {r.name} · {r.units}U {RACK_MOUNTS[r.mount].label.toLowerCase()}
-          </option>
-        ))}
+        {groups.map(([g, list]) =>
+          groups.length > 1 || g !== 'Sem endereço' ? (
+            <optgroup key={g} label={g}>
+              {list.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {rackLabel(r)} · {r.units}U {RACK_MOUNTS[r.mount].label.toLowerCase()}
+                </option>
+              ))}
+            </optgroup>
+          ) : (
+            list.map((r) => (
+              <option key={r.id} value={r.id}>
+                {rackLabel(r)} · {r.units}U {RACK_MOUNTS[r.mount].label.toLowerCase()}
+              </option>
+            ))
+          ),
+        )}
       </select>
     </Field>
   );
 }
 
-export function RackDialog({ initial, count, onClose, onSubmit }: { initial?: Rack; count: number; onClose: () => void; onSubmit: (r: Rack) => void }) {
-  const [name, setName] = useState(initial?.name ?? `Rack ${count + 1}`);
+export function RackDialog({ initial, racks, onClose, onSubmit }: { initial?: Rack; racks: Rack[]; onClose: () => void; onSubmit: (r: Rack[]) => void }) {
+  // Novo rack: parte do endereço do último rack cadastrado (mesma sala e fileira), na próxima posição livre.
+  const base = useMemo<RackLocation>(() => {
+    if (initial) return initial.loc ?? {};
+    const last = [...racks].filter((r) => rackCode(r.loc)).sort(compareRacks).pop();
+    if (!last?.loc) return {};
+    const { pos: _p, ...rest } = last.loc;
+    return { ...rest, pos: nextRackPos(racks, rest) };
+  }, [initial, racks]);
+  const [loc, setLoc] = useState<RackLocation>(base);
+  const code = rackCode(loc);
+  const [useCode, setUseCode] = useState(initial ? !!code && initial.name === code : true);
+  const [name, setName] = useState(initial?.name ?? `Rack ${racks.length + 1}`);
   const [mount, setMount] = useState<RackMountType>(initial?.mount ?? 'floor');
   const [units, setUnits] = useState(initial?.units ?? 44);
+  const [qty, setQty] = useState(1);
+  const setL = (k: keyof RackLocation, v: string | number | undefined) => setLoc((l) => ({ ...l, [k]: v }));
+  const finalName = useCode && code ? code : name.trim();
+  const others = racks.filter((r) => r.id !== initial?.id);
+  const taken = new Set(others.map((r) => rackCode(r.loc)).filter(Boolean));
+  const batch = !initial && qty > 1 && !!normalizeRow(loc.row);
+  const startPos = loc.pos && loc.pos > 0 ? loc.pos : 1;
+  const plan: RackLocation[] = batch ? Array.from({ length: qty }, (_, i) => ({ ...loc, pos: startPos + i })) : [loc];
+  const clash = plan.map(rackCode).filter((c) => c && taken.has(c));
+
+  function submit() {
+    const made = plan.map((l, i) => {
+      const c = rackCode(l);
+      const nm = useCode && c ? c : batch ? `${name.trim()} ${i + 1}` : name.trim();
+      const tidy: RackLocation = {
+        site: l.site?.trim().toUpperCase() || undefined,
+        floor: l.floor?.trim().toUpperCase() || undefined,
+        room: l.room?.trim().toUpperCase() || undefined,
+        row: normalizeRow(l.row) || undefined,
+        pos: l.pos && l.pos > 0 ? Math.round(l.pos) : undefined,
+      };
+      const hasLoc = Object.values(tidy).some((v) => v !== undefined);
+      const r: Rack = { ...(initial ?? { id: uid(), kind: 'rack' as const, x: 0, y: 0 }), kind: 'rack', name: nm, mount, units, loc: hasLoc ? tidy : undefined };
+      if (!hasLoc) delete r.loc;
+      return r;
+    });
+    onSubmit(made);
+  }
+
   return (
-    <PopDialog icon={<Rows4 size={18} />} title={initial ? `Editar ${initial.name}` : 'Adicionar rack'} subtitle={`${units}U · ${RACK_MOUNTS[mount].label}`} onClose={onClose}>
+    <PopDialog icon={<Rows4 size={18} />} title={initial ? `Editar ${initial.name}` : 'Adicionar rack'} subtitle={`${code || 'sem endereço'} · ${units}U · ${RACK_MOUNTS[mount].label}`} onClose={onClose} width="max-w-md">
       <div className="space-y-3">
-        <Field label="Nome">
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
+        <div className="rounded-lg border border-slate-700 p-2.5 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="label !mb-0">Endereçamento no datacenter</div>
+            <span className="text-[10px] text-slate-500" title="Padrão de identificação ANSI/TIA-606: prédio.andar+sala - fileira+posição">TIA-606</span>
+          </div>
+          <div className="grid grid-cols-5 gap-1.5">
+            {(
+              [
+                ['site', 'Prédio/site', 'DC1'],
+                ['floor', 'Andar', '1'],
+                ['room', 'Sala', 'A'],
+                ['row', 'Fileira', 'AJ'],
+              ] as const
+            ).map(([k, label, ph]) => (
+              <label key={k} className="block">
+                <span className="block text-[10px] text-slate-400 mb-0.5">{label}</span>
+                <input
+                  className="input !px-2 !py-1 uppercase"
+                  placeholder={ph}
+                  value={loc[k] ?? ''}
+                  onChange={(e) => setL(k, k === 'row' ? normalizeRow(e.target.value) : e.target.value.toUpperCase())}
+                />
+              </label>
+            ))}
+            <label className="block">
+              <span className="block text-[10px] text-slate-400 mb-0.5">Posição</span>
+              <input
+                type="number"
+                min={1}
+                className="input !px-2 !py-1"
+                placeholder="5"
+                value={loc.pos ?? ''}
+                onChange={(e) => setL('pos', e.target.value === '' ? undefined : Math.max(1, Math.round(Number(e.target.value)) || 1))}
+              />
+            </label>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-slate-400">Código:</span>
+            <span className={`font-mono font-semibold ${code ? 'text-emerald-300' : 'text-slate-500'}`}>{code || 'preencha os campos'}</span>
+            {loc.row && (
+              <button className="ml-auto text-[11px] text-sky-400 hover:underline cursor-pointer" onClick={() => setLoc((l) => ({ ...l, pos: nextRackPos(others, l) }))}>
+                próxima posição livre
+              </button>
+            )}
+          </div>
+          {clash.length > 0 && (
+            <div className="text-[11px] text-amber-400">
+              Já existe rack em {clash.slice(0, 4).join(', ')}
+              {clash.length > 4 ? ` e mais ${clash.length - 4}` : ''}.
+            </div>
+          )}
+        </div>
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input type="checkbox" checked={useCode} onChange={(e) => setUseCode(e.target.checked)} />
+          Usar o código como nome do rack
+        </label>
+        {!(useCode && code) && (
+          <Field label={batch ? 'Nome (numerado em sequência)' : 'Nome'}>
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+        )}
         <div>
           <div className="label">Instalação</div>
           <div className="grid grid-cols-2 gap-2">
@@ -309,12 +434,23 @@ export function RackDialog({ initial, count, onClose, onSubmit }: { initial?: Ra
             U <span className="text-slate-500">(1U = 44,45 mm · {((units * 44.45) / 10).toFixed(1)} cm úteis)</span>
           </div>
         </div>
-        <button
-          className="btn-primary w-full"
-          disabled={!name.trim()}
-          onClick={() => onSubmit({ ...(initial ?? { id: uid(), kind: 'rack' as const, x: 0, y: 0 }), kind: 'rack', name: name.trim(), mount, units })}
-        >
-          <Zap size={15} /> {initial ? 'Salvar alterações' : 'Criar rack'}
+        {!initial && (
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            Criar
+            <input type="number" min={1} max={MAX_RACK_BATCH} className="input !w-16 !py-1" value={qty} onChange={(e) => setQty(Math.max(1, Math.min(MAX_RACK_BATCH, Math.round(Number(e.target.value)) || 1)))} />
+            rack(s)
+            {qty > 1 &&
+              (normalizeRow(loc.row) ? (
+                <span className="text-slate-500">
+                  na fileira {normalizeRow(loc.row)}, posições {String(startPos).padStart(2, '0')} a {String(startPos + qty - 1).padStart(2, '0')}
+                </span>
+              ) : (
+                <span className="text-amber-400">informe a fileira para criar vários</span>
+              ))}
+          </div>
+        )}
+        <button className="btn-primary w-full" disabled={!finalName || (!initial && qty > 1 && !batch)} onClick={submit}>
+          <Zap size={15} /> {initial ? 'Salvar alterações' : batch ? `Criar ${qty} racks` : 'Criar rack'}
         </button>
       </div>
     </PopDialog>

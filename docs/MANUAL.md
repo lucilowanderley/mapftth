@@ -324,6 +324,7 @@ DIOs no meio, OLTs à direita).
 | **Rack** | Adiciona um rack de piso ou suspenso, com a altura em U. |
 | **Cadastro** | Abre o **Cadastro de equipamentos** (fabricante, modelo, portas e altura em U). |
 | Contadores | **Rack**, **OLT** e **DIO** (quantidade), **Portas** (portas do DIO com cordão / total) e **PON** (em uso / total). |
+| **Localizar rack** | Com mais de um rack, digite o código (ex.: *AJ05* ou *DC1.1A-AJ05*) ou o nome e tecle Enter: a vista vai até o rack, que pisca com borda amarela. |
 | **Canvas 2D** / **Manobra** | Alterna entre o canvas com os cards e a tabela de manobra porta a porta. |
 | **Cordões** | Mostra ou esconde no canvas os cordões (patch) entre DIO, OLT e ativos. |
 | **Traço VFL** | Liga a "caneta de luz vermelha": clique numa porta e veja o caminho aceso. |
@@ -338,9 +339,25 @@ roda do mouse para o zoom. O status do POP (*Em projeto*, *Implantado*...) fica 
 **Rack (piso ou suspenso)**
 
 1. Clique em **Rack**.
-2. Dê um **Nome** e escolha a **Instalação**: **Piso** (rack apoiado no chão) ou **Suspenso** (rack de parede).
-3. Escolha a **altura em U** (6U a 48U) ou digite outro tamanho. 1U = 44,45 mm.
-4. Clique em **Criar rack**.
+2. Preencha o **Endereçamento no datacenter** (todos os campos são opcionais):
+   **Prédio/site** (ex.: DC1), **Andar** (ex.: 1), **Sala** (ex.: A), **Fileira** (letras: A, B... Z, AA, AB...) e
+   **Posição** na fileira (1, 2, 3...). O editor monta o **código** no padrão de grade de piso da norma
+   ANSI/TIA-606: `prédio.andarSala-FileiraPosição`, com a posição em dois dígitos. Exemplo: **DC1.1A-AJ05** é o
+   prédio DC1, andar 1, sala A, fileira AJ, posição 05. Num POP pequeno basta a fileira e a posição (ex.: **A01**).
+3. Deixe marcado **Usar o código como nome do rack** (ou desmarque e dê um **Nome** próprio, como *Rack Core*).
+4. Escolha a **Instalação**: **Piso** (rack apoiado no chão) ou **Suspenso** (rack de parede).
+5. Escolha a **altura em U** (6U a 48U) ou digite outro tamanho. 1U = 44,45 mm.
+6. Clique em **Criar rack**.
+
+Ao criar o próximo rack, o endereço já vem preenchido com a mesma sala e fileira do último, na **próxima posição
+livre** (há também um link com esse nome para recalcular). Para montar uma fileira inteira de uma vez, informe a
+fileira e a posição inicial e mude **Criar 1 rack(s)** para a quantidade (até 50): por exemplo, 10 racks a partir
+da posição 1 na fileira B criam **B01** a **B10**, lado a lado no canvas. Se o código já estiver em uso, o editor
+avisa antes de criar e o rack repetido aparece com a marca **duplicado** no cabeçalho.
+
+Nas listas de rack (campo **Instalar no rack** da OLT, DIO e Ativo) os racks aparecem em ordem de endereço
+(prédio, andar, sala, fileira e posição), agrupados por fileira, e com mais de 8 racks surge um campo para filtrar
+pelo código. Racks sem endereço ficam no fim, em **Sem endereço**.
 
 O rack aparece à direita, em **vista frontal**, com as U numeradas de baixo (**U1**) para cima. Cada equipamento
 instalado ocupa as suas U e aparece na cor do tipo: **DIO azul**, **OLT roxa** e **ativo verde**. O rodapé mostra
@@ -361,7 +378,11 @@ equipamentos nem passar do topo do rack.
 como uma faixa na cor do tipo, com o nome, o modelo e os mesmos ícones do card (**Matriz de fusão**, **Vincular
 cabos**, **Patch**, **Posição no rack**, **Editar**, **Excluir**). Clique na faixa para **expandir**: o card completo,
 com as portas, abre ao lado do rack, na altura do equipamento, com uma borda laranja. Clique de novo na faixa (ou no
-ícone **Recolher** do card) para recolher. Só um equipamento fica expandido por vez. O rodapé do card mostra onde ele
+ícone **Recolher** do card) para recolher. Dá para deixar **até 10 equipamentos expandidos** ao mesmo tempo.
+
+O card expandido pode ser **arrastado** pelo cabeçalho para qualquer lugar do canvas. A posição fica gravada quando
+você salva o POP: da próxima vez que expandir, o card abre onde você deixou (o equipamento continua instalado na
+mesma U do rack, e a linha do cabo segue da faixa até o card). O rodapé do card mostra onde ele
 está (por exemplo *Rack 1 · U40–41*).
 
 **Cabo chegando no rack.** Quando o DIO está no rack, a linha do cabo vinculado chega primeiro na **lateral do

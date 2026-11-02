@@ -81,9 +81,29 @@ export interface RackMount {
   u?: number;
   /** Altura em U (padrão calculado pelo tipo/tamanho do equipamento). */
   h?: number;
+  /** Posição do card quando expandido fora do rack (arrastado pelo usuário). Sem valor = ao lado do rack. */
+  ex?: number;
+  ey?: number;
 }
 
 export type RackMountType = 'floor' | 'wall';
+
+/**
+ * Endereço do rack no datacenter, no estilo ANSI/TIA-606 (grade do piso): prédio/site, andar + sala,
+ * fileira (letras) e posição na fileira (número). Ex.: DC1.1A-AJ05.
+ */
+export interface RackLocation {
+  /** Prédio ou site (ex.: DC1, SP01). */
+  site?: string;
+  /** Andar (ex.: 1, T, S1). */
+  floor?: string;
+  /** Sala ou espaço (ex.: A, DH2). */
+  room?: string;
+  /** Fileira (letras, ex.: A, AJ). */
+  row?: string;
+  /** Posição do gabinete na fileira (1, 2, 3...). */
+  pos?: number;
+}
 
 /** Componente dentro do diagrama de uma caixa ou POP. */
 export type DiagramComponent =
@@ -96,7 +116,7 @@ export type DiagramComponent =
   /** Equipamento ativo (switch, roteador, BNG...). Portas "e1..eN", só cordões. */
   | ({ id: string; kind: 'active'; name: string; type: string; ports: number; model?: string; x: number; y: number } & RackMount & ModelRef)
   /** Rack do POP: de piso ou suspenso (parede), com altura em U (ex.: 44U, 48U). */
-  | { id: string; kind: 'rack'; name: string; mount: RackMountType; units: number; x: number; y: number };
+  | { id: string; kind: 'rack'; name: string; mount: RackMountType; units: number; loc?: RackLocation; x: number; y: number };
 
 /** Ponta de uma conexão: componente ("c12" = cabo 12, ou id do componente) e porta. */
 export interface End {

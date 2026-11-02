@@ -10,6 +10,7 @@ import {
   Pencil,
   Plug,
   Save,
+  Search,
   Server,
   Spline,
   Trash2,
@@ -42,7 +43,10 @@ import {
   oltPortLabel,
   partner,
   pruneConnections,
+  rackCode,
   rackConflicts,
+  duplicateRackCodes,
+  searchRacks,
   rackHeight,
   rackItems,
   rackUsed,
@@ -89,6 +93,8 @@ interface Props {
 
 const isPopComp = (c: DiagramComponent): c is PopComp => c.kind === 'olt' || c.kind === 'dio' || c.kind === 'active';
 const isRack = (c: DiagramComponent): c is Rack => c.kind === 'rack';
+/** Quantos equipamentos do rack podem ficar expandidos ao mesmo tempo. */
+const MAX_EXPANDED = 10;
 
 /** Cor de cada tipo de equipamento (portas com cordão e blocos dentro do rack). */
 const KIND_COLOR: Record<Rackable['kind'], string> = { dio: '#0ea5e9', olt: '#8b5cf6', active: '#10b981' };
@@ -151,8 +157,17 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   const [dialog, setDialog] = useState<Dialog>(null);
   const [matrixDio, setMatrixDio] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; error?: boolean } | null>(null);
-  /** Equipamento instalado em rack que está expandido (os demais ficam recolhidos na faixa do rack). */
-  const [expanded, setExpanded] = useState<string | null>(null);
+  /** Equipamentos instalados em rack que estão expandidos (até MAX_EXPANDED; os demais ficam recolhidos na faixa). */
+  const [expanded, setExpanded] = useState<string[]>([]);
+  const toggleExpanded = (id: string) =>
+    setExpanded((list) => {
+      if (list.includes(id)) return list.filter((x) => x !== id);
+      if (list.length >= MAX_EXPANDED) {
+        notify(`Dá para expandir até ${MAX_EXPANDED} equipamentos ao mesmo tempo. Recolha um antes.`, true);
+        return list;
+      }
+      return [...list, id];
+    });
   const catalog = useEquipmentModels(node.project_id);
   const history = useRef<Diagram[]>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -190,6 +205,30 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   const racks = diagram.components.filter(isRack);
   const rackById = new Map(racks.map((r) => [r.id, r]));
   const conflicts = useMemo(() => rackConflicts(diagram), [diagram]);
+  const dupCodes = useMemo(() => duplicateRackCodes(racks), [racks]);
+  /** Busca de rack por código/nome: centraliza o rack achado e destaca por alguns segundos. */
+  const [rackQuery, setRackQuery] = useState('');
+  const [found, setFound] = useState<string | null>(null);
+  useEffect(() => {
+    if (!found) return;
+    const t = setTimeout(() => setFound(null), 4000);
+    return () => clearTimeout(t);
+  }, [found]);
+  function locateRack(q: string) {
+    const hit = searchRacks(racks, q)[0];
+    if (!hit) {
+      notify(`Nenhum rack com "${q}".`, true);
+      return;
+    }
+    const el = canvasRef.current;
+    if (mode !== 'canvas') setMode('canvas');
+    const { w, h } = rackSize(hit);
+    const k = 0.8;
+    const rw = el?.clientWidth ?? 1200;
+    const rh = el?.clientHeight ?? 800;
+    setView({ k, x: rw / 2 - (hit.x + w / 2) * k, y: h * k > rh - 40 ? 40 - hit.y * k : rh / 2 - (hit.y + h / 2) * k });
+    setFound(hit.id);
+  }
   /** Rack onde o equipamento está instalado (só quando a posição é válida o bastante para desenhar). */
   const mountedIn = (c: PopComp) => (c.rack && typeof c.u === 'number' ? rackById.get(c.rack) : undefined);
   /** Faixa do equipamento no rack, no sistema do canvas. */
@@ -198,15 +237,17 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     return r ? rackStrip(r, c.u!, rackHeight(c)) : null;
   };
   /**
-   * Onde o card do equipamento aparece: fora do rack, na posição dele; no rack, só quando expandido,
-   * ao lado direito do rack e na altura da sua faixa. Recolhido = null.
+   * Onde o card do equipamento aparece: fora do rack, na posição dele; no rack, só quando expandido:
+   * onde o usuário arrastou (ex/ey) ou, sem isso, ao lado direito do rack na altura da faixa. Recolhido = null.
    */
   const shownPos = (c: PopComp): { x: number; y: number } | null => {
     const r = mountedIn(c);
     if (!r) return { x: c.x, y: c.y };
-    if (expanded !== c.id) return null;
+    if (!expanded.includes(c.id)) return null;
+    if (typeof c.ex === 'number' && typeof c.ey === 'number') return { x: c.ex, y: c.ey };
     const st = stripOf(c)!;
-    return { x: r.x + rackSize(r).w + 60, y: Math.max(r.y, st.y - G.HEADER / 2) };
+    const i = expanded.indexOf(c.id);
+    return { x: r.x + rackSize(r).w + 60 + i * 30, y: Math.max(r.y, st.y - G.HEADER / 2) };
   };
   const shownComps = comps.flatMap((c) => {
     const p = shownPos(c);
@@ -273,7 +314,8 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     if (key) {
       if (readOnly) return;
       const c = compById.get(key);
-      const p = c ? { x: c.x, y: c.y } : cablePos(key);
+      // Card expandido de equipamento no rack: arrasta a posição de expansão (ex/ey), não a do card solto.
+      const p = c ? ((isPopComp(c) && mountedIn(c) && shownPos(c)) || { x: c.x, y: c.y }) : cablePos(key);
       ox = p.x;
       oy = p.y;
     }
@@ -301,7 +343,10 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     const key = d.key;
     setDiagram((dg) =>
       compById.has(key)
-        ? { ...dg, components: dg.components.map((c) => (c.id === key ? { ...c, x: nx, y: ny } : c)) }
+        ? {
+            ...dg,
+            components: dg.components.map((c) => (c.id !== key ? c : isPopComp(c) && mountedIn(c) ? { ...c, ex: nx, ey: ny } : { ...c, x: nx, y: ny })),
+          }
         : { ...dg, cablePos: { ...dg.cablePos, [key]: { x: nx, y: ny } } },
     );
     setDirty(true);
@@ -407,16 +452,23 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
 
   // ---------- Componentes ----------
   /** Novo card entra na coluna do seu tipo (DIOs ao lado dos cabos, OLT/ativos à direita), abaixo dos existentes. */
-  function addComponent(raw: PopComp | Rack) {
-    if (isRack(raw)) {
-      const right = Math.max(0, ...cables.map((k) => cablePos(`c${k.id}`).x + G.CABLE_W), ...cards.map((k) => k.x + anySize(k).w));
-      const top = Math.min(0, ...cards.map((k) => k.y));
-      const r = { ...raw, x: right + 90, y: top };
-      update((d) => ({ ...d, components: [...d.components, r] }));
-      setDialog(null);
-      setFitReq((n) => n + 1);
-      return;
-    }
+  /** Novos racks entram à direita de tudo, lado a lado (como numa fileira do datacenter). */
+  function addRacks(list: Rack[]) {
+    const right = Math.max(0, ...cables.map((k) => cablePos(`c${k.id}`).x + G.CABLE_W), ...cards.map((k) => k.x + anySize(k).w));
+    const top = Math.min(0, ...cards.map((k) => k.y));
+    let x = right + 90;
+    const placed = list.map((raw) => {
+      const r = { ...raw, x, y: top };
+      x += rackSize(r).w + 40;
+      return r;
+    });
+    update((d) => ({ ...d, components: [...d.components, ...placed] }));
+    setDialog(null);
+    if (placed.length > 1) notify(`${placed.length} racks criados (${rackCode(placed[0].loc)} a ${rackCode(placed[placed.length - 1].loc)}).`);
+    setFitReq((n) => n + 1);
+  }
+
+  function addComponent(raw: PopComp) {
     const placed = placeInRack(diagram, raw);
     if (!placed) return;
     const c = placed;
@@ -611,7 +663,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
       const ix = r.x + RACK.PAD + RACK.NUM + RACK.POST;
       parts.push(
         `<rect x="${r.x}" y="${r.y}" width="${rw}" height="${rh}" rx="8" fill="#ffffff" stroke="#94a3b8"/>`,
-        `<text x="${r.x + 12}" y="${r.y + 25}" font-size="13" font-weight="bold" fill="#0f172a">${esc(r.name)} <tspan font-size="10" fill="#64748b">${r.units}U · ${RACK_MOUNTS[r.mount].label}</tspan></text>`,
+        `<text x="${r.x + 12}" y="${r.y + 25}" font-size="13" font-weight="bold" fill="#0f172a">${esc(r.name)} <tspan font-size="10" fill="#64748b">${rackCode(r.loc) && rackCode(r.loc) !== r.name ? `${esc(rackCode(r.loc))} · ` : ''}${r.units}U · ${RACK_MOUNTS[r.mount].label}</tspan></text>`,
         `<rect x="${ix - RACK.POST}" y="${r.y + rackUTop(r, r.units)}" width="${RACK.INNER + RACK.POST * 2}" height="${r.units * RACK.RU}" fill="#1e293b"/>`,
         `<rect x="${ix}" y="${r.y + rackUTop(r, r.units)}" width="${RACK.INNER}" height="${r.units * RACK.RU}" fill="#f8fafc"/>`,
       );
@@ -766,6 +818,37 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
           <span title="Portas do DIO com cordão / total">Portas: {dioPatched}/{dioPorts}</span>
           <span title="Portas PON em uso / total">PON: {ponUsed}/{ponTotal}</span>
         </div>
+        {racks.length > 1 && (
+          <form
+            className="relative flex items-center"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (rackQuery.trim()) locateRack(rackQuery);
+            }}
+          >
+            <Search size={13} className="absolute left-2 text-slate-500 pointer-events-none" />
+            <input
+              list="pop-rack-codes"
+              className="w-28 rounded-md bg-slate-950 border border-slate-700 pl-7 pr-2 py-1 text-xs placeholder:text-slate-500"
+              placeholder="Rack (AJ05)"
+              title="Digite o código do rack (ex.: DC1.1A-AJ05, AJ05) ou o nome e tecle Enter"
+              value={rackQuery}
+              onChange={(e) => {
+                setRackQuery(e.target.value);
+                // Escolher uma opção da lista já localiza.
+                const exact = racks.find((r) => rackCode(r.loc) === e.target.value || r.name === e.target.value);
+                if (exact) locateRack(e.target.value);
+              }}
+            />
+            <datalist id="pop-rack-codes">
+              {searchRacks(racks, '').map((r) => (
+                <option key={r.id} value={rackCode(r.loc) || r.name}>
+                  {rackCode(r.loc) && rackCode(r.loc) !== r.name ? r.name : ''}
+                </option>
+              ))}
+            </datalist>
+          </form>
+        )}
 
         <div className="mx-auto flex rounded-lg bg-slate-950 border border-slate-800 p-0.5">
           {(
@@ -874,9 +957,13 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                       dots.push({ x: sx, y: ay }, { x: ex, y: sy });
                       const pos = shownPos(dio);
                       if (pos) {
+                        // Da faixa até o card expandido, para o lado onde o card estiver.
                         const by = pos.y + G.HEADER + G.CHIPS / 2;
-                        segs.push(curve(st.x + st.w, sy, pos.x, by, true));
-                        dots.push({ x: pos.x, y: by });
+                        const toRight = pos.x >= st.x + st.w;
+                        const fx = toRight ? st.x + st.w : st.x;
+                        const tx = toRight ? pos.x : pos.x + cardSize(dio).w;
+                        segs.push(curve(fx, sy, tx, by, toRight));
+                        dots.push({ x: tx, y: by });
                       }
                     } else {
                       const toLeft = dio.x >= p.x + G.CABLE_W / 2;
@@ -951,6 +1038,8 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                   rack={r}
                   diagram={diagram}
                   conflicts={conflicts}
+                  duplicate={dupCodes.has(rackCode(r.loc))}
+                  highlight={found === r.id}
                   readOnly={readOnly}
                   onDrag={(e) => startDrag(e, r.id)}
                   onAdd={(u) => setDialog({ t: 'mount', rack: r.id, u })}
@@ -960,7 +1049,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                   hot={(id) => !!vflResult && [...vflResult.ends].some((k) => k.startsWith(`${id}:`))}
                   inUse={(id) => [...usedEnds.keys()].some((k) => k.startsWith(`${id}:`))}
                   item={{
-                    toggle: (id) => setExpanded((x) => (x === id ? null : id)),
+                    toggle: toggleExpanded,
                     move: (id) => setDialog({ t: 'mount', rack: r.id, item: id }),
                     matrix: (id) => setMatrixDio(id),
                     link: (id) => setDialog({ t: 'linkDio', dio: id }),
@@ -985,7 +1074,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                 <EquipmentCard
                   key={c.id}
                   comp={c}
-                  onCollapse={mountedIn(c) ? () => setExpanded(null) : undefined}
+                  onCollapse={mountedIn(c) ? () => setExpanded((list) => list.filter((x) => x !== c.id)) : undefined}
                   rack={c.rack ? rackById.get(c.rack) : undefined}
                   rackConflict={conflicts.has(c.id)}
                   diagram={diagram}
@@ -996,7 +1085,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                   selConn={selConn}
                   lit={lit}
                   endLabel={endLabel}
-                  onDrag={(e) => (mountedIn(c) ? e.stopPropagation() : startDrag(e, c.id))}
+                  onDrag={(e) => startDrag(e, c.id)}
                   onPort={clickPort}
                   onMatrix={() => setMatrixDio(c.id)}
                   onLink={() => setDialog({ t: 'linkDio', dio: c.id })}
@@ -1189,7 +1278,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         />
       )}
       {dialog?.t === 'rack' && (
-        <RackDialog initial={dialog.edit} count={racks.length} onClose={() => setDialog(null)} onSubmit={(r) => (dialog.edit ? editComponent(r) : addComponent(r))} />
+        <RackDialog initial={dialog.edit} racks={racks} onClose={() => setDialog(null)} onSubmit={(rs) => (dialog.edit ? editComponent(rs[0]) : addRacks(rs))} />
       )}
       {dialog?.t === 'mount' &&
         (() => {
@@ -1363,7 +1452,7 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
       onPointerDown={(e) => e.stopPropagation()}
     >
       {/* Cabeçalho com as ferramentas do equipamento */}
-      <div className={`absolute inset-x-0 top-0 flex items-center gap-2 px-2.5 border-b border-slate-800 ${onCollapse ? '' : 'cursor-move'}`} style={{ height: G.HEADER }} onPointerDown={onDrag}>
+      <div className="absolute inset-x-0 top-0 flex items-center gap-2 px-2.5 border-b border-slate-800 cursor-move" style={{ height: G.HEADER }} onPointerDown={onDrag}>
         <span className={`w-2.5 h-2.5 rounded-full ${anyUsed ? 'bg-emerald-400' : 'bg-slate-600'}`} />
         {icon}
         <span className="text-sm font-semibold truncate">{c.name}</span>
@@ -1490,7 +1579,7 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
         {rack && (
           <span className={`flex items-center gap-1 truncate ${rackConflict ? 'text-red-400' : 'text-slate-400'}`} title={rackConflict ? 'Posição inválida no rack' : 'Posição no rack'}>
             <Rows4 size={11} />
-            {rack.name} · U{c.u}
+            {rackCode(rack.loc) || rack.name} · U{c.u}
             {rackHeight(c) > 1 ? `–${c.u! + rackHeight(c) - 1}` : ''}
           </span>
         )}
@@ -1504,6 +1593,10 @@ interface RackCardProps {
   rack: Rack;
   diagram: Diagram;
   conflicts: Set<string>;
+  /** Outro rack tem o mesmo código de endereçamento. */
+  duplicate?: boolean;
+  /** Rack encontrado pela busca (destaque). */
+  highlight?: boolean;
   readOnly?: boolean;
   onDrag: (e: React.PointerEvent) => void;
   /** Instalar equipamento (u = U vazia clicada). */
@@ -1511,7 +1604,7 @@ interface RackCardProps {
   onEdit: () => void;
   onDelete: () => void;
   /** Equipamento expandido agora (os demais ficam recolhidos na faixa). */
-  expanded: string | null;
+  expanded: string[];
   hot: (id: string) => boolean;
   inUse: (id: string) => boolean;
   /** Ações da faixa de cada equipamento instalado. */
@@ -1519,7 +1612,8 @@ interface RackCardProps {
 }
 
 /** Rack em vista frontal: U numeradas (U1 embaixo) e os equipamentos instalados ocupando suas U. */
-function RackCard({ rack: r, diagram, conflicts, readOnly, onDrag, onAdd, onEdit, onDelete, expanded, hot, inUse, item }: RackCardProps) {
+function RackCard({ rack: r, diagram, conflicts, duplicate, highlight, readOnly, onDrag, onAdd, onEdit, onDelete, expanded, hot, inUse, item }: RackCardProps) {
+  const code = rackCode(r.loc);
   const { w, h } = rackSize(r);
   const items = rackItems(diagram, r.id);
   const used = rackUsed(diagram, r.id);
@@ -1532,10 +1626,20 @@ function RackCard({ rack: r, diagram, conflicts, readOnly, onDrag, onAdd, onEdit
   const top = rackUTop(r, r.units);
 
   return (
-    <div className="absolute rounded-lg border border-slate-700 bg-slate-900 shadow-xl" style={{ left: r.x, top: r.y, width: w, height: h }} onPointerDown={(e) => e.stopPropagation()}>
+    <div
+      className={`absolute rounded-lg border bg-slate-900 shadow-xl ${highlight ? 'border-amber-400 ring-4 ring-amber-400/40' : 'border-slate-700'}`}
+      style={{ left: r.x, top: r.y, width: w, height: h }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
       <div className="absolute inset-x-0 top-0 flex items-center gap-2 px-2.5 border-b border-slate-800 cursor-move" style={{ height: RACK.HEADER }} onPointerDown={onDrag}>
         <Rows4 size={15} className="text-amber-400" />
         <span className="text-sm font-semibold truncate">{r.name}</span>
+        {code && code !== r.name && <span className="font-mono text-[11px] font-semibold text-emerald-300 shrink-0">{code}</span>}
+        {duplicate && (
+          <span className="text-[10px] font-semibold text-amber-400 shrink-0" title="Outro rack usa o mesmo endereço">
+            duplicado
+          </span>
+        )}
         <span className="text-[10px] text-slate-500 shrink-0">
           {r.units}U · {RACK_MOUNTS[r.mount].label}
         </span>
@@ -1590,7 +1694,7 @@ function RackCard({ rack: r, diagram, conflicts, readOnly, onDrag, onAdd, onEdit
         const st = rackStrip(r, it.u!, rackHeight(it));
         const col = KIND_COLOR[it.kind];
         const bad = conflicts.has(it.id);
-        const open = expanded === it.id;
+        const open = expanded.includes(it.id);
         const lit = hot(it.id);
         const fg = textOn(col);
         const detail = [it.modelName, it.kind === 'olt' ? `${it.slots}×${it.ports} PON` : it.kind === 'dio' ? `${it.ports}P` : it.type].filter(Boolean).join(' · ');
