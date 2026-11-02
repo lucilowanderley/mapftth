@@ -41,8 +41,46 @@
 .leaflet-marker-draggable.node-marker {
     cursor: move;
 }
-.vertex-handle {
-    cursor: grab;
+
+/* Objetos no mapa: crescem um pouco ao passar o mouse. */
+.node-marker svg {
+    transition: transform 0.12s ease;
+}
+.node-marker:hover svg,
+.node-marker:has(.leaflet-drag-target) svg {
+    transform: scale(1.3);
+}
+
+/* Alças dos pontos do cabo: área de pegar maior que o ponto visível e destaque no hover/arrasto. */
+.vh {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    cursor: move;
+    transition: background-color 0.12s ease;
+}
+.vh-mid .vh {
+    cursor: copy;
+}
+.vh-dot {
+    border-radius: 50%;
+    transition: transform 0.12s ease, background-color 0.12s ease, box-shadow 0.12s ease;
+}
+.vertex-handle:hover .vh,
+.vertex-handle:has(.leaflet-drag-target) .vh {
+    background: rgba(250, 204, 21, 0.25);
+}
+.vertex-handle:hover .vh-dot,
+.vertex-handle:has(.leaflet-drag-target) .vh-dot {
+    transform: scale(1.6);
+    background: var(--c) !important;
+    box-shadow: 0 0 0 3px #facc15, 0 0 10px 2px rgba(250, 204, 21, 0.8) !important;
+}
+.leaflet-dragging .vertex-handle .vh {
+    cursor: grabbing;
 }
 
 /* Sem contorno de foco do navegador ao clicar num cabo (a seleção já tem o halo amarelo). */

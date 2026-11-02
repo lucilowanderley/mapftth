@@ -39,10 +39,20 @@ export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: strin
 
 const handles = new Map<string, L.DivIcon>();
 
-function handle(key: string, size: number, html: string) {
+/**
+ * Alça com área de pegar maior (HIT px) que o ponto visível. O destaque ao passar o mouse
+ * e durante o arrasto fica no CSS (.vh-dot em app.css), usando a cor do cabo (--c).
+ */
+const HIT = 26;
+function handle(key: string, kind: 'vertex' | 'mid' | 'connect', color: string, dot: string) {
   let icon = handles.get(key);
   if (!icon) {
-    icon = L.divIcon({ className: 'vertex-handle', html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+    icon = L.divIcon({
+      className: `vertex-handle vh-${kind}`,
+      html: `<div class="vh" style="--c:${color}"><div class="vh-dot" style="${dot}"></div></div>`,
+      iconSize: [HIT, HIT],
+      iconAnchor: [HIT / 2, HIT / 2],
+    });
     handles.set(key, icon);
   }
   return icon;
@@ -50,12 +60,12 @@ function handle(key: string, size: number, html: string) {
 
 /** Alça de um vértice do cabo: fundo branco e borda na cor do cabo. */
 export const vertexIcon = (color: string) =>
-  handle(`v${color}`, 12, `<div style="width:12px;height:12px;background:#fff;border:3px solid ${color};border-radius:50%;box-shadow:0 0 0 1px rgba(15,23,42,.55)"></div>`);
+  handle(`v${color}`, 'vertex', color, `width:12px;height:12px;background:#fff;border:3px solid ${color};box-shadow:0 0 0 1px rgba(15,23,42,.55)`);
 
 /** Alça para criar um vértice novo no meio de um trecho (menor e translúcida). */
 export const midpointIcon = (color: string) =>
-  handle(`m${color}`, 9, `<div style="width:9px;height:9px;background:rgba(255,255,255,.55);border:2px solid ${color};border-radius:50%"></div>`);
+  handle(`m${color}`, 'mid', color, `width:9px;height:9px;background:rgba(255,255,255,.55);border:2px solid ${color}`);
 
 /** Alça do modo "Conectar a caixa": maior, para soltar sobre um objeto. */
 export const connectIcon = (color: string) =>
-  handle(`c${color}`, 16, `<div style="width:16px;height:16px;background:#fff;border:4px solid ${color};border-radius:50%;box-shadow:0 0 0 2px rgba(15,23,42,.6)"></div>`);
+  handle(`c${color}`, 'connect', color, `width:16px;height:16px;background:#fff;border:4px solid ${color};box-shadow:0 0 0 2px rgba(15,23,42,.6)`);
