@@ -1013,7 +1013,7 @@ export default function MapPage() {
                   </Marker>
                 );
               })}
-              {(vertexDrag?.cableId === selectedCable.id ? [] : midpoints).map((mid, i) => {
+              {midpoints.map((mid, i) => {
                 return (
                   <Marker
                     key={`m${selectedCable.id}-${i}-${selectedCable.path.length}`}
