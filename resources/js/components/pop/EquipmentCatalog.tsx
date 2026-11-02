@@ -1,0 +1,210 @@
+import { BookOpen, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { api, errorMessage } from '../../lib/api';
+import { ACTIVE_TYPES, BUILTIN_EQUIPMENT, EQUIPMENT_KINDS, equipmentLabel } from '../../lib/catalog';
+import type { EquipmentModel } from '../../lib/types';
+import { Field } from '../ui';
+import { PopDialog } from './dialogs';
+
+type Kind = EquipmentModel['kind'];
+
+/** Modelos padrão + cadastrados (do usuário e do dono do projeto). */
+export function useEquipmentModels(projectId?: number) {
+  const [saved, setSaved] = useState<EquipmentModel[]>([]);
+  const reload = useCallback(() => {
+    api
+      .equipmentModels(projectId)
+      .then(setSaved)
+      .catch(() => setSaved([]));
+  }, [projectId]);
+  useEffect(reload, [reload]);
+  return { models: [...BUILTIN_EQUIPMENT, ...saved], reload };
+}
+
+const EMPTY = (kind: Kind): Partial<EquipmentModel> => ({
+  kind,
+  vendor: '',
+  model: '',
+  ports: kind === 'olt' ? 16 : kind === 'dio' ? 24 : 24,
+  slots: kind === 'olt' ? 1 : null,
+  uplinks: kind === 'olt' ? 4 : null,
+  tx_dbm: kind === 'olt' ? 5 : null,
+  type: kind === 'active' ? ACTIVE_TYPES[0] : null,
+  height_u: 1,
+});
+
+/** Cadastro de equipamentos: fabricante, modelo, portas e altura em U de OLTs, DIOs e ativos. */
+export default function EquipmentCatalog({
+  models,
+  initialKind = 'olt',
+  readOnly,
+  onChanged,
+  onClose,
+}: {
+  models: EquipmentModel[];
+  initialKind?: Kind;
+  readOnly?: boolean;
+  onChanged: () => void;
+  onClose: () => void;
+}) {
+  const [kind, setKind] = useState<Kind>(initialKind);
+  const [form, setForm] = useState<Partial<EquipmentModel> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const list = models.filter((m) => m.kind === kind);
+  const set = (patch: Partial<EquipmentModel>) => setForm((f) => (f ? { ...f, ...patch } : f));
+  const int = (v: string, min = 0) => Math.max(min, Math.round(Number(v)) || min);
+
+  async function save() {
+    if (!form) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (typeof form.id === 'number') await api.updateEquipmentModel(form.id, form);
+      else await api.createEquipmentModel(form);
+      setForm(null);
+      onChanged();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+    setBusy(false);
+  }
+
+  async function remove(m: EquipmentModel) {
+    if (typeof m.id !== 'number' || !confirm(`Excluir o modelo ${equipmentLabel(m)} do cadastro? Equipamentos já criados não mudam.`)) return;
+    try {
+      await api.deleteEquipmentModel(m.id);
+      onChanged();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
+  const detail = (m: EquipmentModel) =>
+    m.kind === 'olt' ? `${m.slots ?? 1}×${m.ports} PON · ${m.uplinks ?? 0} uplinks` : m.kind === 'dio' ? `${m.ports} portas` : `${m.type ?? 'Ativo'} · ${m.ports} portas`;
+
+  return (
+    <PopDialog icon={<BookOpen size={18} />} title="Cadastro de equipamentos" subtitle="Fabricante, modelo, portas e quantas U de rack ocupa" onClose={onClose} width="max-w-2xl">
+      <div className="flex gap-1 mb-3 rounded-lg bg-slate-950 border border-slate-800 p-0.5 w-fit">
+        {(Object.keys(EQUIPMENT_KINDS) as Kind[]).map((k) => (
+          <button
+            key={k}
+            onClick={() => {
+              setKind(k);
+              setForm(null);
+            }}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium cursor-pointer ${kind === k ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}
+          >
+            {EQUIPMENT_KINDS[k]} ({models.filter((m) => m.kind === k).length})
+          </button>
+        ))}
+      </div>
+
+      <div className="max-h-72 overflow-y-auto rounded-md border border-slate-800">
+        <table className="w-full text-sm">
+          <thead className="text-[11px] uppercase tracking-wide text-slate-500 text-left bg-slate-950 sticky top-0">
+            <tr>
+              <th className="px-3 py-2">Fabricante / modelo</th>
+              <th>Características</th>
+              <th className="text-center">Altura</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((m) => (
+              <tr key={String(m.id)} className="border-t border-slate-800">
+                <td className="px-3 py-1.5">
+                  <div className="font-medium">{m.model}</div>
+                  <div className="text-[11px] text-slate-500">{m.vendor || '—'}</div>
+                </td>
+                <td className="text-xs text-slate-400">{detail(m)}</td>
+                <td className="text-center font-mono">{m.height_u}U</td>
+                <td className="pr-2 text-right whitespace-nowrap">
+                  {m.builtin ? (
+                    <span className="text-[10px] uppercase text-slate-500">padrão</span>
+                  ) : m.own && !readOnly ? (
+                    <>
+                      <button title="Editar" className="p-1.5 text-slate-400 hover:text-white cursor-pointer" onClick={() => setForm({ ...m })}>
+                        <Pencil size={13} />
+                      </button>
+                      <button title="Excluir" className="p-1.5 text-slate-400 hover:text-red-400 cursor-pointer" onClick={() => remove(m)}>
+                        <Trash2 size={13} />
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-[10px] uppercase text-slate-500">do dono</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {!form && !readOnly && (
+        <button className="btn-ghost mt-3" onClick={() => setForm(EMPTY(kind))}>
+          <Plus size={15} /> Cadastrar {kind === 'active' ? 'ativo' : EQUIPMENT_KINDS[kind]}
+        </button>
+      )}
+
+      {form && (
+        <div className="mt-3 rounded-lg border border-slate-700 p-3 space-y-3">
+          <div className="text-xs font-semibold text-slate-300">{typeof form.id === 'number' ? 'Editar modelo' : `Novo modelo de ${kind === 'active' ? 'ativo' : EQUIPMENT_KINDS[kind]}`}</div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Fabricante">
+              <input className="input" placeholder="Huawei, ZTE, Furukawa..." value={form.vendor ?? ''} onChange={(e) => set({ vendor: e.target.value })} />
+            </Field>
+            <Field label="Modelo">
+              <input autoFocus className="input" placeholder="MA5800-X7" value={form.model ?? ''} onChange={(e) => set({ model: e.target.value })} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {kind === 'active' && (
+              <Field label="Tipo">
+                <select className="input px-2" value={form.type ?? ''} onChange={(e) => set({ type: e.target.value })}>
+                  {ACTIVE_TYPES.map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            {kind === 'olt' && (
+              <Field label="Slots">
+                <input type="number" min={1} className="input px-2" value={form.slots ?? 1} onChange={(e) => set({ slots: int(e.target.value, 1) })} />
+              </Field>
+            )}
+            <Field label={kind === 'olt' ? 'PON/slot' : 'Portas'}>
+              <input type="number" min={1} className="input px-2" value={form.ports ?? 1} onChange={(e) => set({ ports: int(e.target.value, 1) })} />
+            </Field>
+            {kind === 'olt' && (
+              <Field label="Uplinks">
+                <input type="number" min={0} className="input px-2" value={form.uplinks ?? 0} onChange={(e) => set({ uplinks: int(e.target.value) })} />
+              </Field>
+            )}
+            <Field label="Altura (U)">
+              <input type="number" min={1} max={60} className="input px-2" value={form.height_u ?? 1} onChange={(e) => set({ height_u: int(e.target.value, 1) })} />
+            </Field>
+            {kind === 'olt' && (
+              <Field label="TX dBm">
+                <input type="number" step={0.5} className="input px-2" value={form.tx_dbm ?? ''} onChange={(e) => set({ tx_dbm: e.target.value === '' ? null : Number(e.target.value) })} />
+              </Field>
+            )}
+          </div>
+          {error && <div className="text-xs text-red-400">{error}</div>}
+          <div className="flex gap-2 justify-end">
+            <button className="btn-ghost" onClick={() => setForm(null)}>
+              Cancelar
+            </button>
+            <button className="btn-primary" disabled={busy || !form.model?.trim()} onClick={save}>
+              Salvar modelo
+            </button>
+          </div>
+        </div>
+      )}
+      {!form && error && <div className="text-xs text-red-400 mt-2">{error}</div>}
+      <p className="text-[11px] text-slate-500 mt-3">
+        Os modelos cadastrados aparecem para escolher ao criar OLT, DIO ou Ativo no editor do POP, e valem para todos os seus projetos (a equipe vê os modelos do dono do projeto).
+      </p>
+    </PopDialog>
+  );
+}

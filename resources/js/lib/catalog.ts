@@ -1,4 +1,4 @@
-import type { Cable, CableCategory, CondoKind, LineStyle, NodeType, RackMountType, SlackKind, Status } from './types';
+import type { Cable, CableCategory, CondoKind, EquipmentModel, LineStyle, NodeType, RackMountType, SlackKind, Status } from './types';
 
 /** Cores de fibras e tubos conforme padrão ABNT (NBR 14160). */
 export const ABNT_COLORS = [
@@ -94,14 +94,39 @@ export interface OltModel {
   slots: number;
   ports: number;
   uplinks: number;
+  height_u: number;
 }
 
 export const OLT_MODELS: OltModel[] = [
-  { id: 'custom', name: 'Configuração personalizada', vendor: '', slots: 1, ports: 8, uplinks: 2 },
-  { id: 'huawei-ma5608t', name: 'OLT Huawei MA5608T', vendor: 'Huawei', slots: 2, ports: 16, uplinks: 4 },
-  { id: 'vsol-8', name: 'OLT V-Sol 8 portas', vendor: 'V-Sol', slots: 1, ports: 8, uplinks: 4 },
-  { id: 'zte-c320', name: 'OLT ZTE C320', vendor: 'ZTE', slots: 2, ports: 16, uplinks: 4 },
+  { id: 'custom', name: 'Configuração personalizada', vendor: '', slots: 1, ports: 8, uplinks: 2, height_u: 1 },
+  { id: 'huawei-ma5608t', name: 'OLT Huawei MA5608T', vendor: 'Huawei', slots: 2, ports: 16, uplinks: 4, height_u: 2 },
+  { id: 'vsol-8', name: 'OLT V-Sol 8 portas', vendor: 'V-Sol', slots: 1, ports: 8, uplinks: 4, height_u: 1 },
+  { id: 'zte-c320', name: 'OLT ZTE C320', vendor: 'ZTE', slots: 2, ports: 16, uplinks: 4, height_u: 2 },
 ];
+
+/** Modelos padrão do cadastro de equipamentos (somente leitura). Os do usuário vêm da API. */
+export const BUILTIN_EQUIPMENT: EquipmentModel[] = [
+  ...OLT_MODELS.filter((m) => m.id !== 'custom').map(
+    (m): EquipmentModel => ({ id: m.id, kind: 'olt', vendor: m.vendor, model: m.name.replace(/^OLT /, '').replace(`${m.vendor} `, ''), ports: m.ports, slots: m.slots, uplinks: m.uplinks, height_u: m.height_u, builtin: true }),
+  ),
+  ...[
+    [12, 1],
+    [24, 1],
+    [48, 2],
+    [72, 3],
+    [144, 4],
+  ].map(([p, h]): EquipmentModel => ({ id: `dio-${p}`, kind: 'dio', vendor: null, model: `DIO ${p} portas ${h}U`, ports: p, height_u: h, builtin: true })),
+  { id: 'sw-24', kind: 'active', vendor: null, model: 'Switch 24 portas', type: 'Switch', ports: 24, height_u: 1, builtin: true },
+  { id: 'sw-48', kind: 'active', vendor: null, model: 'Switch 48 portas', type: 'Switch', ports: 48, height_u: 1, builtin: true },
+  { id: 'ccr2004', kind: 'active', vendor: 'MikroTik', model: 'CCR2004-16G-2S+', type: 'Roteador', ports: 18, height_u: 1, builtin: true },
+  { id: 'pp-24', kind: 'active', vendor: null, model: 'Patch panel 24 portas', type: 'Patch panel UTP', ports: 24, height_u: 1, builtin: true },
+  { id: 'ups-2u', kind: 'active', vendor: null, model: 'Nobreak rack 2U', type: 'Nobreak / UPS', ports: 1, height_u: 2, builtin: true },
+];
+
+export const EQUIPMENT_KINDS: Record<EquipmentModel['kind'], string> = { olt: 'OLT', dio: 'DIO', active: 'Ativos' };
+
+/** Nome para listas: "Huawei MA5608T". */
+export const equipmentLabel = (m: EquipmentModel) => [m.vendor, m.model].filter(Boolean).join(' ');
 
 export const oltModel = (id: string) => OLT_MODELS.find((m) => m.id === id);
 
