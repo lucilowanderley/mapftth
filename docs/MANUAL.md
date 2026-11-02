@@ -469,8 +469,9 @@ do card ficam as ferramentas do DIO:
 | Lixeira | **Excluir** o DIO (e os splitters e conexões dele). |
 
 Depois de vincular, o nome do cabo aparece como etiqueta logo abaixo do cabeçalho e uma linha na cor do cabo liga o
-card do cabo ao DIO. Cada porta que recebe uma fibra fundida ganha uma **bolinha na cor do cabo** no canto. A porta
-fica **azul** quando tem cordão na frente (patch).
+card do cabo ao DIO. Cada porta que recebe uma fibra fundida fica **na cor ABNT da fibra** (FO1 verde, FO2
+amarela, FO3 branca...) e ganha uma **bolinha na cor do cabo** no canto. Quando a porta também tem cordão na frente
+(patch), aparece um **traço claro** na base dela. Porta com cordão mas sem fusão fica **azul**.
 
 **Matriz de fusão do DIO**
 
