@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { traceUpstream } from '../../resources/js/lib/budget';
-import { autoFuseDio, autoPatch, fusionSource, linkedCables, pruneConnections, vflTrace } from '../../resources/js/lib/pop';
+import {
+  autoFuseDio,
+  autoPatch,
+  canMount,
+  defaultRackHeight,
+  firstFreeU,
+  fusionSource,
+  linkedCables,
+  pruneConnections,
+  rackConflicts,
+  rackItems,
+  rackUsed,
+  unmount,
+  vflTrace,
+} from '../../resources/js/lib/pop';
 import type { Cable, Diagram, NetNode, Network, Settings } from '../../resources/js/lib/types';
 
 const settings: Settings = {
@@ -90,5 +104,46 @@ describe('editor de POP', () => {
     const r = traceUpstream(net, 1, { c: 'dio', p: 'a1' });
     expect(r.ok).toBe(false);
     expect(r.error).toContain('equipamento ativo');
+  });
+});
+
+describe('rack do POP', () => {
+  const withRack = (): Diagram => {
+    const d = base();
+    d.components.push({ id: 'r1', kind: 'rack', name: 'Rack 1', mount: 'floor', units: 12, x: 0, y: 0 });
+    return d;
+  };
+
+  it('calcula a altura padrão pelo tamanho do equipamento', () => {
+    expect(defaultRackHeight({ id: 'a', kind: 'dio', name: 'D', ports: 24, x: 0, y: 0 })).toBe(1);
+    expect(defaultRackHeight({ id: 'a', kind: 'dio', name: 'D', ports: 144, x: 0, y: 0 })).toBe(4);
+    expect(defaultRackHeight({ id: 'a', kind: 'olt', name: 'O', model: 'x', slots: 2, ports: 16, tx_dbm: 5, x: 0, y: 0 })).toBe(2);
+    expect(defaultRackHeight({ id: 'a', kind: 'active', name: 'S', type: 'Switch', ports: 24, x: 0, y: 0 })).toBe(1);
+  });
+
+  it('preenche o rack de cima para baixo e não deixa sobrepor', () => {
+    const d = withRack();
+    expect(firstFreeU(d, 'r1', 1)).toBe(12);
+    d.components = d.components.map((c) => (c.id === 'dio' ? { ...c, rack: 'r1', u: 12 } : c));
+    expect(firstFreeU(d, 'r1', 2)).toBe(10);
+    expect(canMount(d, 'r1', 11, 2)).toBe(false);
+    expect(canMount(d, 'r1', 10, 2)).toBe(true);
+    expect(canMount(d, 'r1', 12, 1, 'dio')).toBe(true);
+    expect(canMount(d, 'r1', 0, 1)).toBe(false);
+    expect(rackUsed(d, 'r1')).toBe(1);
+    expect(rackItems(d, 'r1').map((c) => c.id)).toEqual(['dio']);
+  });
+
+  it('aponta conflito quando o rack fica menor que os equipamentos', () => {
+    const d = withRack();
+    d.components = d.components.map((c) => (c.id === 'olt' ? { ...c, rack: 'r1', u: 11, h: 2 } : c.kind === 'rack' ? { ...c, units: 8 } : c));
+    expect([...rackConflicts(d)]).toEqual(['olt']);
+    expect(unmount(d.components.find((c) => c.id === 'olt')!)).not.toHaveProperty('rack');
+  });
+
+  it('rack não tem portas: conexões nele são descartadas', () => {
+    const d = withRack();
+    d.connections.push({ id: 'z', a: { c: 'r1', p: 'p1' }, b: { c: 'dio', p: 'b1' } });
+    expect(pruneConnections(d, new Set(['c10']))).toEqual([]);
   });
 });

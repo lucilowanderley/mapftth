@@ -2,8 +2,8 @@ import { Activity, Copy, Crosshair, History, Link2, Network, Radar, Trash2, X } 
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, POWER_LABEL, powerLevel, type BudgetResult } from '../lib/budget';
-import { CABLE_CATEGORIES, CABLE_MODELS, LINE_STYLES, NODE_TYPES, SLACK_KINDS, STATUSES, effectiveLineStyle, lineDash } from '../lib/catalog';
-import type { Cable, CableCategory, LatLng, LineStyle, NetNode, Slack, SlackKind, PoleAttributes, Settings, Status } from '../lib/types';
+import { BOX_TYPES, CABLE_CATEGORIES, CABLE_MODELS, CONDO_KINDS, LINE_STYLES, NODE_TYPES, SLACK_KINDS, STATUSES, effectiveLineStyle, lineDash } from '../lib/catalog';
+import type { Cable, CableCategory, CondoAttributes, CondoKind, LatLng, LineStyle, NetNode, Slack, SlackKind, PoleAttributes, Settings, Status } from '../lib/types';
 import { POLE_MATERIALS } from './PolesModal';
 import { cablesNear } from '../lib/analysis';
 import { Field, formatLength } from './ui';
@@ -151,9 +151,12 @@ function NodeForm({
   const [address, setAddress] = useState((node.attributes?.address as string) ?? '');
   const [pole, setPole] = useState<PoleAttributes>((node.attributes as PoleAttributes) ?? {});
   const setP = (patch: PoleAttributes) => setPole((p) => ({ ...p, ...patch }));
+  const [condo, setCondo] = useState<CondoAttributes>(() => ({ condo_kind: 'buildings', ...((node.attributes as CondoAttributes) ?? {}) }));
+  const setC = (patch: CondoAttributes) => setCondo((c) => ({ ...c, ...patch }));
+  const num = (v: string) => (v === '' ? undefined : Math.max(0, Math.round(Number(v)) || 0));
   const cablesHere = cablesNear([node.lat, node.lng], cables ?? []);
   const [saving, setSaving] = useState(false);
-  const hasDiagram = ['cto', 'ceo', 'pop'].includes(node.type);
+  const hasDiagram = BOX_TYPES.includes(node.type);
   const level = budget ? powerLevel(budget.power, settings) : null;
 
   async function save() {
@@ -171,6 +174,7 @@ function NodeForm({
           ...(node.attributes ?? {}),
           ...(node.type === 'client' ? { address } : {}),
           ...(node.type === 'pole' ? pole : {}),
+          ...(node.type === 'condo' ? condo : {}),
         },
       });
       onNodeSaved(r.node, r.cables);
@@ -275,6 +279,49 @@ function NodeForm({
             <Field label="Endereço">
               <input className="input" value={address} onChange={(e) => setAddress(e.target.value)} />
             </Field>
+          )}
+          {node.type === 'condo' && (
+            <>
+              <div>
+                <div className="label">Tipo de condomínio</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {(Object.keys(CONDO_KINDS) as CondoKind[]).map((k) => (
+                    <button
+                      type="button"
+                      key={k}
+                      onClick={() => setC({ condo_kind: k, ...(k === 'houses' ? { floors: undefined } : {}) })}
+                      className={`rounded-md border px-2 py-1.5 text-sm cursor-pointer ${condo.condo_kind === k ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 hover:border-slate-500'}`}
+                    >
+                      {CONDO_KINDS[k].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label={CONDO_KINDS[condo.condo_kind ?? 'buildings'].units}>
+                  <input type="number" min={0} className="input" value={condo.units ?? ''} onChange={(e) => setC({ units: num(e.target.value) })} />
+                </Field>
+                <Field label={CONDO_KINDS[condo.condo_kind ?? 'buildings'].block}>
+                  <input type="number" min={0} className="input" value={condo.blocks ?? ''} onChange={(e) => setC({ blocks: num(e.target.value) })} />
+                </Field>
+                {condo.condo_kind !== 'houses' && (
+                  <Field label="Andares">
+                    <input type="number" min={0} className="input" value={condo.floors ?? ''} onChange={(e) => setC({ floors: num(e.target.value) })} />
+                  </Field>
+                )}
+              </div>
+              <Field label="Endereço">
+                <input className="input" value={condo.address ?? ''} onChange={(e) => setC({ address: e.target.value })} />
+              </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Síndico / contato">
+                  <input className="input" value={condo.manager ?? ''} onChange={(e) => setC({ manager: e.target.value })} />
+                </Field>
+                <Field label="Telefone">
+                  <input className="input" value={condo.phone ?? ''} onChange={(e) => setC({ phone: e.target.value })} />
+                </Field>
+              </div>
+            </>
           )}
           {node.type === 'pole' && (
             <>

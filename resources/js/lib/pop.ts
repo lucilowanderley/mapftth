@@ -173,7 +173,84 @@ export function pruneConnections(d: Diagram, validCables: Set<string>): Connecti
         return n >= 1 && n <= c.ports;
       case 'splitter':
         return e.p === 'in' || (n >= 1 && n <= splitterModel(c.model).outputs);
+      case 'rack':
+        return false;
     }
   };
   return d.connections.filter((c) => valid(c.a) && valid(c.b));
+}
+
+// ---------- Rack ----------
+
+export type Rack = Extract<DiagramComponent, { kind: 'rack' }>;
+/** Equipamentos que podem ser instalados em rack. */
+export type Rackable = Extract<DiagramComponent, { kind: 'olt' | 'dio' | 'active' }>;
+
+export const isRackable = (c: DiagramComponent): c is Rackable => c.kind === 'olt' || c.kind === 'dio' || c.kind === 'active';
+
+/** Altura típica (em U) de cada equipamento, usada quando o usuário não define outra. */
+export function defaultRackHeight(c: Rackable): number {
+  switch (c.kind) {
+    case 'dio':
+      return c.ports <= 24 ? 1 : c.ports <= 48 ? 2 : c.ports <= 72 ? 3 : 4;
+    case 'olt':
+      return c.slots <= 2 ? Math.max(1, c.slots) : c.slots <= 8 ? 6 : 11;
+    case 'active':
+      return c.ports <= 52 ? 1 : 2;
+  }
+}
+
+export const rackHeight = (c: Rackable) => Math.max(1, Math.round(c.h ?? defaultRackHeight(c)));
+
+/** Equipamentos instalados no rack, de cima para baixo. */
+export function rackItems(d: Diagram, rackId: string): Rackable[] {
+  return d.components
+    .filter((c): c is Rackable => isRackable(c) && c.rack === rackId && typeof c.u === 'number')
+    .sort((a, b) => b.u! - a.u!);
+}
+
+/** U ocupadas no rack. */
+export const rackUsed = (d: Diagram, rackId: string) => rackItems(d, rackId).reduce((a, c) => a + rackHeight(c), 0);
+
+/** O intervalo [u, u+h-1] cabe no rack sem sobrepor outro equipamento (ignorando `ignoreId`)? */
+export function canMount(d: Diagram, rackId: string, u: number, h: number, ignoreId?: string): boolean {
+  const rack = d.components.find((c): c is Rack => c.kind === 'rack' && c.id === rackId);
+  if (!rack || !Number.isInteger(u) || u < 1 || h < 1 || u + h - 1 > rack.units) return false;
+  return rackItems(d, rackId).every((c) => c.id === ignoreId || u + h - 1 < c.u! || u > c.u! + rackHeight(c) - 1);
+}
+
+/** Primeira posição livre para um equipamento de h U, preenchendo o rack de cima para baixo. */
+export function firstFreeU(d: Diagram, rackId: string, h: number, ignoreId?: string): number | null {
+  const rack = d.components.find((c): c is Rack => c.kind === 'rack' && c.id === rackId);
+  if (!rack) return null;
+  for (let u = rack.units - h + 1; u >= 1; u--) if (canMount(d, rackId, u, h, ignoreId)) return u;
+  return null;
+}
+
+/** Equipamentos com posição inválida (fora do rack ou sobrepostos), por exemplo depois de reduzir o rack. */
+export function rackConflicts(d: Diagram): Set<string> {
+  const bad = new Set<string>();
+  d.components.forEach((c) => {
+    if (c.kind !== 'rack') return;
+    const items = rackItems(d, c.id);
+    items.forEach((it) => {
+      const h = rackHeight(it);
+      if (it.u! < 1 || it.u! + h - 1 > c.units) bad.add(it.id);
+      items.forEach((o) => {
+        if (o.id !== it.id && !(it.u! + h - 1 < o.u! || it.u! > o.u! + rackHeight(o) - 1)) bad.add(it.id);
+      });
+    });
+  });
+  // Equipamento apontando para um rack que não existe mais.
+  d.components.forEach((c) => {
+    if (isRackable(c) && c.rack && !d.components.some((r) => r.kind === 'rack' && r.id === c.rack)) bad.add(c.id);
+  });
+  return bad;
+}
+
+/** Tira o equipamento do rack (continua no POP, só fica sem posição). */
+export function unmount<T extends DiagramComponent>(c: T): T {
+  if (!isRackable(c)) return c;
+  const { rack: _r, u: _u, ...rest } = c;
+  return rest as T;
 }

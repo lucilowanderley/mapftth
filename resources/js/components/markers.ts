@@ -8,9 +8,16 @@ const SHAPES: Record<NetNode['type'], (fill: string, ring: string) => string> = 
   pop: (f, r) => `<rect x="2" y="2" width="20" height="20" rx="3" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M7 7h10v3H7zM7 12h10v3H7zM9 17h6" stroke="white" stroke-width="1.5" fill="none"/>`,
   pole: (f, r) => `<circle cx="12" cy="12" r="6" fill="${f}" stroke="${r}" stroke-width="2.5"/>`,
   client: (f, r) => `<circle cx="12" cy="12" r="9" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M8 13l4-4 4 4v4H8z" fill="white"/>`,
+  // Condomínio de prédios: dois blocos com janelas.
+  condo: (f, r) =>
+    `<rect x="2" y="2" width="20" height="20" rx="5" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M6 18V8h5v10M13 18V5h5v13" fill="white"/><path d="M7.5 10h2M7.5 13h2M14.5 7.5h2M14.5 10.5h2M14.5 13.5h2" stroke="${f}" stroke-width="1.3"/>`,
 };
 
-const SIZES: Record<NetNode['type'], number> = { cto: 24, ceo: 24, pop: 30, pole: 14, client: 20 };
+/** Condomínio de casas: duas casinhas. */
+const CONDO_HOUSES = (f: string, r: string) =>
+  `<rect x="2" y="2" width="20" height="20" rx="5" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M4.5 12l3.5-3.5 3.5 3.5v5h-7zM12.5 12l3.5-3.5 3.5 3.5v5h-7z" fill="white"/>`;
+
+const SIZES: Record<NetNode['type'], number> = { cto: 24, ceo: 24, pop: 30, pole: 14, client: 20, condo: 28 };
 
 /**
  * Os ícones ficam em cache: devolver sempre a mesma instância evita que o Leaflet
@@ -23,13 +30,14 @@ export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: strin
   const size = SIZES[node.type];
   const fill = opts.fill ?? NODE_TYPES[node.type].color;
   const ring = opts.selected ? '#facc15' : STATUSES[node.status].color;
-  const key = `${node.type}|${fill}|${ring}|${opts.selected ? 1 : 0}`;
+  const houses = node.type === 'condo' && node.attributes?.condo_kind === 'houses';
+  const key = `${node.type}${houses ? '-h' : ''}|${fill}|${ring}|${opts.selected ? 1 : 0}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const glow = opts.selected ? 'filter:drop-shadow(0 0 6px #facc15);' : 'filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));';
   const icon = L.divIcon({
     className: 'node-marker',
-    html: `<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}">${SHAPES[node.type](fill, ring)}</svg>`,
+    html: `<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}">${(houses ? CONDO_HOUSES : SHAPES[node.type])(fill, ring)}</svg>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });

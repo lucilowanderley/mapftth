@@ -1,8 +1,8 @@
-import { Box, Check, Link2, Network as NetIcon, Search, Server, Spline, X, Zap } from 'lucide-react';
+import { Box, Check, LogOut, Link2, Network as NetIcon, PackagePlus, Rows4, Search, Server, Spline, X, Zap } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
-import { ACTIVE_TYPES, DIO_SIZES, DIO_TRAY, OLT_MODELS, oltModel } from '../../lib/catalog';
-import { uid } from '../../lib/pop';
-import type { Cable, DiagramComponent } from '../../lib/types';
+import { ACTIVE_TYPES, DIO_SIZES, DIO_TRAY, OLT_MODELS, RACK_MOUNTS, RACK_SIZES, oltModel } from '../../lib/catalog';
+import { canMount, defaultRackHeight, firstFreeU, rackHeight, rackUsed, uid, type Rack, type Rackable } from '../../lib/pop';
+import type { Cable, Diagram, DiagramComponent, RackMountType } from '../../lib/types';
 import { Field } from '../ui';
 
 type Olt = Extract<DiagramComponent, { kind: 'olt' }>;
@@ -52,15 +52,18 @@ export function OltDialog({
   initial,
   defaultTx,
   count,
+  racks,
   onClose,
   onSubmit,
 }: {
   initial?: Olt;
   defaultTx: number;
   count: number;
+  racks: Rack[];
   onClose: () => void;
   onSubmit: (c: Olt) => void;
 }) {
+  const [rack, setRack] = useState(initial?.rack ?? '');
   const [model, setModel] = useState(initial?.model ?? 'custom');
   const [slots, setSlots] = useState(initial?.slots ?? 1);
   const [ports, setPorts] = useState(initial?.ports ?? 8);
@@ -150,6 +153,7 @@ export function OltDialog({
         <p className="text-xs text-slate-400">
           Total: {slots * ports} portas PON{uplinks ? ` + ${uplinks} uplinks` : ''}
         </p>
+        <RackSelect racks={racks} value={rack} onChange={setRack} />
         <button
           className="btn-primary w-full"
           disabled={!name.trim()}
@@ -163,11 +167,193 @@ export function OltDialog({
               ports,
               uplinks,
               tx_dbm: tx,
+              ...rackFields(initial, rack),
             })
           }
         >
           <Zap size={15} /> {initial ? 'Salvar alterações' : 'Criar OLT'}
         </button>
+      </div>
+    </PopDialog>
+  );
+}
+
+/**
+ * Campos de rack do equipamento: mantém a posição se o rack não mudou; trocando de rack,
+ * a posição (u) fica vazia e o editor procura a primeira U livre.
+ */
+function rackFields(initial: Rackable | undefined, rack: string): { rack?: string; u?: number } {
+  if (!rack) return { rack: undefined, u: undefined };
+  if (initial?.rack === rack) return { rack, u: initial.u };
+  return { rack, u: undefined };
+}
+
+/** Escolha do rack onde o equipamento fica instalado (opcional). */
+function RackSelect({ racks, value, onChange }: { racks: Rack[]; value: string; onChange: (v: string) => void }) {
+  if (!racks.length) return null;
+  return (
+    <Field label="Instalar no rack">
+      <select className="input" value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Fora do rack</option>
+        {racks.map((r) => (
+          <option key={r.id} value={r.id}>
+            {r.name} · {r.units}U {RACK_MOUNTS[r.mount].label.toLowerCase()}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+export function RackDialog({ initial, count, onClose, onSubmit }: { initial?: Rack; count: number; onClose: () => void; onSubmit: (r: Rack) => void }) {
+  const [name, setName] = useState(initial?.name ?? `Rack ${count + 1}`);
+  const [mount, setMount] = useState<RackMountType>(initial?.mount ?? 'floor');
+  const [units, setUnits] = useState(initial?.units ?? 44);
+  return (
+    <PopDialog icon={<Rows4 size={18} />} title={initial ? `Editar ${initial.name}` : 'Adicionar rack'} subtitle={`${units}U · ${RACK_MOUNTS[mount].label}`} onClose={onClose}>
+      <div className="space-y-3">
+        <Field label="Nome">
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <div>
+          <div className="label">Instalação</div>
+          <div className="grid grid-cols-2 gap-2">
+            {(Object.keys(RACK_MOUNTS) as RackMountType[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMount(m)}
+                className={`rounded-lg border px-3 py-2 text-left cursor-pointer transition ${mount === m ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 hover:border-slate-500'}`}
+              >
+                <div className="font-semibold text-sm">{RACK_MOUNTS[m].label}</div>
+                <div className="text-[10px] text-slate-400">{RACK_MOUNTS[m].hint}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="label">Altura (unidades de rack)</div>
+          <div className="grid grid-cols-6 gap-1.5">
+            {RACK_SIZES.map((n) => (
+              <button
+                key={n}
+                onClick={() => setUnits(n)}
+                className={`rounded-md border py-1.5 text-xs font-semibold cursor-pointer ${units === n ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 hover:border-slate-500'}`}
+              >
+                {n}U
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 mt-2 text-xs text-slate-400">
+            Outro tamanho:
+            <input type="number" min={1} max={60} className="input !w-20 !py-1" value={units} onChange={(e) => setUnits(Math.max(1, Math.min(60, Math.round(Number(e.target.value)) || 1)))} />
+            U <span className="text-slate-500">(1U = 44,45 mm · {((units * 44.45) / 10).toFixed(1)} cm úteis)</span>
+          </div>
+        </div>
+        <button
+          className="btn-primary w-full"
+          disabled={!name.trim()}
+          onClick={() => onSubmit({ ...(initial ?? { id: uid(), kind: 'rack' as const, x: 0, y: 0 }), kind: 'rack', name: name.trim(), mount, units })}
+        >
+          <Zap size={15} /> {initial ? 'Salvar alterações' : 'Criar rack'}
+        </button>
+      </div>
+    </PopDialog>
+  );
+}
+
+const KIND_LABEL: Record<Rackable['kind'], string> = { olt: 'OLT', dio: 'DIO', active: 'Ativo' };
+
+/**
+ * Instala um equipamento no rack (ou muda a posição/altura). `item` fixo = editar a posição de quem já está no rack;
+ * `startU` = U clicada numa posição vazia.
+ */
+export function MountDialog({
+  rack,
+  diagram,
+  item,
+  startU,
+  onClose,
+  onSubmit,
+  onUnmount,
+}: {
+  rack: Rack;
+  diagram: Diagram;
+  item?: Rackable;
+  startU?: number;
+  onClose: () => void;
+  onSubmit: (id: string, u: number, h: number) => void;
+  onUnmount: (id: string) => void;
+}) {
+  const racks = new Map(diagram.components.filter((c): c is Rack => c.kind === 'rack').map((r) => [r.id, r]));
+  const options = diagram.components.filter((c): c is Rackable => (c.kind === 'olt' || c.kind === 'dio' || c.kind === 'active') && c.rack !== rack.id);
+  const [id, setId] = useState(item?.id ?? options[0]?.id ?? '');
+  const comp = item ?? options.find((c) => c.id === id);
+  const [h, setH] = useState(comp ? rackHeight(comp) : 1);
+  const [u, setU] = useState<number>(() => item?.u ?? (startU && comp && canMount(diagram, rack.id, startU, rackHeight(comp)) ? startU : comp ? (firstFreeU(diagram, rack.id, rackHeight(comp)) ?? 1) : 1));
+  const ok = !!comp && canMount(diagram, rack.id, u, h, comp.id);
+  const free = rack.units - rackUsed(diagram, rack.id) + (item ? rackHeight(item) : 0);
+
+  function pick(next: string) {
+    setId(next);
+    const c = options.find((x) => x.id === next);
+    if (!c) return;
+    const hh = rackHeight(c);
+    setH(hh);
+    setU(firstFreeU(diagram, rack.id, hh) ?? 1);
+  }
+
+  return (
+    <PopDialog
+      icon={<PackagePlus size={18} />}
+      title={item ? `${item.name} no ${rack.name}` : `Instalar no ${rack.name}`}
+      subtitle={`${rack.units}U · ${free}U livres`}
+      onClose={onClose}
+    >
+      <div className="space-y-3">
+        {!item &&
+          (options.length ? (
+            <Field label="Equipamento">
+              <select className="input" value={id} onChange={(e) => pick(e.target.value)}>
+                {options.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {KIND_LABEL[c.kind]} · {c.name}
+                    {c.rack && racks.get(c.rack) ? ` (hoje no ${racks.get(c.rack)!.name})` : ''}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : (
+            <p className="text-sm text-slate-400">Todos os equipamentos do POP já estão neste rack. Crie uma OLT, DIO ou Ativo pela barra do editor e escolha este rack.</p>
+          ))}
+        {comp && (
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Posição (U de baixo)">
+              <input type="number" min={1} max={rack.units} className="input" value={u} onChange={(e) => setU(Math.round(Number(e.target.value)) || 1)} />
+            </Field>
+            <Field label="Altura (U)">
+              <input type="number" min={1} max={rack.units} className="input" value={h} onChange={(e) => setH(Math.max(1, Math.round(Number(e.target.value)) || 1))} />
+            </Field>
+          </div>
+        )}
+        {comp && (
+          <p className={`text-xs ${ok ? 'text-slate-400' : 'text-red-400'}`}>
+            {ok
+              ? `Ocupa U${u}${h > 1 ? ` a U${u + h - 1}` : ''}. Altura típica de ${comp.name}: ${defaultRackHeight(comp)}U.`
+              : u + h - 1 > rack.units || u < 1
+                ? `Não cabe: o rack vai de U1 a U${rack.units}.`
+                : 'Essa posição já está ocupada por outro equipamento.'}
+          </p>
+        )}
+        <div className="flex gap-2">
+          {item && (
+            <button className="btn-ghost flex-1" onClick={() => onUnmount(item.id)}>
+              <LogOut size={15} /> Retirar do rack
+            </button>
+          )}
+          <button className="btn-primary flex-1" disabled={!ok} onClick={() => comp && onSubmit(comp.id, u, h)}>
+            <Zap size={15} /> {item ? 'Salvar posição' : 'Instalar'}
+          </button>
+        </div>
       </div>
     </PopDialog>
   );
@@ -189,8 +375,9 @@ function FrontPreview({ rows }: { rows: { label: string; n: number; color: strin
   );
 }
 
-export function DioDialog({ initial, count, onClose, onSubmit }: { initial?: Dio; count: number; onClose: () => void; onSubmit: (c: Dio) => void }) {
+export function DioDialog({ initial, count, racks, onClose, onSubmit }: { initial?: Dio; count: number; racks: Rack[]; onClose: () => void; onSubmit: (c: Dio) => void }) {
   const [ports, setPorts] = useState(initial?.ports ?? 12);
+  const [rack, setRack] = useState(initial?.rack ?? '');
   const [name, setName] = useState(initial?.name ?? `DIO ${count + 1}`);
   const t = Math.ceil(ports / DIO_TRAY);
   return (
@@ -235,10 +422,13 @@ export function DioDialog({ initial, count, onClose, onSubmit }: { initial?: Dio
           <div className="text-[10px] text-slate-500">{DIO_TRAY} portas cada</div>
         </div>
       </div>
+      <div className="mt-3">
+        <RackSelect racks={racks} value={rack} onChange={setRack} />
+      </div>
       <button
         className="btn-primary w-full mt-4"
         disabled={!name.trim()}
-        onClick={() => onSubmit({ ...(initial ?? { id: uid(), kind: 'dio' as const, x: 0, y: 0 }), kind: 'dio', name: name.trim(), ports })}
+        onClick={() => onSubmit({ ...(initial ?? { id: uid(), kind: 'dio' as const, x: 0, y: 0 }), kind: 'dio', name: name.trim(), ports, ...rackFields(initial, rack) })}
       >
         <Zap size={15} /> {initial ? 'Salvar alterações' : 'Criar dispositivo'}
       </button>
@@ -246,8 +436,9 @@ export function DioDialog({ initial, count, onClose, onSubmit }: { initial?: Dio
   );
 }
 
-export function ActiveDialog({ initial, count, onClose, onSubmit }: { initial?: Active; count: number; onClose: () => void; onSubmit: (c: Active) => void }) {
+export function ActiveDialog({ initial, count, racks, onClose, onSubmit }: { initial?: Active; count: number; racks: Rack[]; onClose: () => void; onSubmit: (c: Active) => void }) {
   const [type, setType] = useState(initial?.type ?? ACTIVE_TYPES[0]);
+  const [rack, setRack] = useState(initial?.rack ?? '');
   const [name, setName] = useState(initial?.name ?? `Ativo ${count + 1}`);
   const [ports, setPorts] = useState(initial?.ports ?? 8);
   return (
@@ -264,13 +455,14 @@ export function ActiveDialog({ initial, count, onClose, onSubmit }: { initial?: 
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Portas">
-          <input type="number" min={1} max={48} className="input" value={ports} onChange={(e) => setPorts(Math.max(1, Math.min(48, Math.round(Number(e.target.value)) || 1)))} />
+          <input type="number" min={1} max={96} className="input" value={ports} onChange={(e) => setPorts(Math.max(1, Math.min(96, Math.round(Number(e.target.value)) || 1)))} />
         </Field>
         <p className="text-xs text-slate-400">Use as portas para ligar cordões aos uplinks da OLT ou à frente do DIO (ponto a ponto).</p>
+        <RackSelect racks={racks} value={rack} onChange={setRack} />
         <button
           className="btn-primary w-full"
           disabled={!name.trim()}
-          onClick={() => onSubmit({ ...(initial ?? { id: uid(), kind: 'active' as const, x: 0, y: 0 }), kind: 'active', type, name: name.trim(), ports })}
+          onClick={() => onSubmit({ ...(initial ?? { id: uid(), kind: 'active' as const, x: 0, y: 0 }), kind: 'active', type, name: name.trim(), ports, ...rackFields(initial, rack) })}
         >
           <Zap size={15} /> {initial ? 'Salvar alterações' : 'Criar equipamento'}
         </button>

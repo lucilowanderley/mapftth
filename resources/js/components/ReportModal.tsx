@@ -2,7 +2,7 @@ import { FileSpreadsheet, Printer } from 'lucide-react';
 import { useMemo } from 'react';
 import { buildReport, downloadText, portUsage, toCsv } from '../lib/analysis';
 import { POWER_LABEL } from '../lib/budget';
-import { CABLE_CATEGORIES, NODE_TYPES, SLACK_KINDS, STATUSES } from '../lib/catalog';
+import { CABLE_CATEGORIES, NODE_TYPES, NODE_TYPE_LIST, SLACK_KINDS, STATUSES } from '../lib/catalog';
 import type { LatLng, Network, NodeType } from '../lib/types';
 import { Modal, formatLength } from './ui';
 
@@ -11,7 +11,7 @@ const m = (v: number) => `${Math.round(v).toLocaleString('pt-BR')} m`;
 
 export default function ReportModal({ network, projectName, title, polygon, onClose }: { network: Network; projectName: string; title: string; polygon?: LatLng[]; onClose: () => void }) {
   const r = useMemo(() => buildReport(network, polygon), [network, polygon]);
-  const types: NodeType[] = ['pop', 'ceo', 'cto', 'pole', 'client'];
+  const types: NodeType[] = NODE_TYPE_LIST;
   const boxes = r.boxes.map((b) => ({ b, ...portUsage(b) }));
 
   function exportCsv() {
@@ -33,6 +33,8 @@ export default function ReportModal({ network, projectName, title, polygon, onCl
       ...Object.entries(r.splitters),
       ['Fusões', r.fusions],
       [],
+      ['Condomínios', r.condos.count, 'Unidades (casas/apartamentos)', r.condos.units],
+      [],
       ['Caixa', 'Tipo', 'Status', 'Portas usadas', 'Portas totais', 'Latitude', 'Longitude'],
       ...boxes.map(({ b, used, total }) => [b.name, NODE_TYPES[b.type].label, STATUSES[b.status].label, used, total, b.lat, b.lng]),
     ];
@@ -51,7 +53,7 @@ export default function ReportModal({ network, projectName, title, polygon, onCl
       .sub{color:#64748b;font-size:12px;margin-top:4px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left}th{background:#f1f5f9}
       .kpis{display:flex;gap:12px;margin-top:16px}.kpi{border:1px solid #cbd5e1;border-radius:6px;padding:8px 12px}.kpi b{display:block;font-size:18px}</style></head><body>
       <h1>${esc(projectName)} · ${esc(title)}</h1><div class="sub">MapFTTH · ${new Date().toLocaleString('pt-BR')}${r.areaM2 !== null ? ` · área de ${(r.areaM2 / 1e6).toFixed(3)} km²` : ''}</div>
-      <div class="kpis"><div class="kpi">Cabos<b>${esc(formatLength(r.cableTotal))}</b></div><div class="kpi">CTOs<b>${r.nodes.cto}</b></div><div class="kpi">Clientes<b>${r.nodes.client}</b></div><div class="kpi">Portas livres<b>${r.ports.total - r.ports.used}</b></div><div class="kpi">Fusões<b>${r.fusions}</b></div></div>
+      <div class="kpis"><div class="kpi">Cabos<b>${esc(formatLength(r.cableTotal))}</b></div><div class="kpi">CTOs<b>${r.nodes.cto}</b></div><div class="kpi">Clientes<b>${r.nodes.client}</b></div><div class="kpi">Portas livres<b>${r.ports.total - r.ports.used}</b></div><div class="kpi">Fusões<b>${r.fusions}</b></div>${r.condos.count ? `<div class="kpi">Unidades em condomínios<b>${r.condos.units}</b></div>` : ''}</div>
       <h2>Elementos</h2>${table(['Tipo', 'Total', ...Object.values(STATUSES).map((s) => s.label)], types.map((t) => [NODE_TYPES[t].plural, r.nodes[t], ...Object.keys(STATUSES).map((s) => r.byStatus[t][s as keyof typeof STATUSES])]))}
       <h2>Cabos</h2>${table(['Cabo', 'Tipo', 'Metragem', 'Reserva', 'Total'], r.cables.map((c) => [c.name, CABLE_CATEGORIES[c.category as keyof typeof CABLE_CATEGORIES].label, m(c.meters), m(c.slack), m(c.meters + c.slack)]))}
       <h2>Reservas técnicas</h2>${table(['Tipo', 'Quantidade', 'Metragem'], (['aerial', 'underground'] as const).map((k) => [SLACK_KINDS[k].label, String(r.slacks[k].count), m(r.slacks[k].meters)]))}
@@ -146,6 +148,11 @@ export default function ReportModal({ network, projectName, title, polygon, onCl
         </Section>
       </div>
 
+      {r.condos.count > 0 && (
+        <p className="text-xs text-slate-400 mt-3">
+          Condomínios: {r.condos.count} · {r.condos.units} unidade(s) (casas/apartamentos)
+        </p>
+      )}
       {r.clients.length > 0 && (
         <p className="text-xs text-slate-400 mt-3">
           Clientes: {r.clients.map((c) => `${c.count} ${POWER_LABEL[c.level].toLowerCase()}`).join(' · ')}

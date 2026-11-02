@@ -1,5 +1,5 @@
 import { clientBudget, powerLevel, traceUpstream, type BudgetResult, type PowerLevel } from './budget';
-import { splitterModel } from './catalog';
+import { BOX_TYPES, NODE_TYPE_LIST, splitterModel } from './catalog';
 import { distance } from './geo';
 import { isPatchEnd } from './pop';
 import type { Cable, LatLng, NetNode, Network, NodeType, SlackKind, Status } from './types';
@@ -147,6 +147,8 @@ export interface Report {
   ports: { total: number; used: number };
   clients: { level: PowerLevel; count: number }[];
   boxes: NetNode[];
+  /** Condomínios e total de unidades habitacionais (casas/apartamentos) declaradas neles. */
+  condos: { count: number; units: number };
   areaM2: number | null;
 }
 
@@ -156,7 +158,7 @@ const EMPTY_STATUS = (): Record<Status, number> => ({ planned: 0, not_deployed: 
 export function buildReport(net: Network, polygon?: LatLng[]): Report {
   const inside = (p: LatLng) => !polygon || pointInPolygon(p, polygon);
   const nodes = net.nodes.filter((n) => inside([n.lat, n.lng]));
-  const types: NodeType[] = ['pop', 'ceo', 'cto', 'pole', 'client'];
+  const types: NodeType[] = NODE_TYPE_LIST;
   const report: Report = {
     nodes: Object.fromEntries(types.map((t) => [t, 0])) as Record<NodeType, number>,
     byStatus: Object.fromEntries(types.map((t) => [t, EMPTY_STATUS()])) as Record<NodeType, Record<Status, number>>,
@@ -167,7 +169,11 @@ export function buildReport(net: Network, polygon?: LatLng[]): Report {
     fusions: 0,
     ports: { total: 0, used: 0 },
     clients: [],
-    boxes: nodes.filter((n) => ['pop', 'ceo', 'cto'].includes(n.type)),
+    boxes: nodes.filter((n) => BOX_TYPES.includes(n.type)),
+    condos: {
+      count: nodes.filter((n) => n.type === 'condo').length,
+      units: nodes.filter((n) => n.type === 'condo').reduce((a, n) => a + (Number(n.attributes?.units) || 0), 0),
+    },
     areaM2: polygon ? polygonArea(polygon) : null,
   };
   nodes.forEach((n) => {

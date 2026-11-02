@@ -21,11 +21,13 @@ import {
   Zap,
   LayoutGrid,
   ImageDown,
+  PackagePlus,
+  Rows4,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage } from '../../lib/api';
 import { traceUpstream, type BudgetResult } from '../../lib/budget';
-import { CABLE_CATEGORIES, STATUSES, fiberColor } from '../../lib/catalog';
+import { CABLE_CATEGORIES, RACK_MOUNTS, STATUSES, fiberColor } from '../../lib/catalog';
 import {
   autoFuseDio,
   autoPatch,
@@ -36,15 +38,24 @@ import {
   oltPortLabel,
   partner,
   pruneConnections,
+  rackConflicts,
+  rackHeight,
+  rackItems,
+  rackUsed,
+  firstFreeU,
+  defaultRackHeight,
   sameEnd,
   trays,
   uid,
+  unmount,
   vflTrace,
+  type Rack,
+  type Rackable,
 } from '../../lib/pop';
 import type { Cable, Diagram, DiagramComponent, End, NetNode, Network, Status } from '../../lib/types';
-import { ActiveDialog, DioDialog, LinkDialog, OltDialog, useCableItems } from './dialogs';
+import { ActiveDialog, DioDialog, LinkDialog, MountDialog, OltDialog, RackDialog, useCableItems } from './dialogs';
 import FusionMatrix from './FusionMatrix';
-import { G, cardPorts, cardSize, portBox, rowLabels, textOn, type PopComp } from './geometry';
+import { G, RACK, anySize, cardPorts, cardSize, portBox, rackSize, rackUTop, rowLabels, textOn, type PopComp } from './geometry';
 import ManobraView from './ManobraView';
 
 type Olt = Extract<DiagramComponent, { kind: 'olt' }>;
@@ -55,6 +66,8 @@ type Dialog =
   | { t: 'olt'; edit?: Olt }
   | { t: 'dio'; edit?: Dio }
   | { t: 'active'; edit?: Active }
+  | { t: 'rack'; edit?: Rack }
+  | { t: 'mount'; rack: string; item?: string; u?: number }
   | { t: 'linkDio'; dio: string }
   | { t: 'linkCable'; cable: string }
   | null;
@@ -68,7 +81,11 @@ interface Props {
   readOnly?: boolean;
 }
 
-const isPopComp = (c: DiagramComponent): c is PopComp => c.kind !== 'splitter';
+const isPopComp = (c: DiagramComponent): c is PopComp => c.kind === 'olt' || c.kind === 'dio' || c.kind === 'active';
+const isRack = (c: DiagramComponent): c is Rack => c.kind === 'rack';
+
+/** Cor de cada tipo de equipamento (portas com cordão e blocos dentro do rack). */
+const KIND_COLOR: Record<Rackable['kind'], string> = { dio: '#0ea5e9', olt: '#8b5cf6', active: '#10b981' };
 
 const PORT_FILL: Record<string, string> = { dio: '#3b82f6', olt: '#8b5cf6', up: '#f59e0b', active: '#10b981' };
 const VFL = '#ef4444';
@@ -95,6 +112,12 @@ function autoLayout(d: Diagram, cables: Cable[]): Diagram {
       pos.set(c.id, { x: G.CABLE_W + 90 + (dios.length ? dioW + 90 : 0), y });
       y += cardSize(c).h + 30;
     });
+  const right = Math.max(G.CABLE_W, ...comps.map((c) => (pos.get(c.id)?.x ?? c.x) + cardSize(c).w));
+  let rx = right + 90;
+  d.components.filter(isRack).forEach((r) => {
+    pos.set(r.id, { x: rx, y: 0 });
+    rx += rackSize(r).w + 40;
+  });
   next.components = d.components.map((c) => (pos.has(c.id) ? { ...c, ...pos.get(c.id)! } : c));
   return next;
 }
@@ -155,6 +178,11 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   const compById = useMemo(() => new Map(diagram.components.map((c) => [c.id, c])), [diagram.components]);
   const dios = comps.filter((c): c is Dio => c.kind === 'dio');
   const olts = comps.filter((c): c is Olt => c.kind === 'olt');
+  const racks = diagram.components.filter(isRack);
+  const rackById = new Map(racks.map((r) => [r.id, r]));
+  const conflicts = useMemo(() => rackConflicts(diagram), [diagram]);
+  /** Cards do canvas (equipamentos e racks), para enquadrar e exportar. */
+  const cards = [...comps, ...racks];
   const usedEnds = useMemo(() => new Map(diagram.connections.flatMap((c) => [[endKey(c.a), c] as const, [endKey(c.b), c] as const])), [diagram.connections]);
 
   const dioPorts = dios.reduce((a, d) => a + d.ports, 0);
@@ -194,6 +222,8 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         return `${c.name} · porta ${e.p.slice(1)}`;
       case 'splitter':
         return `Splitter · ${e.p === 'in' ? 'entrada' : `saída ${e.p.slice(1)}`}`;
+      case 'rack':
+        return c.name;
     }
   }
 
@@ -263,7 +293,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     if (!el) return;
     const boxes = [
       ...cables.map((c) => ({ ...cablePos(`c${c.id}`), w: G.CABLE_W, h: G.CABLE_H })),
-      ...comps.map((c) => ({ x: c.x, y: c.y, ...cardSize(c) })),
+      ...cards.map((c) => ({ x: c.x, y: c.y, ...anySize(c) })),
     ];
     if (!boxes.length) return;
     const x0 = Math.min(...boxes.map((b) => b.x));
@@ -340,7 +370,19 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
 
   // ---------- Componentes ----------
   /** Novo card entra na coluna do seu tipo (DIOs ao lado dos cabos, OLT/ativos à direita), abaixo dos existentes. */
-  function addComponent(c: PopComp) {
+  function addComponent(raw: PopComp | Rack) {
+    if (isRack(raw)) {
+      const right = Math.max(0, ...cables.map((k) => cablePos(`c${k.id}`).x + G.CABLE_W), ...cards.map((k) => k.x + anySize(k).w));
+      const top = Math.min(0, ...cards.map((k) => k.y));
+      const r = { ...raw, x: right + 90, y: top };
+      update((d) => ({ ...d, components: [...d.components, r] }));
+      setDialog(null);
+      setFitReq((n) => n + 1);
+      return;
+    }
+    const placed = placeInRack(diagram, raw);
+    if (!placed) return;
+    const c = placed;
     const colX = cables.length ? Math.max(...cables.map((k) => cablePos(`c${k.id}`).x)) + G.CABLE_W + 90 : 0;
     const dioX = dios.length ? Math.min(...dios.map((d) => d.x)) : colX;
     const dioRight = dios.length ? Math.max(...dios.map((d) => d.x + cardSize(d).w)) : colX - 90;
@@ -352,7 +394,33 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     setFitReq((n) => n + 1);
   }
 
-  function editComponent(c: PopComp) {
+  /**
+   * Resolve a posição no rack escolhido no diálogo: sem U definida (novo ou trocou de rack), procura a primeira livre.
+   * Devolve null (com aviso) se o rack estiver cheio.
+   */
+  function placeInRack(d: Diagram, c: PopComp): PopComp | null {
+    if (!c.rack) return unmount(c);
+    if (typeof c.u === 'number') return c;
+    const rack = rackById.get(c.rack);
+    const others: Diagram = { ...d, components: d.components.filter((x) => x.id !== c.id) };
+    const u = rack ? firstFreeU(others, rack.id, rackHeight(c)) : null;
+    if (!rack || u === null) {
+      notify(`Não há ${rackHeight(c)}U livres em sequência no ${rack?.name ?? 'rack'}.`, true);
+      return null;
+    }
+    return { ...c, u };
+  }
+
+  function editComponent(raw: PopComp | Rack) {
+    if (isRack(raw)) {
+      update((d) => ({ ...d, components: d.components.map((x) => (x.id === raw.id ? raw : x)) }));
+      const bad = rackConflicts({ ...diagram, components: diagram.components.map((x) => (x.id === raw.id ? raw : x)) });
+      if (bad.size) notify(`${bad.size} equipamento(s) ficaram fora do ${raw.name}. Clique neles no rack para reposicionar.`, true);
+      setDialog(null);
+      return;
+    }
+    const c = placeInRack(diagram, raw);
+    if (!c) return;
     const next: Diagram = { ...diagram, components: diagram.components.map((x) => (x.id === c.id ? c : x)) };
     const kept = pruneConnections(next, new Set(cableMap.keys()));
     const lost = next.connections.length - kept.length;
@@ -361,7 +429,13 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     setDialog(null);
   }
 
-  function deleteComponent(c: PopComp) {
+  function deleteComponent(c: PopComp | Rack) {
+    if (isRack(c)) {
+      const n = rackItems(diagram, c.id).length;
+      if (!confirm(`Excluir ${c.name}?${n ? ` Os ${n} equipamento(s) instalados continuam no POP, fora do rack.` : ''}`)) return;
+      update((d) => ({ ...d, components: d.components.filter((x) => x.id !== c.id).map((x) => (isPopComp(x) && x.rack === c.id ? unmount(x) : x)) }));
+      return;
+    }
     if (!confirm(`Excluir ${c.name} e todas as conexões dele?`)) return;
     update((d) => {
       const gone = new Set([c.id, ...d.components.filter((x) => x.kind === 'splitter' && x.dio === c.id).map((x) => x.id)]);
@@ -373,6 +447,20 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     });
     setPending(null);
     setSelectedConn(null);
+  }
+
+  /** Instala (ou reposiciona) um equipamento no rack. A altura só é guardada quando difere da típica. */
+  function mount(rackId: string, id: string, u: number, h: number) {
+    update((d) => ({
+      ...d,
+      components: d.components.map((x) => (x.id === id && isPopComp(x) ? { ...x, rack: rackId, u, h: h === defaultRackHeight(x) ? undefined : h } : x)),
+    }));
+    setDialog(null);
+  }
+
+  function unmountId(id: string) {
+    update((d) => ({ ...d, components: d.components.map((x) => (x.id === id ? unmount(x) : x)) }));
+    setDialog(null);
   }
 
   /** Conexões entre um cabo e um DIO (fusões diretas ou na entrada dos splitters do DIO). */
@@ -421,7 +509,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
     const boxes = [
       ...cables.map((c) => ({ ...cablePos(`c${c.id}`), w: G.CABLE_W, h: G.CABLE_H })),
-      ...comps.map((c) => ({ x: c.x, y: c.y, ...cardSize(c) })),
+      ...cards.map((c) => ({ x: c.x, y: c.y, ...anySize(c) })),
     ];
     if (!boxes.length) return notify('Nada para exportar.', true);
     const pad = 40;
@@ -477,6 +565,32 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         if (cable) parts.push(`<circle cx="${c.x + b.x + G.PORT - 1}" cy="${c.y + b.y + 1}" r="4" fill="${cable.color}" stroke="#0f172a" stroke-width="0.8"/>`);
       });
     });
+    racks.forEach((r) => {
+      const { w: rw, h: rh } = rackSize(r);
+      const ix = r.x + RACK.PAD + RACK.NUM + RACK.POST;
+      parts.push(
+        `<rect x="${r.x}" y="${r.y}" width="${rw}" height="${rh}" rx="8" fill="#ffffff" stroke="#94a3b8"/>`,
+        `<text x="${r.x + 12}" y="${r.y + 25}" font-size="13" font-weight="bold" fill="#0f172a">${esc(r.name)} <tspan font-size="10" fill="#64748b">${r.units}U · ${RACK_MOUNTS[r.mount].label}</tspan></text>`,
+        `<rect x="${ix - RACK.POST}" y="${r.y + rackUTop(r, r.units)}" width="${RACK.INNER + RACK.POST * 2}" height="${r.units * RACK.RU}" fill="#1e293b"/>`,
+        `<rect x="${ix}" y="${r.y + rackUTop(r, r.units)}" width="${RACK.INNER}" height="${r.units * RACK.RU}" fill="#f8fafc"/>`,
+      );
+      for (let u = 1; u <= r.units; u++) {
+        const y = r.y + rackUTop(r, u);
+        parts.push(
+          `<text x="${r.x + RACK.PAD + RACK.NUM - 4}" y="${y + RACK.RU - 4}" font-size="9" text-anchor="end" fill="#64748b">${u}</text>`,
+          `<line x1="${ix}" y1="${y + RACK.RU}" x2="${ix + RACK.INNER}" y2="${y + RACK.RU}" stroke="#e2e8f0"/>`,
+        );
+      }
+      rackItems(diagram, r.id).forEach((it) => {
+        const hh = rackHeight(it);
+        const y = r.y + rackUTop(r, it.u! + hh - 1);
+        const col = KIND_COLOR[it.kind];
+        parts.push(
+          `<rect x="${ix + 1}" y="${y + 1}" width="${RACK.INNER - 2}" height="${hh * RACK.RU - 2}" rx="2" fill="${col}"/>`,
+          `<text x="${ix + 8}" y="${y + Math.min(hh * RACK.RU, 16) / 2 + 4}" font-size="10" font-weight="bold" fill="${textOn(col)}">${esc(it.name)}</text>`,
+        );
+      });
+    });
     cords.forEach((k) => {
       const a = portCenter(k.a);
       const b = portCenter(k.b);
@@ -490,7 +604,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
       <text x="${pad}" y="32" font-size="18" font-weight="bold" fill="#ffffff">${esc(node.name)} · POP</text>
       <text x="${w - pad}" y="32" font-size="11" fill="#94a3b8" text-anchor="end">${new Date().toLocaleString('pt-BR')} · ${node.lat.toFixed(6)}, ${node.lng.toFixed(6)} · ${STATUSES[status].label}</text>
       <g transform="translate(${-x0},${titleH - y0})">${parts.join('')}</g>
-      <text x="${pad}" y="${h + titleH - 16}" font-size="10" fill="#475569">OLT: ${olts.length} · DIO: ${dios.length} · Portas do DIO com cordão: ${dioPatched}/${dioPorts} · PON em uso: ${ponUsed}/${ponTotal}</text>
+      <text x="${pad}" y="${h + titleH - 16}" font-size="10" fill="#475569">Racks: ${racks.length} · OLT: ${olts.length} · DIO: ${dios.length} · Portas do DIO com cordão: ${dioPatched}/${dioPorts} · PON em uso: ${ponUsed}/${ponTotal}</text>
     </svg>`;
     const img = new window.Image();
     img.onload = () => {
@@ -601,8 +715,10 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
           <Tool icon={<Server size={14} />} label="OLT" onClick={() => setDialog({ t: 'olt' })} disabled={readOnly} />
           <Tool icon={<Box size={14} />} label="DIO" onClick={() => setDialog({ t: 'dio' })} disabled={readOnly} />
           <Tool icon={<NetIcon size={14} />} label="Ativo" onClick={() => setDialog({ t: 'active' })} disabled={readOnly} />
+          <Tool icon={<Rows4 size={14} />} label="Rack" title="Rack de piso ou suspenso (ex.: 44U, 48U)" onClick={() => setDialog({ t: 'rack' })} disabled={readOnly} />
         </div>
         <div className="hidden md:flex items-center gap-3 pl-3 ml-1 border-l border-slate-700 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+          {racks.length > 0 && <span>Rack: {racks.length}</span>}
           <span>OLT: {olts.length}</span>
           <span>DIO: {dios.length}</span>
           <span title="Portas do DIO com cordão / total">Portas: {dioPatched}/{dioPorts}</span>
@@ -760,11 +876,29 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                 );
               })}
 
+              {/* Racks (atrás dos equipamentos) */}
+              {racks.map((r) => (
+                <RackCard
+                  key={r.id}
+                  rack={r}
+                  diagram={diagram}
+                  conflicts={conflicts}
+                  readOnly={readOnly}
+                  onDrag={(e) => startDrag(e, r.id)}
+                  onAdd={(u) => setDialog({ t: 'mount', rack: r.id, u })}
+                  onItem={(id) => setDialog({ t: 'mount', rack: r.id, item: id })}
+                  onEdit={() => setDialog({ t: 'rack', edit: r })}
+                  onDelete={() => deleteComponent(r)}
+                />
+              ))}
+
               {/* Equipamentos */}
               {comps.map((c) => (
                 <EquipmentCard
                   key={c.id}
                   comp={c}
+                  rack={c.rack ? rackById.get(c.rack) : undefined}
+                  rackConflict={conflicts.has(c.id)}
                   diagram={diagram}
                   cableMap={cableMap}
                   usedEnds={usedEnds}
@@ -828,10 +962,10 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
               ))}
             </div>
 
-            {cables.length === 0 && comps.length === 0 && (
+            {cables.length === 0 && cards.length === 0 && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="panel px-5 py-4 text-sm text-center max-w-sm">
-                  Este POP ainda está vazio. Adicione uma OLT e um DIO pela barra acima, e desenhe no mapa o cabo que sai do POP.
+                  Este POP ainda está vazio. Adicione um Rack, uma OLT e um DIO pela barra acima, e desenhe no mapa o cabo que sai do POP.
                 </div>
               </div>
             )}
@@ -927,6 +1061,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
           initial={dialog.edit}
           defaultTx={network.settings.olt_tx_dbm}
           count={olts.length}
+          racks={racks}
           onClose={() => setDialog(null)}
           onSubmit={(c) => (dialog.edit ? editComponent(c) : addComponent(c))}
         />
@@ -935,6 +1070,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         <DioDialog
           initial={dialog.edit}
           count={dios.length}
+          racks={racks}
           onClose={() => setDialog(null)}
           onSubmit={(c) => (dialog.edit ? editComponent(c) : addComponent({ ...c, cables: cables.length === 1 && !dios.length ? [`c${cables[0].id}`] : [] }))}
         />
@@ -943,10 +1079,32 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         <ActiveDialog
           initial={dialog.edit}
           count={comps.filter((c) => c.kind === 'active').length}
+          racks={racks}
           onClose={() => setDialog(null)}
           onSubmit={(c) => (dialog.edit ? editComponent(c) : addComponent(c))}
         />
       )}
+      {dialog?.t === 'rack' && (
+        <RackDialog initial={dialog.edit} count={racks.length} onClose={() => setDialog(null)} onSubmit={(r) => (dialog.edit ? editComponent(r) : addComponent(r))} />
+      )}
+      {dialog?.t === 'mount' &&
+        (() => {
+          const rack = rackById.get(dialog.rack);
+          if (!rack) return null;
+          const item = dialog.item ? comps.find((c) => c.id === dialog.item) : undefined;
+          return (
+            <MountDialog
+              key={`${dialog.rack}-${dialog.item ?? ''}-${dialog.u ?? ''}`}
+              rack={rack}
+              diagram={diagram}
+              item={item}
+              startU={dialog.u}
+              onClose={() => setDialog(null)}
+              onSubmit={(id, u, h) => mount(rack.id, id, u, h)}
+              onUnmount={unmountId}
+            />
+          );
+        })()}
       {dialog?.t === 'linkDio' &&
         (() => {
           const dio = dios.find((d) => d.id === dialog.dio);
@@ -1061,6 +1219,8 @@ function PowerLine({ power, onBudget }: { power: BudgetResult | null; onBudget: 
 
 interface CardProps {
   comp: PopComp;
+  rack?: Rack;
+  rackConflict?: boolean;
   diagram: Diagram;
   cableMap: Map<string, Cable>;
   usedEnds: Map<string, unknown>;
@@ -1079,7 +1239,7 @@ interface CardProps {
 }
 
 /** Card de OLT, DIO ou equipamento ativo em vista frontal. */
-function EquipmentCard({ comp: c, diagram, cableMap, usedEnds, readOnly, pending, selConn, lit, endLabel, onDrag, onPort, onMatrix, onLink, onPatch, onEdit, onDelete }: CardProps) {
+function EquipmentCard({ comp: c, rack, rackConflict, diagram, cableMap, usedEnds, readOnly, pending, selConn, lit, endLabel, onDrag, onPort, onMatrix, onLink, onPatch, onEdit, onDelete }: CardProps) {
   const { w, h } = cardSize(c);
   const linked = c.kind === 'dio' ? linkedCables(diagram, c) : [];
   const fusedCount = c.kind === 'dio' ? Array.from({ length: c.ports }, (_, i) => usedEnds.has(`${c.id}:a${i + 1}`)).filter(Boolean).length : 0;
@@ -1214,11 +1374,140 @@ function EquipmentCard({ comp: c, diagram, cableMap, usedEnds, readOnly, pending
       })}
 
       {/* Rodapé */}
-      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between px-2.5 text-[10px] font-mono text-slate-500 border-t border-slate-800/60" style={{ height: G.FOOT }}>
+      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 px-2.5 text-[10px] font-mono text-slate-500 border-t border-slate-800/60" style={{ height: G.FOOT }}>
         <span>{footLeft}</span>
+        {rack && (
+          <span className={`flex items-center gap-1 truncate ${rackConflict ? 'text-red-400' : 'text-slate-400'}`} title={rackConflict ? 'Posição inválida no rack' : 'Posição no rack'}>
+            <Rows4 size={11} />
+            {rack.name} · U{c.u}
+            {rackHeight(c) > 1 ? `–${c.u! + rackHeight(c) - 1}` : ''}
+          </span>
+        )}
         <span>{footRight}</span>
       </div>
     </div>
   );
 }
 
+interface RackCardProps {
+  rack: Rack;
+  diagram: Diagram;
+  conflicts: Set<string>;
+  readOnly?: boolean;
+  onDrag: (e: React.PointerEvent) => void;
+  /** Instalar equipamento (u = U vazia clicada). */
+  onAdd: (u?: number) => void;
+  onItem: (id: string) => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+/** Rack em vista frontal: U numeradas (U1 embaixo) e os equipamentos instalados ocupando suas U. */
+function RackCard({ rack: r, diagram, conflicts, readOnly, onDrag, onAdd, onItem, onEdit, onDelete }: RackCardProps) {
+  const { w, h } = rackSize(r);
+  const items = rackItems(diagram, r.id);
+  const used = rackUsed(diagram, r.id);
+  const occupied = new Set<number>();
+  items.forEach((it) => {
+    for (let k = 0; k < rackHeight(it); k++) occupied.add(it.u! + k);
+  });
+  const left = RACK.PAD + RACK.NUM;
+  const inner = left + RACK.POST;
+  const top = rackUTop(r, r.units);
+
+  return (
+    <div className="absolute rounded-lg border border-slate-700 bg-slate-900 shadow-xl" style={{ left: r.x, top: r.y, width: w, height: h }} onPointerDown={(e) => e.stopPropagation()}>
+      <div className="absolute inset-x-0 top-0 flex items-center gap-2 px-2.5 border-b border-slate-800 cursor-move" style={{ height: RACK.HEADER }} onPointerDown={onDrag}>
+        <Rows4 size={15} className="text-amber-400" />
+        <span className="text-sm font-semibold truncate">{r.name}</span>
+        <span className="text-[10px] text-slate-500 shrink-0">
+          {r.units}U · {RACK_MOUNTS[r.mount].label}
+        </span>
+        <div className="ml-auto flex items-center">
+          {!readOnly && (
+            <CardBtn title="Instalar equipamento" onClick={() => onAdd()}>
+              <PackagePlus size={14} />
+            </CardBtn>
+          )}
+          {!readOnly && (
+            <CardBtn title="Editar rack" onClick={onEdit}>
+              <Pencil size={13} />
+            </CardBtn>
+          )}
+          {!readOnly && (
+            <CardBtn title="Excluir rack" onClick={onDelete} danger>
+              <Trash2 size={13} />
+            </CardBtn>
+          )}
+        </div>
+      </div>
+
+      {/* Colunas (montantes) e área útil */}
+      <div className="absolute rounded-sm" style={{ left, top, width: RACK.INNER + RACK.POST * 2, height: r.units * RACK.RU, background: '#334155' }} />
+      <div className="absolute" style={{ left: inner, top, width: RACK.INNER, height: r.units * RACK.RU, background: '#020617' }} />
+
+      {/* U numeradas e posições vazias (clique para instalar ali) */}
+      {Array.from({ length: r.units }, (_, i) => {
+        const u = r.units - i;
+        const y = rackUTop(r, u);
+        return (
+          <div key={u}>
+            <div className="absolute text-[9px] font-mono text-slate-500 text-right pr-1" style={{ left: RACK.PAD, top: y, width: RACK.NUM, height: RACK.RU, lineHeight: `${RACK.RU}px` }}>
+              {u}
+            </div>
+            {!occupied.has(u) && (
+              <button
+                title={readOnly ? `U${u} livre` : `U${u} livre · clique para instalar um equipamento aqui`}
+                disabled={readOnly}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => onAdd(u)}
+                className="absolute border-b border-slate-800/80 hover:bg-emerald-500/15 cursor-pointer disabled:cursor-default disabled:hover:bg-transparent"
+                style={{ left: inner, top: y, width: RACK.INNER, height: RACK.RU }}
+              />
+            )}
+          </div>
+        );
+      })}
+
+      {/* Equipamentos instalados */}
+      {items.map((it) => {
+        const hh = rackHeight(it);
+        const y = rackUTop(r, Math.min(r.units, it.u! + hh - 1));
+        const col = KIND_COLOR[it.kind];
+        const bad = conflicts.has(it.id);
+        const detail = it.kind === 'olt' ? `${it.slots}×${it.ports} PON` : it.kind === 'dio' ? `${it.ports}P` : it.type;
+        return (
+          <button
+            key={it.id}
+            title={`${it.name} · U${it.u}${hh > 1 ? `–${it.u! + hh - 1}` : ''} (${hh}U)${bad ? '\nPosição inválida: reposicione' : ''}`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => !readOnly && onItem(it.id)}
+            className="absolute flex items-center gap-1.5 rounded-[3px] px-2 text-left text-[10px] font-semibold overflow-hidden cursor-pointer hover:brightness-110"
+            style={{
+              left: inner + 1,
+              top: y + 1,
+              width: RACK.INNER - 2,
+              height: Math.max(1, Math.min(hh, it.u! + hh - 1, r.units - it.u! + 1)) * RACK.RU - 2,
+              background: `linear-gradient(180deg, ${col}, ${col}cc)`,
+              color: textOn(col),
+              outline: bad ? '2px solid #ef4444' : undefined,
+            }}
+          >
+            <span className="truncate">{it.name}</span>
+            <span className="ml-auto shrink-0 opacity-75 font-normal">{detail}</span>
+          </button>
+        );
+      })}
+
+      {/* Base (rack de piso) */}
+      {r.mount === 'floor' && <div className="absolute rounded-sm bg-slate-700" style={{ left: left - 4, top: top + r.units * RACK.RU + 2, width: RACK.INNER + RACK.POST * 2 + 8, height: 6 }} />}
+
+      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between px-2.5 text-[10px] font-mono text-slate-500 border-t border-slate-800/60" style={{ height: RACK.FOOT }}>
+        <span>{items.length} equip.</span>
+        <span className={used >= r.units ? 'text-amber-400' : undefined}>
+          {r.units - used}U livres de {r.units}U
+        </span>
+      </div>
+    </div>
+  );
+}

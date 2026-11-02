@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { buildReport, portUsage } from '../lib/analysis';
 import { POWER_COLORS, POWER_LABEL, type PowerLevel } from '../lib/budget';
-import { CABLE_CATEGORIES, NODE_TYPES, STATUSES } from '../lib/catalog';
+import { CABLE_CATEGORIES, NODE_TYPES, NODE_TYPE_LIST, STATUSES } from '../lib/catalog';
 import type { Activity, Network, NodeType, Status } from '../lib/types';
 import { ACTIONS, TYPES } from './HistoryModal';
 import { Modal, formatLength } from './ui';
@@ -24,7 +24,7 @@ export default function DashboardModal({ network, projectName, recent, onClose }
     .filter((u) => u.total > 0)
     .sort((a, b) => b.used / b.total - a.used / a.total)
     .slice(0, 8);
-  const types: NodeType[] = ['pop', 'ceo', 'cto', 'pole', 'client'];
+  const types: NodeType[] = NODE_TYPE_LIST;
   const statuses = Object.keys(STATUSES) as Status[];
 
   return (

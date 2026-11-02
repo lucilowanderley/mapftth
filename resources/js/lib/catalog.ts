@@ -1,4 +1,4 @@
-import type { Cable, CableCategory, LineStyle, NodeType, SlackKind, Status } from './types';
+import type { Cable, CableCategory, CondoKind, LineStyle, NodeType, RackMountType, SlackKind, Status } from './types';
 
 /** Cores de fibras e tubos conforme padrão ABNT (NBR 14160). */
 export const ABNT_COLORS = [
@@ -109,7 +109,7 @@ export const DIO_SIZES = [12, 24, 36, 48, 72, 144];
 /** Portas por bandeja do DIO. */
 export const DIO_TRAY = 12;
 
-export const ACTIVE_TYPES = ['Switch', 'Roteador', 'BNG / Concentrador', 'Servidor', 'Outro'];
+export const ACTIVE_TYPES = ['Switch', 'Roteador', 'BNG / Concentrador', 'Servidor', 'Firewall', 'Nobreak / UPS', 'Patch panel UTP', 'Outro'];
 
 export const NODE_TYPES: Record<NodeType, { label: string; plural: string; color: string }> = {
   pop: { label: 'POP', plural: 'POPs', color: '#7c3aed' },
@@ -117,6 +117,26 @@ export const NODE_TYPES: Record<NodeType, { label: string; plural: string; color
   cto: { label: 'CTO', plural: 'CTOs', color: '#f97316' },
   pole: { label: 'Poste', plural: 'Postes', color: '#94a3b8' },
   client: { label: 'Cliente', plural: 'Clientes', color: '#22c55e' },
+  condo: { label: 'Condomínio', plural: 'Condomínios', color: '#d946ef' },
+};
+
+/** Todos os tipos de objeto, na ordem usada em listas e relatórios. */
+export const NODE_TYPE_LIST: NodeType[] = ['pop', 'ceo', 'cto', 'condo', 'pole', 'client'];
+
+/** Objetos com diagrama de fusão (aceitam cabos, splitters e sangria). */
+export const BOX_TYPES: NodeType[] = ['pop', 'ceo', 'cto', 'condo'];
+
+export const CONDO_KINDS: Record<CondoKind, { label: string; unit: string; units: string; block: string }> = {
+  buildings: { label: 'Prédios', unit: 'apartamento', units: 'Apartamentos', block: 'Prédios / torres' },
+  houses: { label: 'Casas', unit: 'casa', units: 'Casas', block: 'Quadras' },
+};
+
+/** Alturas comuns de rack (U). */
+export const RACK_SIZES = [6, 8, 12, 16, 24, 32, 36, 40, 42, 44, 46, 48];
+
+export const RACK_MOUNTS: Record<RackMountType, { label: string; hint: string }> = {
+  floor: { label: 'Piso', hint: 'Rack fechado ou aberto, apoiado no chão' },
+  wall: { label: 'Suspenso', hint: 'Rack de parede (brise)' },
 };
 
 export const STATUSES: Record<Status, { label: string; color: string }> = {
