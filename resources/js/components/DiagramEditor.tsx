@@ -38,6 +38,7 @@ function blockSize(b: Block): { w: number; h: number } {
     case 'olt':
       return { w: BOX_W, h: HEADER + b.slots * b.ports * ROW + 6 };
     case 'dio':
+    case 'active':
       return { w: BOX_W, h: HEADER + b.ports * ROW + 6 };
   }
 }
@@ -87,6 +88,9 @@ function blockPorts(b: Block): Port[] {
         { end: { c: b.key, p: `b${i + 1}` }, x: b.x, y: b.y + HEADER + (i + 0.5) * ROW, dir: -1 as const, color: '#0ea5e9', label: String(i + 1) },
         { end: { c: b.key, p: `a${i + 1}` }, x: b.x + w, y: b.y + HEADER + (i + 0.5) * ROW, dir: 1 as const, color: '#0ea5e9', label: String(i + 1) },
       ]).flat();
+    case 'active':
+      // Equipamentos ativos só existem no editor de POP.
+      return [];
   }
 }
 
@@ -729,7 +733,7 @@ function BlockView({ block: b, selected, onPointerDown }: { block: Block; select
   );
 }
 
-function SplitterDialog({ onClose, onPick }: { onClose: () => void; onPick: (model: string) => void }) {
+export function SplitterDialog({ onClose, onPick }: { onClose: () => void; onPick: (model: string) => void }) {
   const [balanced, setBalanced] = useState(true);
   return (
     <Modal title="Selecionar splitter" onClose={onClose} width="max-w-sm">

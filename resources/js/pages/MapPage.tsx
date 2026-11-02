@@ -51,6 +51,7 @@ import { movePath, roundLatLng } from '../lib/move';
 import { Logo, Toast, formatLength } from '../components/ui';
 import Inspector from '../components/Inspector';
 import DiagramEditor from '../components/DiagramEditor';
+import PopEditor from '../components/pop/PopEditor';
 import BudgetModal from '../components/BudgetModal';
 import SettingsModal from '../components/SettingsModal';
 import NetworkAnalysis from '../components/NetworkAnalysis';
@@ -1659,7 +1660,20 @@ export default function MapPage() {
         )}
       </div>
 
-      {diagramNode && (
+      {diagramNode?.type === 'pop' && (
+        <PopEditor
+          node={diagramNode}
+          network={network}
+          readOnly={readOnly}
+          onClose={() => setDiagramNodeId(null)}
+          onSaved={(n) => {
+            mergeNodes([n]);
+            notify('POP salvo');
+          }}
+          onShowBudget={(title, result) => setBudget({ title, result })}
+        />
+      )}
+      {diagramNode && diagramNode.type !== 'pop' && (
         <DiagramEditor
           node={diagramNode}
           network={network}

@@ -1,4 +1,5 @@
 import { splitterModel } from './catalog';
+import { isPatchEnd } from './pop';
 import type { Cable, Connection, DiagramComponent, End, NetNode, Network, Settings } from './types';
 
 export interface BudgetStep {
@@ -81,9 +82,7 @@ class Index {
 /** Uma ponta é "de conector" quando é cordão/patch (porta de OLT ou frente do DIO). */
 function isPatch(node: NetNode, idx: Index, end: End): boolean {
   if (end.c.startsWith('c')) return false;
-  const comp = idx.component(node, end.c);
-  if (!comp) return false;
-  return comp.kind === 'olt' || (comp.kind === 'dio' && end.p.startsWith('b'));
+  return isPatchEnd(idx.component(node, end.c), end.p);
 }
 
 /**
@@ -141,6 +140,8 @@ export function traceUpstream(net: Network, nodeId: number, start: End): BudgetR
     } else {
       const comp = idx.component(node, end.c);
       if (!comp) return fail('Componente não encontrado no diagrama.');
+      if (comp.kind === 'active') return fail(`O caminho chega em ${comp.name} (equipamento ativo), não numa porta PON.`);
+      if (comp.kind === 'olt' && end.p.startsWith('u')) return fail(`O caminho chega no uplink de ${comp.name}, não numa porta PON.`);
       if (comp.kind === 'olt') {
         const n = Number(end.p.slice(1));
         const slot = Math.floor((n - 1) / comp.ports) + 1;

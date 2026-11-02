@@ -87,14 +87,29 @@ export const SPLITTER_MODELS: SplitterModel[] = [
 
 export const splitterModel = (id: string) => SPLITTER_MODELS.find((m) => m.id === id) ?? SPLITTER_MODELS[0];
 
-export const OLT_MODELS = [
-  { id: 'custom', name: 'Configuração personalizada', slots: 1, ports: 8 },
-  { id: 'huawei-ma5608t', name: 'OLT Huawei MA5608T', slots: 2, ports: 16 },
-  { id: 'vsol-8', name: 'OLT V-Sol 8 portas', slots: 1, ports: 8 },
-  { id: 'zte-c320', name: 'OLT ZTE C320', slots: 2, ports: 16 },
+export interface OltModel {
+  id: string;
+  name: string;
+  vendor: string;
+  slots: number;
+  ports: number;
+  uplinks: number;
+}
+
+export const OLT_MODELS: OltModel[] = [
+  { id: 'custom', name: 'Configuração personalizada', vendor: '', slots: 1, ports: 8, uplinks: 2 },
+  { id: 'huawei-ma5608t', name: 'OLT Huawei MA5608T', vendor: 'Huawei', slots: 2, ports: 16, uplinks: 4 },
+  { id: 'vsol-8', name: 'OLT V-Sol 8 portas', vendor: 'V-Sol', slots: 1, ports: 8, uplinks: 4 },
+  { id: 'zte-c320', name: 'OLT ZTE C320', vendor: 'ZTE', slots: 2, ports: 16, uplinks: 4 },
 ];
 
+export const oltModel = (id: string) => OLT_MODELS.find((m) => m.id === id);
+
 export const DIO_SIZES = [12, 24, 36, 48, 72, 144];
+/** Portas por bandeja do DIO. */
+export const DIO_TRAY = 12;
+
+export const ACTIVE_TYPES = ['Switch', 'Roteador', 'BNG / Concentrador', 'Servidor', 'Outro'];
 
 export const NODE_TYPES: Record<NodeType, { label: string; plural: string; color: string }> = {
   pop: { label: 'POP', plural: 'POPs', color: '#7c3aed' },
