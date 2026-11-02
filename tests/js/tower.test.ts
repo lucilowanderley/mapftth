@@ -48,3 +48,12 @@ describe('torre e wireless', () => {
     expect(radioSummary({ id: 'a', kind: 'ap', name: 'Setor Norte', freq_ghz: 5.8, height_m: 30, azimuth: 0 })).toBe('Setor Norte · 5,8 GHz · 30 m · 0°');
   });
 });
+
+describe('estilo do enlace wireless', () => {
+  it('cor própria (rosa mútuo, âmbar uma ponta) e ponto do meio', async () => {
+    const { LINK_STYLE, linkColor, linkMidpoint } = await import('../../resources/js/lib/tower');
+    expect(linkColor(true)).toBe(LINK_STYLE.color);
+    expect(linkColor(false)).toBe(LINK_STYLE.pending);
+    expect(linkMidpoint([0, 0], [2, 4])).toEqual([1, 2]);
+  });
+});

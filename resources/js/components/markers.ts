@@ -107,3 +107,19 @@ export function slackIcon(kind: 'aerial' | 'underground', color: string, selecte
   }
   return icon;
 }
+
+const linkIcons = new Map<string, L.DivIcon>();
+
+/** Ícone de rádio no meio da linha de enlace wireless (círculo com ondas), na cor do enlace. */
+export function wirelessLinkIcon(color: string) {
+  const hit = linkIcons.get(color);
+  if (hit) return hit;
+  const icon = L.divIcon({
+    className: 'wireless-link-marker',
+    html: `<svg viewBox="0 0 24 24" width="22" height="22" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))"><circle cx="12" cy="12" r="10" fill="#0f172a" stroke="${color}" stroke-width="2"/><circle cx="12" cy="12" r="1.8" fill="${color}"/><path d="M8.6 8.6a4.8 4.8 0 0 0 0 6.8M15.4 8.6a4.8 4.8 0 0 1 0 6.8M6.4 6.4a7.9 7.9 0 0 0 0 11.2M17.6 6.4a7.9 7.9 0 0 1 0 11.2" stroke="${color}" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+  });
+  linkIcons.set(color, icon);
+  return icon;
+}
