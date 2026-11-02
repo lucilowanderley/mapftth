@@ -35,6 +35,10 @@ export default function ReportModal({ network, projectName, title, polygon, onCl
       [],
       ['Condomínios', r.condos.count, 'Unidades (casas/apartamentos)', r.condos.units],
       [],
+      ['Equipamento wireless', 'Quantidade'],
+      ...Object.entries(r.wireless.radios),
+      ['Enlaces PtP', r.wireless.links],
+      [],
       ['Caixa', 'Tipo', 'Status', 'Portas usadas', 'Portas totais', 'Latitude', 'Longitude'],
       ...boxes.map(({ b, used, total }) => [b.name, NODE_TYPES[b.type].label, STATUSES[b.status].label, used, total, b.lat, b.lng]),
     ];
@@ -151,6 +155,12 @@ export default function ReportModal({ network, projectName, title, polygon, onCl
       {r.condos.count > 0 && (
         <p className="text-xs text-slate-400 mt-3">
           Condomínios: {r.condos.count} · {r.condos.units} unidade(s) (casas/apartamentos)
+        </p>
+      )}
+      {(Object.keys(r.wireless.radios).length > 0 || r.wireless.links > 0) && (
+        <p className="text-xs text-slate-400 mt-3">
+          Wireless: {Object.entries(r.wireless.radios).map(([k, n]) => `${n} ${k}`).join(' · ')}
+          {r.wireless.links > 0 ? ` · ${r.wireless.links} enlace(s) PtP` : ''}
         </p>
       )}
       {r.clients.length > 0 && (

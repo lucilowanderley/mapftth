@@ -32,7 +32,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage } from '../../lib/api';
 import { traceUpstream, type BudgetResult } from '../../lib/budget';
-import { CABLE_CATEGORIES, RACK_MOUNTS, STATUSES, fiberColor } from '../../lib/catalog';
+import { CABLE_CATEGORIES, NODE_TYPES, RACK_MOUNTS, STATUSES, fiberColor } from '../../lib/catalog';
 import {
   autoFuseDio,
   autoPatch,
@@ -147,6 +147,9 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   const [status, setStatus] = useState<Status>(node.status);
   const [dirty, setDirty] = useState(false);
   const [view, setView] = useState({ x: 40, y: 40, k: 1 });
+  /** O mesmo editor serve ao POP e ao Datacenter; só muda o nome mostrado. */
+  const place = NODE_TYPES[node.type].label;
+  const editorTitle = node.type === 'dc' ? 'Editor do Datacenter' : node.type === 'tower' ? 'Editor da Torre (shelter)' : 'Editor de POP';
   const [mode, setMode] = useState<'canvas' | 'manobra'>('canvas');
   const [manobraFocus, setManobraFocus] = useState<string | null>(null);
   const [vfl, setVfl] = useState(false);
@@ -521,7 +524,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   function deleteComponent(c: PopComp | Rack) {
     if (isRack(c)) {
       const n = rackItems(diagram, c.id).length;
-      if (!confirm(`Excluir ${c.name}?${n ? ` Os ${n} equipamento(s) instalados continuam no POP, fora do rack.` : ''}`)) return;
+      if (!confirm(`Excluir ${c.name}?${n ? ` Os ${n} equipamento(s) instalados continuam em ${node.name}, fora do rack.` : ''}`)) return;
       update((d) => ({ ...d, components: d.components.filter((x) => x.id !== c.id).map((x) => (isPopComp(x) && x.rack === c.id ? unmount(x) : x)) }));
       return;
     }
@@ -694,7 +697,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h + titleH}" font-family="Arial, sans-serif">
       <rect width="100%" height="100%" fill="#f1f5f9"/>
       <rect width="100%" height="${titleH - 10}" fill="#0f172a"/>
-      <text x="${pad}" y="32" font-size="18" font-weight="bold" fill="#ffffff">${esc(node.name)} · POP</text>
+      <text x="${pad}" y="32" font-size="18" font-weight="bold" fill="#ffffff">${esc(node.name)} · ${place}</text>
       <text x="${w - pad}" y="32" font-size="11" fill="#94a3b8" text-anchor="end">${new Date().toLocaleString('pt-BR')} · ${node.lat.toFixed(6)}, ${node.lng.toFixed(6)} · ${STATUSES[status].label}</text>
       <g transform="translate(${-x0},${titleH - y0})">${parts.join('')}</g>
       <text x="${pad}" y="${h + titleH - 16}" font-size="10" fill="#475569">Racks: ${racks.length} · OLT: ${olts.length} · DIO: ${dios.length} · Portas do DIO com cordão: ${dioPatched}/${dioPorts} · PON em uso: ${ponUsed}/${ponTotal}</text>
@@ -723,7 +726,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
       onSaved(r.node);
       setDirty(false);
       if (close) onClose();
-      else notify('POP salvo.');
+      else notify(`${node.name} salvo.`);
     } catch (e) {
       notify(errorMessage(e), true);
     }
@@ -778,7 +781,9 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         <div className="w-8 h-8 rounded-lg bg-violet-500/15 text-violet-400 flex items-center justify-center">
           <Server size={17} />
         </div>
-        <div className="font-semibold">Editor de POP: {node.name}</div>
+        <div className="font-semibold">
+          {editorTitle}: {node.name}
+        </div>
         <select
           className="ml-3 rounded-md bg-slate-950 border border-slate-700 px-2 py-1 text-xs"
           value={status}
@@ -1143,7 +1148,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
             {cables.length === 0 && cards.length === 0 && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="panel px-5 py-4 text-sm text-center max-w-sm">
-                  Este POP ainda está vazio. Adicione um Rack, uma OLT e um DIO pela barra acima, e desenhe no mapa o cabo que sai do POP.
+                  {node.name} ainda está vazio. Adicione um Rack, uma OLT e um DIO pela barra acima, e desenhe no mapa o cabo que chega aqui.
                 </div>
               </div>
             )}
@@ -1174,7 +1179,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                           </div>
                         );
                       })}
-                      {vflResult && vflResult.exits.length === 0 && <div className="text-slate-500">A luz não sai do POP por nenhum cabo.</div>}
+                      {vflResult && vflResult.exits.length === 0 && <div className="text-slate-500">A luz não sai de {node.name} por nenhum cabo.</div>}
                     </div>
                   )}
                 </div>
@@ -1309,7 +1314,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
               subtitle={(n) => `${dio.name} · ${n} cabo(s) vinculado(s)`}
               items={cableItems}
               initial={initial}
-              empty="Nenhum cabo chega neste POP. Desenhe o cabo no mapa ligando-o ao POP."
+              empty={`Nenhum cabo chega em ${node.name}. Desenhe o cabo no mapa ligando-o a este objeto.`}
               onClose={() => setDialog(null)}
               onSubmit={(keys) => {
                 const pairs = cableItems.map((it) => ({ cable: it.key, dio: dio.id, on: keys.includes(it.key) })).filter((p) => p.on !== initial.includes(p.cable));

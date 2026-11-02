@@ -122,7 +122,7 @@ class CableController extends Controller
         $nodes = NetworkNode::whereIn('id', $cuts->pluck('node_id'))->get()->keyBy('id');
         foreach ($nodes as $node) {
             if ($node->type === 'client' || $node->type === 'pole') {
-                throw ValidationException::withMessages(['cuts' => 'A sangria só pode ser feita em CTO, CEO, POP ou condomínio.']);
+                throw ValidationException::withMessages(['cuts' => 'A sangria só pode ser feita em CTO, CEO, POP, datacenter, torre ou condomínio.']);
             }
         }
 

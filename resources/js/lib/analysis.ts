@@ -2,6 +2,7 @@ import { clientBudget, powerLevel, traceUpstream, type BudgetResult, type PowerL
 import { BOX_TYPES, NODE_TYPE_LIST, splitterModel } from './catalog';
 import { distance } from './geo';
 import { isPatchEnd } from './pop';
+import { RADIO_KINDS, radioLinks, radiosOf } from './tower';
 import type { Cable, LatLng, NetNode, Network, NodeType, SlackKind, Status } from './types';
 
 // ---------------- Geometria ----------------
@@ -149,6 +150,8 @@ export interface Report {
   boxes: NetNode[];
   /** Condomínios e total de unidades habitacionais (casas/apartamentos) declaradas neles. */
   condos: { count: number; units: number };
+  /** Equipamentos wireless (torres e POPs) por tipo e enlaces PtP. */
+  wireless: { radios: Record<string, number>; links: number };
   areaM2: number | null;
 }
 
@@ -173,6 +176,14 @@ export function buildReport(net: Network, polygon?: LatLng[]): Report {
     condos: {
       count: nodes.filter((n) => n.type === 'condo').length,
       units: nodes.filter((n) => n.type === 'condo').reduce((a, n) => a + (Number(n.attributes?.units) || 0), 0),
+    },
+    wireless: {
+      radios: nodes.flatMap(radiosOf).reduce<Record<string, number>>((acc, r) => {
+        const k = (RADIO_KINDS[r.kind] ?? RADIO_KINDS.other).label;
+        acc[k] = (acc[k] ?? 0) + 1;
+        return acc;
+      }, {}),
+      links: radioLinks(nodes, distance).length,
     },
     areaM2: polygon ? polygonArea(polygon) : null,
   };

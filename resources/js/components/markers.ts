@@ -6,6 +6,12 @@ const SHAPES: Record<NetNode['type'], (fill: string, ring: string) => string> = 
   cto: (f, r) => `<rect x="3" y="3" width="18" height="18" rx="4" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M8 9h8M8 12h8M8 15h5" stroke="white" stroke-width="1.6" stroke-linecap="round"/>`,
   ceo: (f, r) => `<path d="M12 2l9 5v10l-9 5-9-5V7z" fill="${f}" stroke="${r}" stroke-width="2.5"/><circle cx="12" cy="12" r="3" fill="white"/>`,
   pop: (f, r) => `<rect x="2" y="2" width="20" height="20" rx="3" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M7 7h10v3H7zM7 12h10v3H7zM9 17h6" stroke="white" stroke-width="1.5" fill="none"/>`,
+  // Datacenter: três racks lado a lado com LEDs.
+  dc: (f, r) =>
+    `<rect x="2" y="2" width="20" height="20" rx="3" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M5.5 6h3.5v12H5.5zM10.25 6h3.5v12h-3.5zM15 6h3.5v12H15z" fill="white"/><path d="M6.5 8.5h1.5M11.25 8.5h1.5M16 8.5h1.5M6.5 11h1.5M11.25 11h1.5M16 11h1.5" stroke="${f}" stroke-width="1.2"/>`,
+  // Torre: estrutura treliçada com ondas de rádio no topo.
+  tower: (f, r) =>
+    `<rect x="2" y="2" width="20" height="20" rx="5" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M12 8.5L8.5 19M12 8.5l3.5 10.5M9.6 15.5h4.8M10.6 12.5h2.8M9.2 17.5l5.2-2M14.8 17.5l-5.2-2" stroke="white" stroke-width="1.4" fill="none" stroke-linecap="round"/><circle cx="12" cy="7.5" r="1.3" fill="white"/><path d="M8.6 4.6a4.5 4.5 0 0 0 0 5.8M15.4 4.6a4.5 4.5 0 0 1 0 5.8" stroke="white" stroke-width="1.3" fill="none" stroke-linecap="round"/>`,
   pole: (f, r) => `<circle cx="12" cy="12" r="6" fill="${f}" stroke="${r}" stroke-width="2.5"/>`,
   client: (f, r) => `<circle cx="12" cy="12" r="9" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M8 13l4-4 4 4v4H8z" fill="white"/>`,
   // Condomínio de prédios: dois blocos com janelas.
@@ -17,7 +23,7 @@ const SHAPES: Record<NetNode['type'], (fill: string, ring: string) => string> = 
 const CONDO_HOUSES = (f: string, r: string) =>
   `<rect x="2" y="2" width="20" height="20" rx="5" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M4.5 12l3.5-3.5 3.5 3.5v5h-7zM12.5 12l3.5-3.5 3.5 3.5v5h-7z" fill="white"/>`;
 
-const SIZES: Record<NetNode['type'], number> = { cto: 24, ceo: 24, pop: 30, pole: 14, client: 20, condo: 28 };
+const SIZES: Record<NetNode['type'], number> = { cto: 24, ceo: 24, pop: 30, dc: 32, tower: 30, pole: 14, client: 20, condo: 28 };
 
 /**
  * Os ícones ficam em cache: devolver sempre a mesma instância evita que o Leaflet

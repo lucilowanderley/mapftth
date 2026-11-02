@@ -10,7 +10,7 @@ seções como consulta.
 2. [Conta e login](#2-conta-e-login)
 3. [Meus projetos](#3-meus-projetos)
 4. [A tela do mapa](#4-a-tela-do-mapa)
-5. [Adicionar POP, CEO, CTO, poste, cliente e condomínio](#5-adicionar-pop-ceo-cto-poste-cliente-e-condomínio)
+5. [Adicionar POP, datacenter, torre, CEO, CTO, poste, cliente e condomínio](#5-adicionar-pop-datacenter-torre-ceo-cto-poste-cliente-e-condomínio)
 6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos) (inclui as [3 formas de ligar a CTO no cabo](#ligar-a-cto-no-cabo-3-formas))
 7. [Editor do POP: rack, OLT e DIO](#7-editor-do-pop-rack-olt-e-dio)
 8. [Diagrama de fusão da CEO e da CTO (splitters)](#8-diagrama-de-fusão-da-ceo-e-da-cto)
@@ -92,7 +92,7 @@ A tela tem quatro partes:
 | Onde | O que tem |
 | --- | --- |
 | **Barra lateral (esquerda)** | Nome do projeto, % implantado, seu papel, busca, menu (Meus projetos, Dashboard, Análise de rede, Relatório da rede, Tabela de postes, Equipe, Histórico, Importar KMZ/KML, Exportar KMZ, Configurações) e os totais de POPs, CEOs, CTOs, clientes e metros de cabo. |
-| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, POP, Poste, Cliente, Condomínio, Cabo, Área, Reserva, Régua, Viabilidade. |
+| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, POP, Datacenter, Torre, Poste, Cliente, Condomínio, Cabo, Área, Reserva, Régua, Viabilidade. |
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
 
@@ -135,9 +135,9 @@ até ele e já o seleciona. Também aceita coordenadas, como `-8.0476, -34.8770`
 
 ---
 
-## 5. Adicionar POP, CEO, CTO, poste, cliente e condomínio
+## 5. Adicionar POP, datacenter, torre, CEO, CTO, poste, cliente e condomínio
 
-1. Na barra de ferramentas, escolha **POP**, **CEO**, **CTO**, **Poste**, **Cliente** ou **Condomínio**.
+1. Na barra de ferramentas, escolha **POP**, **Datacenter**, **Torre**, **CEO**, **CTO**, **Poste**, **Cliente** ou **Condomínio**.
 2. Clique no mapa onde o elemento fica. Ele é criado na hora com um nome automático e o painel de edição abre
    à esquerda. Você pode continuar clicando para colocar vários do mesmo tipo.
 3. Volte para **Selecionar** (ou aperte **Esc**) quando terminar.
@@ -160,7 +160,11 @@ os dois campos são preenchidos.
   e a lista de **cabos neste poste**.
 - **Condomínio**: **Tipo** (*Casas* ou *Prédios*), número de **Casas** ou **Apartamentos**, **Quadras** ou
   **Prédios / torres**, **Andares** (só prédios), **Endereço**, **Síndico / contato** e **Telefone**.
-- **POP, CEO, CTO e condomínio**: botão **Editor do POP** ou **Diagrama de fusão**.
+- **Torre**: **Tipo de torre** (autoportante, estaiada, monopolo, mastro ou rooftop), **Altura (m)**, **Código do site**,
+  **Detentora / proprietário**, **Endereço** e **Tem shelter / abrigo com racks**.
+- **Torre e POP**: lista de **Equipamentos wireless** ([veja abaixo](#torre-e-equipamentos-wireless)).
+- **POP, datacenter, torre, CEO, CTO e condomínio**: botão **Editor do POP**, **Editor do Datacenter**,
+  **Shelter da torre (racks)** ou **Diagrama de fusão**.
 - Clique em **Salvar alterações**. A lixeira exclui; o relógio mostra o histórico daquele elemento.
 
 **Condomínio (casas ou prédios)**
@@ -176,7 +180,41 @@ O condomínio funciona como uma caixa: o cabo pode terminar nele, passar por ele
 interna. Os drops dos moradores saem dele como saem de uma CTO. Nos **relatórios** aparece o total de condomínios e
 de unidades (útil para contar casas cobertas), e no **KMZ** eles vão para a pasta *Condomínios*.
 
-**Mover (arrastar)**: com **Selecionar**, clique e arraste qualquer elemento (POP, CEO, CTO, poste, cliente ou condomínio).
+**Datacenter**
+
+Escolha **Datacenter** na barra de ferramentas e clique no mapa. O datacenter é criado como *DC-1*, *DC-2*... com um
+ícone verde-azulado de racks. Ele funciona como um POP grande: os cabos chegam nele, e o botão **Editor do
+Datacenter** (ou duplo clique) abre o mesmo editor de racks, OLT, DIO e ativos do POP
+([seção 7](#7-editor-do-pop-rack-olt-e-dio)), com o endereçamento de rack de datacenter (prédio, andar, sala,
+fileira e posição) e a criação de fileiras inteiras. Os racks podem ficar tanto no datacenter quanto no POP.
+
+### Torre e equipamentos wireless
+
+Escolha **Torre** na barra de ferramentas e clique no mapa. A torre é criada como *TR-1*, *TR-2*... com um ícone
+vermelho de torre treliçada. No painel, preencha o tipo, a altura e o código do site. Marque **Tem shelter / abrigo
+com racks** se houver abrigo: o botão **Shelter da torre (racks)** abre o editor de racks (o mesmo do POP) para os
+equipamentos do shelter. A torre também recebe cabos de fibra, como um POP.
+
+**Equipamentos wireless** (na torre e no POP): clique em **Adicionar** e preencha:
+
+- **Tipo**: *Rádio PtP (enlace)*, *Rádio PtMP (base / AP)*, *Antena setorial*, *Antena omni*, *Antena parabólica /
+  grade*, *CPE / cliente* ou *Outro*.
+- **Nome**, **Fabricante**, **Modelo** e **Frequência (GHz)** (a lista sugere 2,4, 5, 5,8, 11, 18, 23, 60, 80...).
+- **Altura na torre (m)**, **Azimute (°)** (0 = norte, sentido horário), **Abertura (°)** do feixe (vazio = a típica
+  do tipo, por exemplo 60° na setorial e 90° na base PtMP) e **Tilt (°)**.
+- **Enlace com (outra ponta)**: nos rádios PtP, parabólicas e CPEs, escolha a torre ou o POP do outro lado (a lista
+  vem do mais perto para o mais longe, com a distância). O **azimute** é calculado sozinho para apontar para lá.
+  O quadro abaixo mostra a **distância**, o **azimute até a outra ponta** e a **folga de Fresnel (60%)** no meio do
+  enlace, e avisa se o azimute digitado não aponta para a outra ponta. **Apontar para...** recalcula o azimute.
+
+Clique em **Salvar alterações**. No mapa, cada equipamento sem enlace aparece como um **setor colorido** (leque na
+direção do azimute com a abertura do feixe; a omni vira um círculo), visível a partir do zoom 13. Cada enlace PtP
+aparece como uma **linha azul** entre as duas pontas: contínua quando as duas pontas têm o rádio cadastrado, e
+tracejada quando só uma tem. Passe o mouse na linha para ver a distância e a frequência. Para esconder setores e
+enlaces, desmarque **Cobertura e enlaces wireless** no painel da direita. Os **relatórios** contam os equipamentos
+wireless por tipo e os enlaces PtP.
+
+**Mover (arrastar)**: com **Selecionar**, clique e arraste qualquer elemento (POP, datacenter, torre, CEO, CTO, poste, cliente ou condomínio).
 Enquanto você arrasta, os cabos acompanham: as pontas ligadas ao elemento e os pontos de cabos que passam
 exatamente por ele (por exemplo, um cabo apoiado num poste). Ao soltar, a posição é salva e o comprimento dos
 cabos é recalculado.
@@ -310,6 +348,9 @@ dentro dela).
 ---
 
 ## 7. Editor do POP: rack, OLT e DIO
+
+Este mesmo editor abre no **Datacenter** (**Editor do Datacenter**) e no shelter da **Torre** (**Shelter da torre
+(racks)**); tudo o que está nesta seção vale para os três.
 
 Selecione o POP e clique em **Editor do POP** (ou duplo clique no POP). O editor abre um **canvas** escuro com
 **cards** que você arrasta pelo cabeçalho: um card para cada **cabo** que chega ao POP, e um card para cada **rack**,
@@ -691,7 +732,7 @@ Use para comparar com a medição do OTDR de campo e achar onde está um problem
 
 1. Escolha um arquivo `.kmz` ou `.kml` (por exemplo, do Google Earth).
 2. Os pontos viram caixas conforme o **nome do ponto ou da pasta**: *CTO* ou *caixa de atendimento* → CTO; *CEO* ou
-   *emenda* → CEO; *POP*, *OLT* ou *datacenter* → POP; *condomínio*, *edifício* ou *residencial* → Condomínio; *poste* → Poste; *cliente*, *ONU* ou *assinante* → Cliente.
+   *emenda* → CEO; *POP* ou *OLT* → POP; *datacenter* → Datacenter; *torre*, *tower*, *ERB* ou *RBS* → Torre; *condomínio*, *edifício* ou *residencial* → Condomínio; *poste* → Poste; *cliente*, *ONU* ou *assinante* → Cliente.
 3. As linhas viram cabos. Se o nome tiver a quantidade de fibras (ex.: *12FO*, *24 fibras*) ela é usada; *backbone*
    ou *tronco* define o tipo. As pontas dos cabos se ligam às caixas que estiverem a até **15 m**.
 4. Ao final aparece quantos pontos e cabos foram importados.

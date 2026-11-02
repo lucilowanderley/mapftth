@@ -138,6 +138,8 @@ export const ACTIVE_TYPES = ['Switch', 'Roteador', 'BNG / Concentrador', 'Servid
 
 export const NODE_TYPES: Record<NodeType, { label: string; plural: string; color: string }> = {
   pop: { label: 'POP', plural: 'POPs', color: '#7c3aed' },
+  dc: { label: 'Datacenter', plural: 'Datacenters', color: '#0d9488' },
+  tower: { label: 'Torre', plural: 'Torres', color: '#f43f5e' },
   ceo: { label: 'CEO', plural: 'CEOs', color: '#0ea5e9' },
   cto: { label: 'CTO', plural: 'CTOs', color: '#f97316' },
   pole: { label: 'Poste', plural: 'Postes', color: '#94a3b8' },
@@ -146,10 +148,13 @@ export const NODE_TYPES: Record<NodeType, { label: string; plural: string; color
 };
 
 /** Todos os tipos de objeto, na ordem usada em listas e relatórios. */
-export const NODE_TYPE_LIST: NodeType[] = ['pop', 'ceo', 'cto', 'condo', 'pole', 'client'];
+export const NODE_TYPE_LIST: NodeType[] = ['dc', 'pop', 'tower', 'ceo', 'cto', 'condo', 'pole', 'client'];
 
 /** Objetos com diagrama de fusão (aceitam cabos, splitters e sangria). */
-export const BOX_TYPES: NodeType[] = ['pop', 'ceo', 'cto', 'condo'];
+export const BOX_TYPES: NodeType[] = ['dc', 'pop', 'tower', 'ceo', 'cto', 'condo'];
+
+/** Objetos que abrem o editor de racks (OLT, DIO, ativos e racks): POP, Datacenter e Torre (shelter). */
+export const RACK_HOST_TYPES: NodeType[] = ['pop', 'dc', 'tower'];
 
 export const CONDO_KINDS: Record<CondoKind, { label: string; unit: string; units: string; block: string }> = {
   buildings: { label: 'Prédios', unit: 'apartamento', units: 'Apartamentos', block: 'Prédios / torres' },
