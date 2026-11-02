@@ -109,6 +109,12 @@ depois de fechar ou apertar F5.
 
 O zoom vai até 21; acima do zoom máximo de cada mapa a imagem é ampliada.
 
+**Último enquadramento**: cada projeto reabre na mesma posição e no mesmo zoom em que você deixou o mapa (fica
+salvo neste navegador). Na primeira vez em um navegador, o mapa abre no centro e no zoom definidos ao criar o projeto.
+
+Se algum quadrado do mapa base não carregar (internet lenta ou servidor de mapas ocupado), o sistema tenta de novo
+sozinho algumas vezes. Se continuar faltando, mova um pouco o mapa ou troque o motor em **Configurações**.
+
 > **Mapas do Google**: o Google só permite usar os mapas dele com uma chave da **Map Tiles API** (o uso direto dos
 > tiles, sem chave, é proibido pelos termos do Google). Para ativar: no Google Cloud Console crie um projeto, ative
 > a cobrança e a **Map Tiles API**, crie uma chave de API e restrinja-a ao domínio do sistema (restrição por site

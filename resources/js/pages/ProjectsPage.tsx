@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import L from 'leaflet';
 import { ROLE_LABELS } from '../components/TeamModal';
 import { api, errorMessage } from '../lib/api';
+import { AutoResize, TILE_OPTIONS } from '../lib/mapview';
 import { searchPlaces, type Place } from '../lib/geocode';
 import type { Project } from '../lib/types';
 import { currentUser, logout } from '../lib/user';
@@ -238,7 +239,8 @@ function CreateProjectModal({ onClose, onCreated }: { onClose: () => void; onCre
           </div>
           <div className="mt-2 h-52 rounded-md overflow-hidden border border-slate-700">
             <MapContainer center={center} zoom={4} className="h-full w-full">
-              <TileLayer url={STREETS_LAYER.url} attribution={STREETS_LAYER.attribution} />
+              <AutoResize />
+              <TileLayer url={STREETS_LAYER.url} attribution={STREETS_LAYER.attribution} {...TILE_OPTIONS} />
               <Marker position={center} icon={pin} />
               <Recenter center={center} />
               <ClickToSet onPick={(lat, lng) => setCenter([lat, lng])} />
