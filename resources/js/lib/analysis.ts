@@ -1,7 +1,7 @@
 import { clientBudget, powerLevel, traceUpstream, type BudgetResult, type PowerLevel } from './budget';
 import { splitterModel } from './catalog';
 import { distance } from './geo';
-import type { Cable, LatLng, NetNode, Network, NodeType, Status } from './types';
+import type { Cable, LatLng, NetNode, Network, NodeType, SlackKind, Status } from './types';
 
 // ---------------- Geometria ----------------
 
@@ -139,6 +139,8 @@ export interface Report {
   byStatus: Record<NodeType, Record<Status, number>>;
   cables: { name: string; category: string; fibers: number; meters: number; slack: number }[];
   cableTotal: number;
+  /** Reservas técnicas posicionadas (dentro da área, quando houver). */
+  slacks: Record<SlackKind, { count: number; meters: number }>;
   splitters: Record<string, number>;
   fusions: number;
   ports: { total: number; used: number };
@@ -159,6 +161,7 @@ export function buildReport(net: Network, polygon?: LatLng[]): Report {
     byStatus: Object.fromEntries(types.map((t) => [t, EMPTY_STATUS()])) as Record<NodeType, Record<Status, number>>,
     cables: [],
     cableTotal: 0,
+    slacks: { aerial: { count: 0, meters: 0 }, underground: { count: 0, meters: 0 } },
     splitters: {},
     fusions: 0,
     ports: { total: 0, used: 0 },
@@ -192,9 +195,15 @@ export function buildReport(net: Network, polygon?: LatLng[]): Report {
   // Cabos agrupados por modelo/nome, com metragem dentro da área e reserva proporcional.
   const groups = new Map<string, Report['cables'][number]>();
   net.cables.forEach((c) => {
+    // Reservas posicionadas contam onde estão; a metragem antiga (sem local) é proporcional ao trecho.
+    const placed = (c.slacks ?? []).filter((r) => inside([r.lat, r.lng]));
+    placed.forEach((r) => {
+      report.slacks[r.kind].count++;
+      report.slacks[r.kind].meters += r.length_m;
+    });
     const meters = polygon ? lengthInside(c.path, polygon) : c.length_m;
-    if (meters < 0.5) return;
-    const slack = c.length_m > 0 ? (c.slack_m * meters) / c.length_m : 0;
+    if (meters < 0.5 && !placed.length) return;
+    const slack = c.slacks?.length ? placed.reduce((a, r) => a + r.length_m, 0) : c.length_m > 0 ? (c.slack_m * meters) / c.length_m : 0;
     const key = `${c.fiber_count}|${c.category}`;
     const g = groups.get(key) ?? { name: `Cabo ${c.fiber_count}FO`, category: c.category, fibers: c.fiber_count, meters: 0, slack: 0 };
     g.meters += meters;

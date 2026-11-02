@@ -175,6 +175,24 @@ class KmlService
             $folders .= '</Folder>';
         }
 
+        // Reservas técnicas posicionadas: um ponto por reserva, com metragem e tipo.
+        $slackItems = '';
+        foreach ($project->cables()->orderBy('id')->get() as $c) {
+            foreach ($c->slacks ?? [] as $r) {
+                $kind = ($r['kind'] ?? 'aerial') === 'underground' ? 'Subterrânea' : 'Suspensa';
+                $slackItems .= "<Placemark><name>Reserva {$r['length_m']} m · {$e($c->name)}</name>"
+                    ."<description>{$kind}".(! empty($r['notes']) ? ' · '.$e($r['notes']) : '').'</description>'
+                    .'<styleUrl>#slack-'.($kind === 'Suspensa' ? 'aerial' : 'underground').'</styleUrl>'
+                    ."<ExtendedData><Data name=\"cabo\"><value>{$e($c->name)}</value></Data><Data name=\"metragem\"><value>{$r['length_m']}</value></Data><Data name=\"tipo\"><value>{$kind}</value></Data></ExtendedData>"
+                    ."<Point><coordinates>{$r['lng']},{$r['lat']},0</coordinates></Point></Placemark>";
+            }
+        }
+        if ($slackItems) {
+            $styles .= '<Style id="slack-aerial"><IconStyle><color>ff00a5ff</color><scale>0.8</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/target.png</href></Icon></IconStyle></Style>'
+                .'<Style id="slack-underground"><IconStyle><color>ff2a2aa5</color><scale>0.8</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/square.png</href></Icon></IconStyle></Style>';
+            $folders .= "<Folder><name>Reservas técnicas</name>{$slackItems}</Folder>";
+        }
+
         return '<?xml version="1.0" encoding="UTF-8"?>'
             .'<kml xmlns="http://www.opengis.net/kml/2.2"><Document>'
             ."<name>{$e($project->name)}</name>{$styles}{$folders}</Document></kml>";

@@ -12,9 +12,12 @@ class Cable extends Model
 
     public const LINE_STYLES = ['solid', 'dashed', 'dotted'];
 
+    /** Reserva técnica suspensa (aérea, no poste) ou subterrânea (caixa/câmara). */
+    public const SLACK_KINDS = ['aerial', 'underground'];
+
     protected $fillable = [
         'name', 'category', 'model', 'fiber_count', 'fibers_per_tube', 'status', 'color', 'width', 'line_style',
-        'path', 'from_node_id', 'to_node_id', 'slack_m', 'notes',
+        'path', 'from_node_id', 'to_node_id', 'slack_m', 'slacks', 'notes',
     ];
 
     protected function casts(): array
@@ -25,6 +28,7 @@ class Cable extends Model
             'fibers_per_tube' => 'integer',
             'width' => 'integer',
             'slack_m' => 'integer',
+            'slacks' => 'array',
             'length_m' => 'float',
             'from_node_id' => 'integer',
             'to_node_id' => 'integer',
@@ -35,6 +39,10 @@ class Cable extends Model
     {
         static::saving(function (Cable $cable) {
             $cable->length_m = round(Geo::pathLength($cable->path ?? []), 2);
+            // Com reservas posicionadas no mapa, a reserva total do cabo é a soma delas.
+            if (is_array($cable->slacks) && count($cable->slacks)) {
+                $cable->slack_m = (int) round(array_sum(array_column($cable->slacks, 'length_m')));
+            }
         });
     }
 

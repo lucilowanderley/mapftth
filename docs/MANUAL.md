@@ -92,7 +92,7 @@ A tela tem quatro partes:
 | Onde | O que tem |
 | --- | --- |
 | **Barra lateral (esquerda)** | Nome do projeto, % implantado, seu papel, busca, menu (Meus projetos, Dashboard, Análise de rede, Relatório da rede, Tabela de postes, Equipe, Histórico, Importar KMZ/KML, Exportar KMZ, Configurações) e os totais de POPs, CEOs, CTOs, clientes e metros de cabo. |
-| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, POP, Poste, Cliente, Cabo, Área, Régua, Viabilidade. |
+| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, POP, Poste, Cliente, Cabo, Reserva, Área, Régua, Viabilidade. |
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
 
@@ -225,7 +225,38 @@ contagem de fusões). Para derivar uma fibra na caixa (ex.: levar a fibra 3 a um
 fusão**, clique na fibra, use **Remover passagem** e ligue a fibra ao splitter normalmente. As caixas no fim do
 cabo original continuam com as fusões que já tinham, agora no último trecho.
 
-O menu do botão direito no cabo também tem **Editar** (abre o painel do cabo) e **Excluir**.
+O menu do botão direito no cabo também tem **Editar** (abre o painel do cabo), **Posicionar reserva** e **Excluir**.
+
+### Reserva técnica no mapa
+
+Cada reserva técnica (sobra de cabo enrolada) tem **local**, **metragem** e **tipo**:
+
+- **Suspensa** (círculo com borda laranja): aérea, presa no poste.
+- **Subterrânea** (quadrado com borda marrom): em caixa subterrânea ou câmara.
+
+**Posicionar**
+
+1. Escolha **Reserva** na barra de ferramentas, ou clique com o botão direito no cabo › **Posicionar reserva**
+   (aí a reserva vai sempre para esse cabo). No painel do cabo também há o botão **+ Posicionar reserva no mapa**.
+2. Logo abaixo da barra, informe a **metragem** e escolha **Suspensa** ou **Subterrânea**. Os valores ficam
+   lembrados para as próximas reservas.
+3. Clique **sobre o cabo** no ponto da reserva. Clicando num **poste** (ou caixa) por onde o cabo passa, a
+   reserva fica exatamente no poste e leva o nome dele na observação.
+
+**Ver e editar**
+
+- No mapa, o ícone mostra o tipo; passe o mouse para ver a metragem (a partir do zoom 18 ela aparece fixa).
+- **Arraste** o ícone para mudar o local: ele sempre volta para cima do cabo, no ponto mais próximo.
+- Clicar no ícone seleciona o cabo. No painel, em **Reservas técnicas no mapa**, cada reserva (R1, R2...) mostra
+  o tipo, a metragem, as coordenadas, o botão de **mostrar no mapa** e o **X** para remover. Mudanças nessa lista
+  são salvas na hora.
+- Numa **sangria**, cada reserva vai junto com o trecho do cabo onde ela está.
+- Projetos antigos: a metragem de reserva que já existia virou uma reserva **suspensa no meio do cabo**, com a
+  observação *"Migrada: posicione no local correto"*. Arraste-a para o lugar certo.
+
+A reserva também aparece no **KMZ** exportado (pasta *Reservas técnicas*, com metragem e tipo) e nos
+**relatórios** (quantidade e metros de reservas suspensas e subterrâneas; no relatório de área, só as que estão
+dentro dela).
 
 **Editar** (clique no cabo com **Selecionar**):
 
@@ -235,8 +266,8 @@ O menu do botão direito no cabo também tem **Editar** (abre o painel do cabo) 
   violeta, marrom, rosa, preto, cinza, laranja, água-marinha). Acima de 12 fibras o diagrama mostra também a cor
   do tubo.
 - **Tipo** (Backbone, Distribuição, Drop) e **Status**.
-- **Reserva técnica (m)**: somada ao comprimento geométrico no **Total** (e usada no orçamento óptico e nos
-  relatórios).
+- **Reserva técnica**: o painel mostra a soma das reservas do cabo, que entra no **Total**, no orçamento óptico e
+  nos relatórios. Cada reserva tem local no mapa (veja [Reserva técnica no mapa](#reserva-técnica-no-mapa)).
 - **Cor no mapa** e **Espessura**.
 - **Estilo da linha**: **Contínuo**, **Tracejado** ou **Pontilhado**. Em **Automático** (o padrão), o cabo fica
   tracejado enquanto estiver *Em projeto* e contínuo nos demais status. Cada botão mostra uma prévia com a cor e a
@@ -418,8 +449,8 @@ Barra lateral → **Dashboard**. Uma visão geral do projeto:
 - Da área: clique na área e depois em **Relatório da área**.
 - Da rede toda: barra lateral → **Relatório da rede**.
 
-O relatório traz **Elementos** (quantidade por tipo e status), **Lista de materiais** (cabos por modelo com reserva
-técnica proporcional, splitters, caixas e fusões), **Caixas** com portas usadas e livres, e o sinal dos clientes.
+O relatório traz **Elementos** (quantidade por tipo e status), **Lista de materiais** (cabos por modelo com a
+reserva técnica que está dentro da área, reservas suspensas e subterrâneas, splitters, caixas e fusões), **Caixas** com portas usadas e livres, e o sinal dos clientes.
 
 - **Planilha (CSV)**: baixa um arquivo que abre direto no Excel (separador `;`).
 - **Imprimir / PDF**: abre a impressão do navegador. Para PDF, escolha **Salvar como PDF** como impressora.

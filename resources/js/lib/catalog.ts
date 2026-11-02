@@ -1,4 +1,4 @@
-import type { Cable, CableCategory, LineStyle, NodeType, Status } from './types';
+import type { Cable, CableCategory, LineStyle, NodeType, SlackKind, Status } from './types';
 
 /** Cores de fibras e tubos conforme padrão ABNT (NBR 14160). */
 export const ABNT_COLORS = [
@@ -132,3 +132,8 @@ export function lineDash(style: LineStyle, width: number): string | undefined {
   if (style === 'dotted') return `0.1 ${width * 2 + 3}`;
   return undefined;
 }
+
+export const SLACK_KINDS: Record<SlackKind, { label: string; hint: string; color: string }> = {
+  aerial: { label: 'Suspensa', hint: 'aérea, presa no poste', color: '#f59e0b' },
+  underground: { label: 'Subterrânea', hint: 'em caixa subterrânea ou câmara', color: '#a16207' },
+};

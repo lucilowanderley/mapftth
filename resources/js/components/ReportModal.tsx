@@ -2,7 +2,7 @@ import { FileSpreadsheet, Printer } from 'lucide-react';
 import { useMemo } from 'react';
 import { buildReport, downloadText, portUsage, toCsv } from '../lib/analysis';
 import { POWER_LABEL } from '../lib/budget';
-import { CABLE_CATEGORIES, NODE_TYPES, STATUSES } from '../lib/catalog';
+import { CABLE_CATEGORIES, NODE_TYPES, SLACK_KINDS, STATUSES } from '../lib/catalog';
 import type { LatLng, Network, NodeType } from '../lib/types';
 import { Modal, formatLength } from './ui';
 
@@ -25,6 +25,9 @@ export default function ReportModal({ network, projectName, title, polygon, onCl
       [],
       ['Cabo', 'Tipo', 'Metragem (m)', 'Reserva técnica (m)', 'Total (m)'],
       ...r.cables.map((c) => [c.name, CABLE_CATEGORIES[c.category as keyof typeof CABLE_CATEGORIES].label, Math.round(c.meters), Math.round(c.slack), Math.round(c.meters + c.slack)]),
+      [],
+      ['Reserva técnica', 'Quantidade', 'Metragem (m)'],
+      ...(['aerial', 'underground'] as const).map((k) => [SLACK_KINDS[k].label, r.slacks[k].count, r.slacks[k].meters]),
       [],
       ['Splitter', 'Quantidade'],
       ...Object.entries(r.splitters),
@@ -51,6 +54,7 @@ export default function ReportModal({ network, projectName, title, polygon, onCl
       <div class="kpis"><div class="kpi">Cabos<b>${esc(formatLength(r.cableTotal))}</b></div><div class="kpi">CTOs<b>${r.nodes.cto}</b></div><div class="kpi">Clientes<b>${r.nodes.client}</b></div><div class="kpi">Portas livres<b>${r.ports.total - r.ports.used}</b></div><div class="kpi">Fusões<b>${r.fusions}</b></div></div>
       <h2>Elementos</h2>${table(['Tipo', 'Total', ...Object.values(STATUSES).map((s) => s.label)], types.map((t) => [NODE_TYPES[t].plural, r.nodes[t], ...Object.keys(STATUSES).map((s) => r.byStatus[t][s as keyof typeof STATUSES])]))}
       <h2>Cabos</h2>${table(['Cabo', 'Tipo', 'Metragem', 'Reserva', 'Total'], r.cables.map((c) => [c.name, CABLE_CATEGORIES[c.category as keyof typeof CABLE_CATEGORIES].label, m(c.meters), m(c.slack), m(c.meters + c.slack)]))}
+      <h2>Reservas técnicas</h2>${table(['Tipo', 'Quantidade', 'Metragem'], (['aerial', 'underground'] as const).map((k) => [SLACK_KINDS[k].label, String(r.slacks[k].count), m(r.slacks[k].meters)]))}
       <h2>Splitters</h2>${table(['Modelo', 'Quantidade'], Object.entries(r.splitters))}
       <h2>Caixas</h2>${table(['Caixa', 'Tipo', 'Status', 'Portas', 'Coordenadas'], boxes.map(({ b, used, total }) => [b.name, NODE_TYPES[b.type].label, STATUSES[b.status].label, total ? `${used}/${total}` : '—', `${b.lat.toFixed(6)}, ${b.lng.toFixed(6)}`]))}
       <script>window.onload=()=>window.print()</script></body></html>`);
@@ -111,6 +115,16 @@ export default function ReportModal({ network, projectName, title, polygon, onCl
                   <td className="text-right">{m(c.meters + c.slack)}</td>
                 </tr>
               ))}
+              {(['aerial', 'underground'] as const)
+                .filter((k) => r.slacks[k].count)
+                .map((k) => (
+                  <tr key={k} className="border-t border-slate-800">
+                    <td className="py-1">Reserva {SLACK_KINDS[k].label.toLowerCase()}</td>
+                    <td className="text-right">
+                      {r.slacks[k].count} un · {m(r.slacks[k].meters)}
+                    </td>
+                  </tr>
+                ))}
               {Object.entries(r.splitters).map(([k, v]) => (
                 <tr key={k} className="border-t border-slate-800">
                   <td className="py-1">Splitter {k}</td>

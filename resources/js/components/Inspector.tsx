@@ -2,8 +2,8 @@ import { Activity, Copy, Crosshair, History, Link2, Network, Radar, Trash2, X } 
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, POWER_LABEL, powerLevel, type BudgetResult } from '../lib/budget';
-import { CABLE_CATEGORIES, CABLE_MODELS, LINE_STYLES, NODE_TYPES, STATUSES, effectiveLineStyle, lineDash } from '../lib/catalog';
-import type { Cable, CableCategory, LatLng, LineStyle, NetNode, PoleAttributes, Settings, Status } from '../lib/types';
+import { CABLE_CATEGORIES, CABLE_MODELS, LINE_STYLES, NODE_TYPES, SLACK_KINDS, STATUSES, effectiveLineStyle, lineDash } from '../lib/catalog';
+import type { Cable, CableCategory, LatLng, LineStyle, NetNode, Slack, SlackKind, PoleAttributes, Settings, Status } from '../lib/types';
 import { POLE_MATERIALS } from './PolesModal';
 import { cablesNear } from '../lib/analysis';
 import { Field, formatLength } from './ui';
@@ -32,6 +32,10 @@ interface Props {
   /** Muda a cada duplo clique no objeto: coloca o cursor no primeiro campo. */
   focusKey?: number;
   onLocate?: (at: LatLng) => void;
+  /** Salva a lista de reservas técnicas do cabo (na hora, fora do "Salvar alterações"). */
+  onSlacksChange?: (cable: Cable, slacks: Slack[]) => void;
+  /** Liga a ferramenta Reserva para posicionar uma reserva neste cabo. */
+  onPlaceSlack?: (cable: Cable) => void;
 }
 
 /** Foca e seleciona o campo quando focusKey muda (duplo clique no mapa). */
@@ -327,7 +331,7 @@ function NodeForm({
   );
 }
 
-function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, onError, onHistory, focusKey }: Props & { cable: Cable }) {
+function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, onError, onHistory, focusKey, onSlacksChange, onPlaceSlack, onLocate }: Props & { cable: Cable }) {
   const nameRef = useFocusOn(focusKey);
   const [form, setForm] = useState({
     name: cable.name,
@@ -339,7 +343,6 @@ function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, o
     color: cable.color,
     width: cable.width,
     line_style: cable.line_style,
-    slack_m: cable.slack_m,
     notes: cable.notes ?? '',
   });
   const [saving, setSaving] = useState(false);
@@ -466,21 +469,16 @@ function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, o
               <span>Comprimento geométrico</span>
               <span>{formatLength(cable.length_m)}</span>
             </div>
-            <div className="flex justify-between items-center text-slate-400">
-              <span>Reserva técnica (m)</span>
-              <input
-                type="number"
-                min={0}
-                className="input !w-20 !py-0.5 text-right"
-                value={form.slack_m}
-                onChange={(e) => set({ slack_m: Number(e.target.value) })}
-              />
+            <div className="flex justify-between text-slate-400">
+              <span>Reserva técnica ({cable.slacks?.length ?? 0})</span>
+              <span>{formatLength(cable.slack_m)}</span>
             </div>
             <div className="flex justify-between font-semibold text-emerald-400 pt-1 border-t border-slate-800">
               <span>Total</span>
-              <span>{formatLength(cable.length_m + form.slack_m)}</span>
+              <span>{formatLength(cable.length_m + cable.slack_m)}</span>
             </div>
           </div>
+          <SlackList cable={cable} readOnly={readOnly} onChange={(list) => onSlacksChange?.(cable, list)} onPlace={() => onPlaceSlack?.(cable)} onLocate={onLocate} />
           <Field label="Cor no mapa">
             <div className="flex flex-wrap gap-1.5 items-center">
               {SWATCHES.map((c) => (
@@ -542,5 +540,85 @@ function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, o
         />
       </div>
     </>
+  );
+}
+
+/** Reservas técnicas do cabo: tipo, metragem e local de cada uma. Alterações são salvas na hora. */
+function SlackList({
+  cable,
+  readOnly,
+  onChange,
+  onPlace,
+  onLocate,
+}: {
+  cable: Cable;
+  readOnly?: boolean;
+  onChange: (list: Slack[]) => void;
+  onPlace: () => void;
+  onLocate?: (at: LatLng) => void;
+}) {
+  const list = cable.slacks ?? [];
+  const update = (id: string, patch: Partial<Slack>) => onChange(list.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  return (
+    <Field label="Reservas técnicas no mapa">
+      <div className="space-y-1.5">
+        {list.length === 0 && (
+          <div className="text-xs text-slate-500">
+            {cable.slack_m > 0 ? `${cable.slack_m} m de reserva sem local definido.` : 'Nenhuma reserva posicionada.'}
+          </div>
+        )}
+        {list.map((r, i) => (
+          <div key={r.id} className="rounded-md border border-slate-800 bg-slate-950/60 p-1.5 text-xs">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 shrink-0" style={{ background: SLACK_KINDS[r.kind].color, borderRadius: r.kind === 'aerial' ? '50%' : 2 }} />
+              <span className="text-slate-300 font-medium">R{i + 1}</span>
+              <select
+                className="input !py-0.5 !px-1 text-xs flex-1"
+                value={r.kind}
+                disabled={readOnly}
+                onChange={(e) => update(r.id, { kind: e.target.value as SlackKind })}
+              >
+                {(Object.keys(SLACK_KINDS) as SlackKind[]).map((k) => (
+                  <option key={k} value={k}>
+                    {SLACK_KINDS[k].label}
+                  </option>
+                ))}
+              </select>
+              <input
+                key={`${r.id}-${r.length_m}`}
+                type="number"
+                min={0}
+                defaultValue={r.length_m}
+                disabled={readOnly}
+                className="input !w-16 !py-0.5 text-right text-xs"
+                onBlur={(e) => {
+                  const v = Math.max(0, Math.round(Number(e.target.value) || 0));
+                  if (v !== r.length_m) update(r.id, { length_m: v });
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+              />
+              <span className="text-slate-500">m</span>
+              <button className="text-slate-400 hover:text-emerald-400 cursor-pointer p-0.5" title="Mostrar no mapa" onClick={() => onLocate?.([r.lat, r.lng])}>
+                <Crosshair size={13} />
+              </button>
+              {!readOnly && (
+                <button className="text-slate-400 hover:text-red-400 cursor-pointer p-0.5" title="Remover reserva" onClick={() => onChange(list.filter((x) => x.id !== r.id))}>
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+            <div className="text-[10px] text-slate-500 mt-0.5 pl-4">
+              {r.lat.toFixed(6)}, {r.lng.toFixed(6)}
+              {r.notes ? ` · ${r.notes}` : ''}
+            </div>
+          </div>
+        ))}
+        {!readOnly && (
+          <button className="btn-ghost w-full !py-1 text-xs" onClick={onPlace}>
+            + Posicionar reserva no mapa
+          </button>
+        )}
+      </div>
+    </Field>
   );
 }

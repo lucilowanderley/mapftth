@@ -208,6 +208,40 @@ class NetworkApiTest extends TestCase
             ->assertOk()->assertJsonPath('cable.line_style', null);
     }
 
+    public function test_slacks_are_saved_summed_and_split_with_the_cable(): void
+    {
+        $user = User::factory()->create();
+        $project = $this->project($user);
+        $cto = $project->nodes()->create(['type' => 'cto', 'name' => 'CTO', 'lat' => 0, 'lng' => 0.001]);
+        $cable = $project->cables()->create(['name' => 'C', 'path' => [[0, 0], [0, 0.002]]]);
+
+        $this->actingAs($user)->putJson("/api/cables/{$cable->id}", ['slacks' => [
+            ['id' => 'r1', 'lat' => 0, 'lng' => 0.0003, 'length_m' => 20, 'kind' => 'aerial'],
+            ['id' => 'r2', 'lat' => 0, 'lng' => 0.0018, 'length_m' => 15, 'kind' => 'underground', 'notes' => 'câmara'],
+        ]])->assertOk()->assertJsonPath('cable.slack_m', 35)->assertJsonPath('cable.slacks.1.kind', 'underground');
+
+        $this->actingAs($user)->putJson("/api/cables/{$cable->id}", ['slacks' => [
+            ['id' => 'r1', 'lat' => 0, 'lng' => 0.0003, 'length_m' => 20, 'kind' => 'buried'],
+        ]])->assertUnprocessable();
+
+        $r = $this->actingAs($user)->postJson("/api/cables/{$cable->id}/split", [
+            'path' => [[0, 0], [0, 0.001], [0, 0.002]],
+            'cuts' => [['index' => 1, 'node_id' => $cto->id]],
+        ])->assertOk();
+        [$a, $b] = $r->json('cables');
+        $this->assertSame(['r1'], array_column($a['slacks'], 'id'));
+        $this->assertSame(20, $a['slack_m']);
+        $this->assertSame(['r2'], array_column($b['slacks'], 'id'));
+        $this->assertSame(15, $b['slack_m']);
+
+        $kml = app(\App\Services\KmlService::class)->export($project);
+        $this->assertStringContainsString('Reservas técnicas', $kml);
+        $this->assertStringContainsString('Reserva 15 m', $kml);
+
+        $this->actingAs($user)->putJson("/api/cables/{$a['id']}", ['slacks' => []])
+            ->assertOk()->assertJsonPath('cable.slack_m', 0)->assertJsonPath('cable.slacks', null);
+    }
+
     public function test_split_rejects_box_already_on_the_cable(): void
     {
         $user = User::factory()->create();

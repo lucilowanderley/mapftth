@@ -30,6 +30,7 @@ import {
   Link2,
   Waypoints,
   Trash2,
+  Infinity as SlackToolIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Circle, CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
@@ -37,14 +38,14 @@ import { Link, useParams } from 'react-router-dom';
 import L from 'leaflet';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, clientBudget, powerLevel, type BudgetResult } from '../lib/budget';
-import { CABLE_CATEGORIES, CABLE_MODELS, NODE_TYPES, effectiveLineStyle, lineDash } from '../lib/catalog';
+import { CABLE_CATEGORIES, CABLE_MODELS, NODE_TYPES, SLACK_KINDS, effectiveLineStyle, lineDash } from '../lib/catalog';
 import { distance, pathLength } from '../lib/geo';
-import type { Activity as ActivityItem, Area, Cable, CableCategory, LatLng, NetNode, NodeType, Project, Role, Settings } from '../lib/types';
+import type { Activity as ActivityItem, Area, Cable, CableCategory, LatLng, NetNode, NodeType, Project, Role, Settings, Slack, SlackKind } from '../lib/types';
 import { viability } from '../lib/analysis';
 import { LAYERS, MAP_ENGINES, MAP_STYLES, availableEngines, googleTileUrl, loadEngine, loadStyle, saveEngine, saveStyle, type MapEngine, type MapStyle } from '../lib/basemaps';
 import { appConfig } from '../lib/user';
-import { connectIcon, midpointIcon, nodeIcon, vertexIcon } from '../components/markers';
-import { ALONG_TOLERANCE_M, nearestOnPath, planBoxesAlong, type AlongPlan } from '../lib/connect';
+import { connectIcon, midpointIcon, nodeIcon, slackIcon, vertexIcon } from '../components/markers';
+import { ALONG_TOLERANCE_M, nearestOnPath, planBoxesAlong, pointOnPath, type AlongPlan } from '../lib/connect';
 import { formatCoord, parseLatLng, parsePair } from '../lib/coords';
 import { movePath, roundLatLng } from '../lib/move';
 import { Logo, Toast, formatLength } from '../components/ui';
@@ -62,7 +63,7 @@ import OtdrModal from '../components/OtdrModal';
 import ViabilityPanel from '../components/ViabilityPanel';
 import AreaPanel from '../components/AreaPanel';
 
-type Tool = 'select' | NodeType | 'cable' | 'ruler' | 'area' | 'viability';
+type Tool = 'select' | NodeType | 'cable' | 'slack' | 'ruler' | 'area' | 'viability';
 
 const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'select', label: 'Selecionar', icon: <MousePointer2 size={18} /> },
@@ -73,6 +74,7 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'client', label: 'Cliente', icon: <User size={18} /> },
   { id: 'cable', label: 'Cabo', icon: <CableIcon size={18} /> },
   { id: 'area', label: 'Área', icon: <Pentagon size={18} /> },
+  { id: 'slack', label: 'Reserva', icon: <SlackToolIcon size={18} /> },
   { id: 'ruler', label: 'Régua', icon: <Ruler size={18} /> },
   { id: 'viability', label: 'Viabilidade', icon: <Radar size={18} /> },
 ];
@@ -194,6 +196,23 @@ export default function MapPage() {
       // ignora
     }
   };
+  /** Ferramenta Reserva: metragem e tipo da próxima reserva (lembrados) e cabo escolhido pelo menu. */
+  const [slackDefaults, setSlackDefaultsState] = useState<{ length: number; kind: SlackKind }>(() => {
+    try {
+      return { length: 20, kind: 'aerial', ...JSON.parse(localStorage.getItem('mapftth.slack') ?? '{}') };
+    } catch {
+      return { length: 20, kind: 'aerial' };
+    }
+  });
+  const setSlackDefaults = (v: { length: number; kind: SlackKind }) => {
+    setSlackDefaultsState(v);
+    try {
+      localStorage.setItem('mapftth.slack', JSON.stringify(v));
+    } catch {
+      // ignora
+    }
+  };
+  const [slackCableId, setSlackCableId] = useState<number | null>(null);
   /** Cabo em "Conectar a caixa, poste ou POP": pontas e pontos do meio podem ser soltos sobre objetos. */
   const [connectId, setConnectId] = useState<number | null>(null);
   /** Menu do botão direito sobre um cabo. */
@@ -214,6 +233,13 @@ export default function MapPage() {
   const positionOf = (n: NetNode): LatLng => {
     let p = positions.current.get(n);
     if (!p) positions.current.set(n, (p = [n.lat, n.lng]));
+    return p;
+  };
+  // Mesmo cuidado para as reservas: posição estável enquanto o ícone é arrastado.
+  const slackPositions = useRef(new WeakMap<Slack, LatLng>());
+  const slackPositionOf = (r: Slack): LatLng => {
+    let p = slackPositions.current.get(r);
+    if (!p) slackPositions.current.set(r, (p = [r.lat, r.lng]));
     return p;
   };
   const mapRef = useRef<L.Map | null>(null);
@@ -251,6 +277,7 @@ export default function MapPage() {
       if (e.key === 'Escape') {
         if (cableMenu) return setCableMenu(null);
         if (connectId) return setConnectId(null);
+        setSlackCableId(null);
         setDraft(null);
         setRuler([]);
         setAreaDraft([]);
@@ -393,6 +420,56 @@ export default function MapPage() {
       notify(errorMessage(e), 'error');
       load();
     }
+  }
+
+  /** Salva a lista de reservas técnicas do cabo. */
+  async function saveSlacks(cable: Cable, slacks: Slack[], message?: string) {
+    setCables((list) => list.map((c) => (c.id === cable.id ? { ...c, slacks, slack_m: slacks.reduce((a, r) => a + r.length_m, 0) } : c)));
+    try {
+      const r = await api.updateCable(cable.id, { slacks });
+      mergeCables([r.cable]);
+      if (message) notify(message);
+    } catch (e) {
+      notify(errorMessage(e), 'error');
+      load();
+    }
+  }
+
+  /** Cabo mais próximo do clique (até ~20 px na tela). */
+  function cableAt(at: LatLng): Cable | null {
+    const map = mapRef.current;
+    if (!map) return null;
+    const mpp = (40075016.686 * Math.cos((at[0] * Math.PI) / 180)) / 2 ** (map.getZoom() + 8);
+    let best: Cable | null = null;
+    let bestD = 20 * mpp;
+    for (const c of cables) {
+      if (!visible[c.category]) continue;
+      const d = nearestOnPath(c.path, at).dist;
+      if (d < bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    return best;
+  }
+
+  /** Ferramenta Reserva: posiciona uma reserva sobre o cabo no ponto clicado (ou sobre o poste/caixa clicado). */
+  function placeSlack(at: LatLng, onNode?: NetNode, clicked?: Cable) {
+    const chosen = slackCableId ? cables.find((c) => c.id === slackCableId) : null;
+    const cable = chosen ?? clicked ?? cableAt(at);
+    if (!cable) return notify('Clique sobre um cabo (ou num poste por onde ele passa) para posicionar a reserva.', 'error');
+    const pos = roundLatLng(onNode ? [onNode.lat, onNode.lng] : pointOnPath(cable.path, at));
+    if (nearestOnPath(cable.path, pos).dist > 50) return notify(`O ponto está longe do cabo ${cable.name}.`, 'error');
+    const slack: Slack = {
+      id: `r${Math.random().toString(36).slice(2, 9)}`,
+      lat: pos[0],
+      lng: pos[1],
+      length_m: slackDefaults.length,
+      kind: slackDefaults.kind,
+      notes: onNode ? onNode.name : null,
+    };
+    saveSlacks(cable, [...(cable.slacks ?? []), slack], `Reserva ${SLACK_KINDS[slack.kind].label.toLowerCase()} de ${slack.length_m} m em ${cable.name}`);
+    setSelection({ kind: 'cable', id: cable.id });
   }
 
   /** Aplica a resposta de uma sangria: o cabo original encolhe e os novos trechos entram na lista. */
@@ -550,6 +627,10 @@ export default function MapPage() {
       setRuler((r) => [...r, [node.lat, node.lng]]);
       return;
     }
+    if (tool === 'slack') {
+      placeSlack([node.lat, node.lng], node);
+      return;
+    }
     setSelection({ kind: 'node', id: node.id });
   }
 
@@ -682,7 +763,9 @@ export default function MapPage() {
   const hint =
     tool === 'area'
       ? `Clique para marcar os vértices da área (${areaDraft.length}). Enter ou "Finalizar área" conclui. Esc cancela.`
-      : tool === 'viability'
+      : tool === 'slack'
+        ? 'Clique sobre o cabo (ou no poste/caixa por onde ele passa) para posicionar a reserva técnica. Esc volta para Selecionar.'
+        : tool === 'viability'
         ? 'Clique no local do cliente ou busque o endereço no painel.'
         : readOnly && tool === 'select'
           ? 'Acesso somente leitura. Clique num elemento para ver detalhes.'
@@ -807,6 +890,7 @@ export default function MapPage() {
               else if (tool === 'area') setAreaDraft((a) => [...a, at]);
               else if (tool === 'cable') setDraft((d) => (d ? { ...d, path: [...d.path, at] } : { path: [at], from: null }));
               else if (tool === 'ruler') setRuler((r) => [...r, at]);
+              else if (tool === 'slack') placeSlack(at);
               else addNode(tool, at);
             }}
             onMove={setCursor}
@@ -866,6 +950,11 @@ export default function MapPage() {
                 }}
                 eventHandlers={{
                   click: (e) => {
+                    if (tool === 'slack') {
+                      L.DomEvent.stopPropagation(e);
+                      placeSlack([e.latlng.lat, e.latlng.lng], undefined, c);
+                      return;
+                    }
                     if (tool !== 'select') return;
                     L.DomEvent.stopPropagation(e);
                     setCableMenu(null);
@@ -953,6 +1042,41 @@ export default function MapPage() {
                 </Marker>
               );
             })}
+
+          {/* Reservas técnicas: arrastáveis ao longo do próprio cabo. */}
+          {cables
+            .filter((c) => visible[c.category] && c.slacks?.length)
+            .flatMap((c) =>
+              c.slacks!.map((r) => (
+                <Marker
+                  key={`s${c.id}-${r.id}-${r.lat}-${r.lng}-${labels && zoom >= 18 ? 1 : 0}`}
+                  position={slackPositionOf(r)}
+                  icon={slackIcon(r.kind, c.color, selection?.kind === 'cable' && selection.id === c.id)}
+                  draggable={tool === 'select' && !readOnly}
+                  zIndexOffset={500}
+                  eventHandlers={{
+                    click: (e) => {
+                      L.DomEvent.stopPropagation(e);
+                      setSelection({ kind: 'cable', id: c.id });
+                    },
+                    dragend: (e) => {
+                      const ll = (e.target as L.Marker).getLatLng();
+                      const pos = roundLatLng(pointOnPath(c.path, [ll.lat, ll.lng]));
+                      (e.target as L.Marker).setLatLng(pos);
+                      saveSlacks(
+                        c,
+                        c.slacks!.map((x) => (x.id === r.id ? { ...x, lat: pos[0], lng: pos[1] } : x)),
+                        `Reserva de ${r.length_m} m movida em ${c.name}`,
+                      );
+                    },
+                  }}
+                >
+                  <Tooltip direction="top" offset={[0, -10]} permanent={labels && zoom >= 18}>
+                    {`${r.length_m} m · ${SLACK_KINDS[r.kind].label}`}
+                  </Tooltip>
+                </Marker>
+              )),
+            )}
 
           {/* Pontos (vértices) de todos os cabos: fundo branco e borda na cor do cabo. */}
           {zoom >= 16 &&
@@ -1142,6 +1266,7 @@ export default function MapPage() {
                 key={t.id}
                 onClick={() => {
                   setTool(t.id);
+                  setSlackCableId(null);
                   setConnectId(null);
                   setCableMenu(null);
                   setDraft(null);
@@ -1161,6 +1286,34 @@ export default function MapPage() {
           </div>
 
           {toast && !overlayOpen && <Toast inline message={toast.message} kind={toast.kind} onClose={() => setToast(null)} />}
+
+          {/* Metragem e tipo da reserva técnica */}
+          {!readOnly && tool === 'slack' && (
+            <div className="panel flex items-center gap-2 p-2 text-xs pointer-events-auto">
+              <span className="text-slate-300 flex items-center gap-1">
+                <SlackToolIcon size={14} /> Reserva técnica
+              </span>
+              <input
+                type="number"
+                min={0}
+                className="input !py-1 !w-16 text-right"
+                value={slackDefaults.length}
+                onChange={(e) => setSlackDefaults({ ...slackDefaults, length: Math.max(0, Math.round(Number(e.target.value) || 0)) })}
+              />
+              <span className="text-slate-400">m</span>
+              {(Object.keys(SLACK_KINDS) as SlackKind[]).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setSlackDefaults({ ...slackDefaults, kind: k })}
+                  title={SLACK_KINDS[k].hint}
+                  className={`rounded px-2 py-1 cursor-pointer ${slackDefaults.kind === k ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  {SLACK_KINDS[k].label}
+                </button>
+              ))}
+              {slackCableId && <span className="text-slate-400">no cabo {cables.find((c) => c.id === slackCableId)?.name}</span>}
+            </div>
+          )}
 
           {/* Tipo do cabo lançado pela ferramenta Cabo */}
           {!readOnly && tool === 'cable' && (
@@ -1301,6 +1454,15 @@ export default function MapPage() {
               onClick={() => {
                 setCableMenu(null);
                 setEditorFocus(Date.now());
+              }}
+            />
+            <MenuItem
+              icon={<SlackToolIcon size={14} />}
+              label="Posicionar reserva"
+              onClick={() => {
+                setCableMenu(null);
+                setTool('slack');
+                setSlackCableId(menuCable.id);
               }}
             />
             <MenuItem
@@ -1487,6 +1649,11 @@ export default function MapPage() {
               })
             }
             onConnectClient={connectClient}
+            onSlacksChange={(c, list) => saveSlacks(c, list, 'Reservas atualizadas')}
+            onPlaceSlack={(c) => {
+              setTool('slack');
+              setSlackCableId(c.id);
+            }}
             onError={(m) => notify(m, 'error')}
           />
         )}
