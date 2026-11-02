@@ -34,7 +34,7 @@ import { CABLE_CATEGORIES, CABLE_MODELS, NODE_TYPES } from '../lib/catalog';
 import { distance, pathLength } from '../lib/geo';
 import type { Activity as ActivityItem, Area, Cable, CableCategory, LatLng, NetNode, NodeType, Project, Role, Settings } from '../lib/types';
 import { viability } from '../lib/analysis';
-import { BASE_LAYERS, availableLayers, googleTileUrl, loadBase, saveBase, type BaseLayer, type BaseLayerId } from '../lib/basemaps';
+import { LAYERS, MAP_ENGINES, MAP_STYLES, availableEngines, googleTileUrl, loadEngine, loadStyle, saveEngine, saveStyle, type MapEngine, type MapStyle } from '../lib/basemaps';
 import { appConfig } from '../lib/user';
 import { midpointIcon, nodeIcon, vertexIcon } from '../components/markers';
 import { formatCoord, parseLatLng, parsePair } from '../lib/coords';
@@ -113,12 +113,17 @@ export default function MapPage() {
   } | null>(null);
   const [ruler, setRuler] = useState<LatLng[]>([]);
   const [cursor, setCursor] = useState<LatLng | null>(null);
-  const baseOptions = useMemo(() => availableLayers(!!appConfig.googleMapsKey), []);
-  // Lembra o último mapa base escolhido neste navegador.
-  const [base, setBaseState] = useState<BaseLayerId>(() => loadBase(baseOptions));
-  const setBase = (id: BaseLayerId) => {
-    setBaseState(id);
-    saveBase(id);
+  // Estilo (no mapa) e motor (em Configurações) ficam salvos neste navegador.
+  const engines = useMemo(() => availableEngines(!!appConfig.googleMapsKey), []);
+  const [engine, setEngineState] = useState<MapEngine>(() => loadEngine(engines));
+  const [mapStyle, setMapStyleState] = useState<MapStyle>(loadStyle);
+  const setEngine = (e: MapEngine) => {
+    setEngineState(e);
+    saveEngine(e);
+  };
+  const setMapStyle = (st: MapStyle) => {
+    setMapStyleState(st);
+    saveStyle(st);
   };
   const [visible, setVisible] = useState<Record<string, boolean>>({
     cto: true,
@@ -601,7 +606,7 @@ export default function MapPage() {
           <a href={api.exportUrl(projectId)} className="flex items-center gap-2 rounded-md px-3 py-2 text-slate-300 hover:bg-slate-800">
             <Download size={16} /> Exportar KMZ
           </a>
-          {canManage && <SideButton icon={<SettingsIcon size={16} />} label="Configurações" onClick={() => setModal('settings')} />}
+          <SideButton icon={<SettingsIcon size={16} />} label="Configurações" onClick={() => setModal('settings')} />
         </nav>
         <input
           ref={fileRef}
@@ -637,10 +642,11 @@ export default function MapPage() {
           ref={mapRef}
         >
           <BaseTiles
-            id={base}
+            engine={engine}
+            mapStyle={mapStyle}
             onError={(m) => {
-              notify(m, 'error');
-              setBase('satellite');
+              notify(`${m} Voltando ao OpenStreetMap.`, 'error');
+              setEngine('osm');
             }}
           />
           <MapEvents
@@ -1020,20 +1026,20 @@ export default function MapPage() {
             <div className="label flex items-center gap-1">
               <Layers size={12} /> Mapa base
             </div>
-            <select className="input !py-1 text-xs" value={base} onChange={(e) => setBase(e.target.value as BaseLayerId)} aria-label="Mapa base">
-              {(['Esri', 'OpenStreetMap', 'Google'] as const).map((g) => {
-                const ids = baseOptions.filter((k) => BASE_LAYERS[k].group === g);
-                return ids.length ? (
-                  <optgroup key={g} label={g}>
-                    {ids.map((k) => (
-                      <option key={k} value={k}>
-                        {BASE_LAYERS[k].label}
-                      </option>
-                    ))}
-                  </optgroup>
-                ) : null;
-              })}
-            </select>
+            <div className="flex gap-1">
+              {(Object.keys(MAP_STYLES) as MapStyle[]).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setMapStyle(k)}
+                  className={`flex-1 rounded px-1 py-1 text-xs cursor-pointer ${mapStyle === k ? 'bg-emerald-600' : 'bg-slate-800 hover:bg-slate-700'}`}
+                >
+                  {MAP_STYLES[k]}
+                </button>
+              ))}
+            </div>
+            <div className="text-[10px] text-slate-500 mt-1" title="Troque o motor em Configurações">
+              Motor: {MAP_ENGINES[engine].label}
+            </div>
           </div>
           <div>
             <div className="label">Elementos</div>
@@ -1181,6 +1187,10 @@ export default function MapPage() {
         <SettingsModal
           project={project}
           settings={settings}
+          canManage={canManage}
+          engine={engine}
+          engines={engines}
+          onEngine={setEngine}
           onClose={() => setModal(null)}
           onSaved={(p, s) => {
             setProject(p);
@@ -1241,9 +1251,9 @@ export default function MapPage() {
   );
 }
 
-/** Mapa base escolhido, com camadas extras (híbrido) e sessão do Google quando necessário. */
-function BaseTiles({ id, onError }: { id: BaseLayerId; onError: (message: string) => void }) {
-  const layer: BaseLayer = BASE_LAYERS[id];
+/** Mapa base do motor e estilo escolhidos (com sessão do Google quando necessário). */
+function BaseTiles({ engine, mapStyle, onError }: { engine: MapEngine; mapStyle: MapStyle; onError: (message: string) => void }) {
+  const layer = LAYERS[engine][mapStyle];
   const [url, setUrl] = useState(layer.google ? '' : layer.url);
   useEffect(() => {
     if (!layer.google) {
@@ -1259,14 +1269,9 @@ function BaseTiles({ id, onError }: { id: BaseLayerId; onError: (message: string
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [engine, mapStyle]);
   if (!url) return null;
-  return (
-    <>
-      <TileLayer key={`${id}-${url}`} url={url} attribution={layer.attribution} maxZoom={21} maxNativeZoom={layer.maxNativeZoom} zIndex={1} />
-      {layer.overlays?.map((o) => <TileLayer key={`${id}-${o}`} url={o} maxZoom={21} maxNativeZoom={layer.maxNativeZoom} zIndex={2} />)}
-    </>
-  );
+  return <TileLayer key={url} url={url} attribution={layer.attribution} maxZoom={21} maxNativeZoom={layer.maxNativeZoom} />;
 }
 
 function MapEvents({ onClick, onMove, onZoom }: { onClick: (at: LatLng) => void; onMove: (at: LatLng) => void; onZoom: (z: number) => void }) {
