@@ -209,8 +209,10 @@ equipamentos do shelter. A torre também recebe cabos de fibra, como um POP.
 
 Clique em **Salvar alterações**. No mapa, cada equipamento sem enlace aparece como um **setor colorido** (leque na
 direção do azimute com a abertura do feixe; a omni vira um círculo), visível a partir do zoom 13. Cada enlace PtP
-aparece como uma **linha azul** entre as duas pontas: contínua quando as duas pontas têm o rádio cadastrado, e
-tracejada quando só uma tem. Passe o mouse na linha para ver a distância e a frequência. Para esconder setores e
+aparece com um **estilo próprio**, que não se confunde com cabos nem drops: linha **traço-ponto** sobre uma faixa
+larga translúcida, com um **ícone de rádio** (círculo com ondas) no meio. A cor é **rosa** quando as duas pontas têm o
+rádio cadastrado e **âmbar** quando só uma tem. Passe o mouse na linha ou no ícone para ver as pontas, a distância e a
+frequência. Para esconder setores e
 enlaces, desmarque **Cobertura e enlaces wireless** no painel da direita. Os **relatórios** contam os equipamentos
 wireless por tipo e os enlaces PtP.
 

@@ -126,3 +126,23 @@ export function radioSummary(r: TowerRadio): string {
   if (typeof r.azimuth === 'number' && radioBeam(r) < 360) parts.push(`${Math.round(r.azimuth)}°`);
   return parts.join(' · ');
 }
+
+/**
+ * Estilo próprio da linha de enlace wireless, diferente de qualquer cabo ou drop:
+ * cor rosa da torre, traço-ponto (símbolo clássico de enlace de rádio) sobre um halo largo e translúcido,
+ * e um ícone de rádio no meio da linha. Enlace com só uma ponta cadastrada fica âmbar.
+ */
+export const LINK_STYLE = {
+  color: '#f43f5e',
+  pending: '#f59e0b',
+  weight: 3.5,
+  dash: '14 8 0.1 8',
+  halo: 12,
+  haloOpacity: 0.22,
+};
+
+/** Cor da linha do enlace: rosa (as duas pontas cadastradas) ou âmbar (só uma). */
+export const linkColor = (mutual: boolean) => (mutual ? LINK_STYLE.color : LINK_STYLE.pending);
+
+/** Ponto do meio do enlace (onde fica o ícone de rádio). */
+export const linkMidpoint = (a: LatLng, b: LatLng): LatLng => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];

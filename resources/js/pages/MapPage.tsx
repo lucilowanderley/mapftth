@@ -36,7 +36,7 @@ import {
   Warehouse,
   RadioTower,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Circle, CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import { Link, useParams } from 'react-router-dom';
 import L from 'leaflet';
@@ -44,13 +44,13 @@ import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, clientBudget, powerLevel, type BudgetResult } from '../lib/budget';
 import { BOX_TYPES, CABLE_CATEGORIES, CABLE_MODELS, CONDO_KINDS, NODE_TYPES, NODE_TYPE_LIST, RACK_HOST_TYPES, SLACK_KINDS, effectiveLineStyle, lineDash } from '../lib/catalog';
 import { distance, pathLength } from '../lib/geo';
-import { RADIO_HOST_TYPES, RADIO_KINDS, radioBeam, radioLinks, radiosOf, sectorPolygon } from '../lib/tower';
+import { LINK_STYLE, RADIO_HOST_TYPES, RADIO_KINDS, linkColor, linkMidpoint, radioBeam, radioLinks, radiosOf, sectorPolygon } from '../lib/tower';
 import type { Activity as ActivityItem, Area, Cable, CableCategory, CondoKind, LatLng, NetNode, NodeType, Project, Role, Settings, Slack, SlackKind } from '../lib/types';
 import { viability } from '../lib/analysis';
 import { LAYERS, MAP_ENGINES, MAP_STYLES, availableEngines, googleTileUrl, loadEngine, loadStyle, saveEngine, saveStyle, type MapEngine, type MapStyle } from '../lib/basemaps';
 import { appConfig } from '../lib/user';
 import { AutoResize, RememberView, TILE_OPTIONS, loadView } from '../lib/mapview';
-import { connectIcon, midpointIcon, nodeIcon, slackIcon, vertexIcon } from '../components/markers';
+import { connectIcon, midpointIcon, nodeIcon, slackIcon, vertexIcon, wirelessLinkIcon } from '../components/markers';
 import { ALONG_TOLERANCE_M, nearestOnPath, planBoxesAlong, pointOnPath, type AlongPlan } from '../lib/connect';
 import { formatCoord, parseLatLng, parsePair } from '../lib/coords';
 import { movePath, roundLatLng } from '../lib/move';
@@ -1032,20 +1032,26 @@ export default function MapPage() {
             radioLinks(
               nodes.filter((n) => visible[n.type]),
               distance,
-            ).map((l) => (
-              <Polyline
-                key={`rl${l.key}`}
-                positions={[
-                  [l.from.lat, l.from.lng],
-                  [l.to.lat, l.to.lng],
-                ]}
-                pathOptions={{ color: '#38bdf8', weight: 2.5, dashArray: l.mutual ? undefined : '6 6', opacity: 0.9 }}
-              >
-                <Tooltip sticky>
-                  {`Enlace ${l.from.name} ↔ ${l.to.name} · ${formatLength(l.dist)}${l.radio.freq_ghz ? ` · ${String(l.radio.freq_ghz).replace('.', ',')} GHz` : ''}${l.mutual ? '' : ' (só uma ponta cadastrada)'}`}
-                </Tooltip>
-              </Polyline>
-            ))}
+            ).map((l) => {
+              // Estilo próprio do enlace (não confunde com cabo/drop): halo largo + pontilhado arredondado + ícone de rádio no meio.
+              const a: LatLng = [l.from.lat, l.from.lng];
+              const b: LatLng = [l.to.lat, l.to.lng];
+              const color = linkColor(l.mutual);
+              const label = `Enlace wireless ${l.from.name} ↔ ${l.to.name} · ${formatLength(l.dist)}${l.radio.freq_ghz ? ` · ${String(l.radio.freq_ghz).replace('.', ',')} GHz` : ''}${l.mutual ? '' : ' (só uma ponta cadastrada)'}`;
+              return (
+                <Fragment key={`rl${l.key}`}>
+                  <Polyline positions={[a, b]} interactive={false} pathOptions={{ color, weight: LINK_STYLE.halo, opacity: LINK_STYLE.haloOpacity, lineCap: 'round' }} />
+                  <Polyline positions={[a, b]} pathOptions={{ color, weight: LINK_STYLE.weight, dashArray: LINK_STYLE.dash, lineCap: 'round', opacity: 1 }}>
+                    <Tooltip sticky>{label}</Tooltip>
+                  </Polyline>
+                  <Marker position={linkMidpoint(a, b)} icon={wirelessLinkIcon(color)} zIndexOffset={-100}>
+                    <Tooltip direction="top" offset={[0, -10]}>
+                      {label}
+                    </Tooltip>
+                  </Marker>
+                </Fragment>
+              );
+            })}
 
           {nodes
             .filter((n) => visible[n.type])
