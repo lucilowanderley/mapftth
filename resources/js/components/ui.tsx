@@ -47,10 +47,11 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   );
 }
 
-export function Toast({ message, kind = 'ok', onClose }: { message: string; kind?: 'ok' | 'error'; onClose: () => void }) {
+/** inline: renderiza no fluxo (ex.: colado abaixo da barra de ferramentas do mapa) em vez de fixo no topo da tela. */
+export function Toast({ message, kind = 'ok', onClose, inline = false }: { message: string; kind?: 'ok' | 'error'; onClose: () => void; inline?: boolean }) {
   return (
     <div
-      className={`fixed top-4 left-1/2 -translate-x-1/2 z-[3000] rounded-lg px-4 py-2 text-sm shadow-lg flex items-center gap-3 ${
+      className={`${inline ? 'pointer-events-auto max-w-full' : 'fixed top-4 left-1/2 -translate-x-1/2 z-[3000]'} rounded-lg px-4 py-2 text-sm shadow-lg flex items-center gap-3 ${
         kind === 'ok' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
       }`}
     >
