@@ -1,8 +1,8 @@
 import { Box, Check, LogOut, Link2, Network as NetIcon, PackagePlus, Rows4, Search, Server, Spline, X, Zap } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
-import { ACTIVE_TYPES, DIO_SIZES, DIO_TRAY, OLT_MODELS, RACK_MOUNTS, RACK_SIZES, oltModel } from '../../lib/catalog';
+import { ACTIVE_TYPES, DIO_SIZES, DIO_TRAY, RACK_MOUNTS, RACK_SIZES, equipmentLabel } from '../../lib/catalog';
 import { canMount, defaultRackHeight, firstFreeU, rackHeight, rackUsed, uid, type Rack, type Rackable } from '../../lib/pop';
-import type { Cable, Diagram, DiagramComponent, RackMountType } from '../../lib/types';
+import type { Cable, Diagram, DiagramComponent, EquipmentModel, RackMountType } from '../../lib/types';
 import { Field } from '../ui';
 
 type Olt = Extract<DiagramComponent, { kind: 'olt' }>;
@@ -48,11 +48,109 @@ export function PopDialog({
   );
 }
 
+/** Chave do modelo guardada no equipamento: id do padrão ("zte-c320") ou "db:12" para cadastrados. */
+export const modelKey = (m: EquipmentModel) => (m.builtin ? String(m.id) : `db:${m.id}`);
+
+/** Lista pesquisável de modelos do cadastro (com a opção "personalizado"). */
+function ModelPicker({
+  models,
+  value,
+  customLabel,
+  detail,
+  onPick,
+  onCatalog,
+}: {
+  models: EquipmentModel[];
+  value: string;
+  customLabel: string;
+  detail: (m: EquipmentModel) => string;
+  onPick: (m: EquipmentModel | null) => void;
+  onCatalog?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const current = models.find((m) => modelKey(m) === value);
+  const list = models.filter((m) => equipmentLabel(m).toLowerCase().includes(q.toLowerCase()));
+  const pick = (m: EquipmentModel | null) => {
+    onPick(m);
+    setOpen(false);
+    setQ('');
+  };
+  return (
+    <div>
+      <span className="label flex items-center justify-between">
+        <span>Modelo (fabricante)</span>
+        {onCatalog && (
+          <button type="button" className="normal-case text-emerald-400 hover:underline cursor-pointer" onClick={onCatalog}>
+            Cadastro de equipamentos
+          </button>
+        )}
+      </span>
+      <button type="button" onClick={() => setOpen((v) => !v)} className={`input text-left flex items-center justify-between cursor-pointer ${open ? 'border-emerald-500' : ''}`}>
+        <span className="font-medium truncate">{current ? equipmentLabel(current) : customLabel}</span>
+        <span className="text-xs text-slate-400 shrink-0 ml-2">{current ? `${detail(current)} · ${current.height_u}U` : ''}</span>
+      </button>
+      {open && (
+        <div className="mt-1 rounded-md border border-slate-700 bg-slate-950 p-2">
+          <div className="relative mb-2">
+            <Search size={14} className="absolute left-2.5 top-2.5 text-slate-500" />
+            <input autoFocus className="input pl-8 py-1.5" placeholder="Buscar fabricante ou modelo..." value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+          <ul className="max-h-56 overflow-y-auto">
+            <li>
+              <button onClick={() => pick(null)} className={`w-full rounded px-2 py-1.5 text-left text-sm cursor-pointer hover:bg-slate-800 ${!current ? 'text-emerald-400' : ''}`}>
+                {customLabel}
+              </button>
+            </li>
+            {list.map((m) => (
+              <li key={modelKey(m)}>
+                <button
+                  onClick={() => pick(m)}
+                  className={`w-full flex items-center justify-between rounded px-2 py-1.5 text-left cursor-pointer hover:bg-slate-800 ${modelKey(m) === value ? 'text-emerald-400' : ''}`}
+                >
+                  <span>
+                    <span className="block text-sm font-medium">{equipmentLabel(m)}</span>
+                    <span className="block text-[11px] text-slate-500">
+                      {detail(m)} · {m.height_u}U{m.builtin ? ' · padrão' : ''}
+                    </span>
+                  </span>
+                  {modelKey(m) === value && <Check size={15} />}
+                </button>
+              </li>
+            ))}
+            {list.length === 0 && <li className="text-xs text-slate-500 px-2 py-1">Nenhum modelo encontrado.</li>}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const oltDetail = (m: EquipmentModel) => `${m.slots ?? 1}×${m.ports} PON · ${m.uplinks ?? 0} uplinks`;
+const dioDetail = (m: EquipmentModel) => `${m.ports} portas`;
+const activeDetail = (m: EquipmentModel) => `${m.type ?? 'Ativo'} · ${m.ports} portas`;
+
+/** Campo "Altura (U)": quantas unidades de rack o equipamento ocupa. */
+function HeightField({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  return (
+    <Field label="Altura (U)">
+      <input type="number" min={1} max={60} className="input px-2" value={value} onChange={(e) => onChange(Math.max(1, Math.min(60, Math.round(Number(e.target.value)) || 1)))} />
+    </Field>
+  );
+}
+
+/** Fabricante/modelo do cadastro gravados no equipamento (ou nada, se personalizado). */
+function modelFields(m: EquipmentModel | undefined): { model?: string; vendor?: string; modelName?: string } {
+  return m ? { model: modelKey(m), vendor: m.vendor ?? undefined, modelName: m.model } : { model: undefined, vendor: undefined, modelName: undefined };
+}
+
 export function OltDialog({
   initial,
   defaultTx,
   count,
   racks,
+  models,
+  onCatalog,
   onClose,
   onSubmit,
 }: {
@@ -60,84 +158,44 @@ export function OltDialog({
   defaultTx: number;
   count: number;
   racks: Rack[];
+  models: EquipmentModel[];
+  onCatalog: () => void;
   onClose: () => void;
   onSubmit: (c: Olt) => void;
 }) {
+  const options = models.filter((m) => m.kind === 'olt');
   const [rack, setRack] = useState(initial?.rack ?? '');
   const [model, setModel] = useState(initial?.model ?? 'custom');
   const [slots, setSlots] = useState(initial?.slots ?? 1);
   const [ports, setPorts] = useState(initial?.ports ?? 8);
   const [uplinks, setUplinks] = useState(initial?.uplinks ?? 2);
   const [tx, setTx] = useState(initial?.tx_dbm ?? defaultTx);
+  const [h, setH] = useState(initial ? rackHeight(initial) : 1);
   const [name, setName] = useState(initial?.name ?? `OLT ${count + 1}`);
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState('');
-  const current = oltModel(model) ?? OLT_MODELS[0];
-  const list = OLT_MODELS.filter((m) => `${m.name} ${m.vendor}`.toLowerCase().includes(q.toLowerCase()));
+  const current = options.find((m) => modelKey(m) === model);
 
-  function pick(id: string) {
-    const m = oltModel(id)!;
-    setModel(m.id);
-    setSlots(m.slots);
+  function pick(m: EquipmentModel | null) {
+    if (!m) return setModel('custom');
+    setModel(modelKey(m));
+    setSlots(m.slots ?? 1);
     setPorts(m.ports);
-    setUplinks(m.uplinks);
-    if (m.id !== 'custom') setName(`${m.name.replace(/^OLT /, '')} ${count + 1}`);
-    setOpen(false);
-    setQ('');
+    setUplinks(m.uplinks ?? 0);
+    if (m.tx_dbm != null) setTx(m.tx_dbm);
+    setH(m.height_u);
+    if (!initial) setName(`${m.model} ${count + 1}`);
   }
 
   const clamp = (v: number, max: number) => Math.max(1, Math.min(max, Math.round(v) || 1));
   return (
-    <PopDialog icon={<Server size={18} />} title={initial ? `Editar ${initial.name}` : 'Adicionar OLT'} subtitle={current.name} onClose={onClose}>
+    <PopDialog icon={<Server size={18} />} title={initial ? `Editar ${initial.name}` : 'Adicionar OLT'} subtitle={current ? equipmentLabel(current) : 'Configuração personalizada'} onClose={onClose}>
       <div className="space-y-3">
-        <div>
-          <span className="label">Modelo</span>
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            className={`input text-left flex items-center justify-between cursor-pointer ${open ? 'border-emerald-500' : ''}`}
-          >
-            <span className="font-medium">{current.name}</span>
-            <span className="text-xs text-slate-400">
-              {current.slots}×{current.ports}
-            </span>
-          </button>
-          {open && (
-            <div className="mt-1 rounded-md border border-slate-700 bg-slate-950 p-2">
-              <div className="relative mb-2">
-                <Search size={14} className="absolute left-2.5 top-2.5 text-slate-500" />
-                <input autoFocus className="input pl-8 py-1.5" placeholder="Buscar..." value={q} onChange={(e) => setQ(e.target.value)} />
-              </div>
-              <ul className="max-h-56 overflow-y-auto">
-                {list.map((m) => (
-                  <li key={m.id}>
-                    <button
-                      onClick={() => pick(m.id)}
-                      className={`w-full flex items-center justify-between rounded px-2 py-1.5 text-left cursor-pointer hover:bg-slate-800 ${
-                        m.id === model ? 'text-emerald-400' : ''
-                      }`}
-                    >
-                      <span>
-                        <span className="block text-sm font-medium">{m.name}</span>
-                        <span className="block text-[11px] text-slate-500">
-                          {m.slots}×{m.ports} PON · {m.uplinks} uplinks
-                        </span>
-                      </span>
-                      {m.id === model && <Check size={15} />}
-                    </button>
-                  </li>
-                ))}
-                {list.length === 0 && <li className="text-xs text-slate-500 px-2 py-1">Nenhum modelo encontrado.</li>}
-              </ul>
-            </div>
-          )}
-        </div>
+        <ModelPicker models={options} value={model} customLabel="Configuração personalizada" detail={oltDetail} onPick={pick} onCatalog={onCatalog} />
         <Field label="Nome">
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-5 gap-2">
           <Field label="Slots">
-            <input type="number" min={1} max={16} className="input px-2" value={slots} onChange={(e) => setSlots(clamp(Number(e.target.value), 16))} />
+            <input type="number" min={1} max={32} className="input px-2" value={slots} onChange={(e) => setSlots(clamp(Number(e.target.value), 32))} />
           </Field>
           <Field label="PON/slot">
             <input type="number" min={1} max={16} className="input px-2" value={ports} onChange={(e) => setPorts(clamp(Number(e.target.value), 16))} />
@@ -148,10 +206,11 @@ export function OltDialog({
           <Field label="TX dBm">
             <input type="number" step={0.5} className="input px-2" value={tx} onChange={(e) => setTx(Number(e.target.value))} />
           </Field>
+          <HeightField value={h} onChange={setH} />
         </div>
         <FrontPreview rows={[...Array.from({ length: Math.min(slots, 6) }, (_, i) => ({ label: `S${i + 1}`, n: ports, color: '#8b5cf6' })), ...(uplinks ? [{ label: 'UP', n: uplinks, color: '#f59e0b' }] : [])]} />
         <p className="text-xs text-slate-400">
-          Total: {slots * ports} portas PON{uplinks ? ` + ${uplinks} uplinks` : ''}
+          Total: {slots * ports} portas PON{uplinks ? ` + ${uplinks} uplinks` : ''} · ocupa {h}U no rack
         </p>
         <RackSelect racks={racks} value={rack} onChange={setRack} />
         <button
@@ -162,11 +221,13 @@ export function OltDialog({
               ...(initial ?? { id: uid(), kind: 'olt' as const, x: 0, y: 0 }),
               kind: 'olt',
               name: name.trim(),
-              model,
+              ...modelFields(current),
+              model: current ? modelKey(current) : 'custom',
               slots,
               ports,
               uplinks,
               tx_dbm: tx,
+              h,
               ...rackFields(initial, rack),
             })
           }
@@ -177,7 +238,6 @@ export function OltDialog({
     </PopDialog>
   );
 }
-
 /**
  * Campos de rack do equipamento: mantém a posição se o rack não mudou; trocando de rack,
  * a posição (u) fica vazia e o editor procura a primeira U livre.
@@ -375,78 +435,145 @@ function FrontPreview({ rows }: { rows: { label: string; n: number; color: strin
   );
 }
 
-export function DioDialog({ initial, count, racks, onClose, onSubmit }: { initial?: Dio; count: number; racks: Rack[]; onClose: () => void; onSubmit: (c: Dio) => void }) {
+export function DioDialog({
+  initial,
+  count,
+  racks,
+  models,
+  onCatalog,
+  onClose,
+  onSubmit,
+}: {
+  initial?: Dio;
+  count: number;
+  racks: Rack[];
+  models: EquipmentModel[];
+  onCatalog: () => void;
+  onClose: () => void;
+  onSubmit: (c: Dio) => void;
+}) {
+  const options = models.filter((m) => m.kind === 'dio');
+  const [model, setModel] = useState(initial?.model ?? '');
   const [ports, setPorts] = useState(initial?.ports ?? 12);
+  const [h, setH] = useState(initial ? rackHeight(initial) : 1);
   const [rack, setRack] = useState(initial?.rack ?? '');
   const [name, setName] = useState(initial?.name ?? `DIO ${count + 1}`);
+  const current = options.find((m) => modelKey(m) === model);
   const t = Math.ceil(ports / DIO_TRAY);
+  const setSize = (n: number) => {
+    setPorts(n);
+    setH(n <= 24 ? 1 : n <= 48 ? 2 : n <= 72 ? 3 : 4);
+    setModel('');
+  };
   return (
     <PopDialog
       icon={<Box size={18} />}
       title={initial ? `Editar ${initial.name}` : 'Adicionar equipamento passivo (DIO)'}
-      subtitle={`${ports} portas · ${t} bandeja${t > 1 ? 's' : ''}`}
+      subtitle={`${current ? `${equipmentLabel(current)} · ` : ''}${ports} portas · ${t} bandeja${t > 1 ? 's' : ''} · ${h}U`}
       onClose={onClose}
     >
-      <Field label="Nome">
-        <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
-      </Field>
-      <div className="label mt-3">Especificações</div>
-      <div className="grid grid-cols-3 gap-2">
-        {DIO_SIZES.map((n) => {
-          const tr = Math.ceil(n / DIO_TRAY);
-          return (
-            <button
-              key={n}
-              onClick={() => setPorts(n)}
-              className={`rounded-lg border py-2.5 cursor-pointer transition ${
-                ports === n ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 hover:border-slate-500'
-              }`}
-            >
-              <div className="text-lg font-semibold leading-tight">{n}</div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-400">
-                {tr} bandeja{tr > 1 ? 's' : ''}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-      <div className="grid grid-cols-2 gap-2 mt-3">
-        <div className="rounded-lg bg-slate-950 border border-slate-800 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500">Portas totais</div>
-          <div className="text-lg font-semibold text-emerald-400">{ports}</div>
-          <div className="text-[10px] text-slate-500">capacidade</div>
+      <div className="space-y-3">
+        <ModelPicker
+          models={options}
+          value={model}
+          customLabel="DIO genérico"
+          detail={dioDetail}
+          onCatalog={onCatalog}
+          onPick={(m) => {
+            if (!m) return setModel('');
+            setModel(modelKey(m));
+            setPorts(m.ports);
+            setH(m.height_u);
+          }}
+        />
+        <Field label="Nome">
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <div>
+          <div className="label">Especificações</div>
+          <div className="grid grid-cols-3 gap-2">
+            {DIO_SIZES.map((n) => {
+              const tr = Math.ceil(n / DIO_TRAY);
+              return (
+                <button
+                  key={n}
+                  onClick={() => setSize(n)}
+                  className={`rounded-lg border py-2.5 cursor-pointer transition ${ports === n ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 hover:border-slate-500'}`}
+                >
+                  <div className="text-lg font-semibold leading-tight">{n}</div>
+                  <div className="text-[10px] uppercase tracking-wide text-slate-400">
+                    {tr} bandeja{tr > 1 ? 's' : ''}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
-        <div className="rounded-lg bg-slate-950 border border-slate-800 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500">Bandejas</div>
-          <div className="text-lg font-semibold">{t}</div>
-          <div className="text-[10px] text-slate-500">{DIO_TRAY} portas cada</div>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Portas">
+            <input type="number" min={1} max={576} className="input" value={ports} onChange={(e) => setPorts(Math.max(1, Math.min(576, Math.round(Number(e.target.value)) || 1)))} />
+          </Field>
+          <HeightField value={h} onChange={setH} />
         </div>
-      </div>
-      <div className="mt-3">
         <RackSelect racks={racks} value={rack} onChange={setRack} />
+        <button
+          className="btn-primary w-full"
+          disabled={!name.trim()}
+          onClick={() => onSubmit({ ...(initial ?? { id: uid(), kind: 'dio' as const, x: 0, y: 0 }), kind: 'dio', name: name.trim(), ports, h, ...modelFields(current), ...rackFields(initial, rack) })}
+        >
+          <Zap size={15} /> {initial ? 'Salvar alterações' : 'Criar dispositivo'}
+        </button>
       </div>
-      <button
-        className="btn-primary w-full mt-4"
-        disabled={!name.trim()}
-        onClick={() => onSubmit({ ...(initial ?? { id: uid(), kind: 'dio' as const, x: 0, y: 0 }), kind: 'dio', name: name.trim(), ports, ...rackFields(initial, rack) })}
-      >
-        <Zap size={15} /> {initial ? 'Salvar alterações' : 'Criar dispositivo'}
-      </button>
     </PopDialog>
   );
 }
 
-export function ActiveDialog({ initial, count, racks, onClose, onSubmit }: { initial?: Active; count: number; racks: Rack[]; onClose: () => void; onSubmit: (c: Active) => void }) {
+export function ActiveDialog({
+  initial,
+  count,
+  racks,
+  models,
+  onCatalog,
+  onClose,
+  onSubmit,
+}: {
+  initial?: Active;
+  count: number;
+  racks: Rack[];
+  models: EquipmentModel[];
+  onCatalog: () => void;
+  onClose: () => void;
+  onSubmit: (c: Active) => void;
+}) {
+  const options = models.filter((m) => m.kind === 'active');
+  const [model, setModel] = useState(initial?.model ?? '');
   const [type, setType] = useState(initial?.type ?? ACTIVE_TYPES[0]);
   const [rack, setRack] = useState(initial?.rack ?? '');
   const [name, setName] = useState(initial?.name ?? `Ativo ${count + 1}`);
   const [ports, setPorts] = useState(initial?.ports ?? 8);
+  const [h, setH] = useState(initial ? rackHeight(initial) : 1);
+  const current = options.find((m) => modelKey(m) === model);
   return (
-    <PopDialog icon={<NetIcon size={18} />} title={initial ? `Editar ${initial.name}` : 'Adicionar equipamento ativo'} subtitle="Switch, roteador, BNG..." onClose={onClose}>
+    <PopDialog icon={<NetIcon size={18} />} title={initial ? `Editar ${initial.name}` : 'Adicionar equipamento ativo'} subtitle={current ? equipmentLabel(current) : 'Switch, roteador, BNG...'} onClose={onClose}>
       <div className="space-y-3">
+        <ModelPicker
+          models={options}
+          value={model}
+          customLabel="Equipamento personalizado"
+          detail={activeDetail}
+          onCatalog={onCatalog}
+          onPick={(m) => {
+            if (!m) return setModel('');
+            setModel(modelKey(m));
+            if (m.type) setType(m.type);
+            setPorts(m.ports);
+            setH(m.height_u);
+            if (!initial) setName(`${m.model} ${count + 1}`);
+          }}
+        />
         <Field label="Tipo">
           <select className="input" value={type} onChange={(e) => setType(e.target.value)}>
-            {ACTIVE_TYPES.map((t) => (
+            {[...new Set([...ACTIVE_TYPES, type])].map((t) => (
               <option key={t}>{t}</option>
             ))}
           </select>
@@ -454,15 +581,18 @@ export function ActiveDialog({ initial, count, racks, onClose, onSubmit }: { ini
         <Field label="Nome">
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label="Portas">
-          <input type="number" min={1} max={96} className="input" value={ports} onChange={(e) => setPorts(Math.max(1, Math.min(96, Math.round(Number(e.target.value)) || 1)))} />
-        </Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Portas">
+            <input type="number" min={1} max={96} className="input" value={ports} onChange={(e) => setPorts(Math.max(1, Math.min(96, Math.round(Number(e.target.value)) || 1)))} />
+          </Field>
+          <HeightField value={h} onChange={setH} />
+        </div>
         <p className="text-xs text-slate-400">Use as portas para ligar cordões aos uplinks da OLT ou à frente do DIO (ponto a ponto).</p>
         <RackSelect racks={racks} value={rack} onChange={setRack} />
         <button
           className="btn-primary w-full"
           disabled={!name.trim()}
-          onClick={() => onSubmit({ ...(initial ?? { id: uid(), kind: 'active' as const, x: 0, y: 0 }), kind: 'active', type, name: name.trim(), ports, ...rackFields(initial, rack) })}
+          onClick={() => onSubmit({ ...(initial ?? { id: uid(), kind: 'active' as const, x: 0, y: 0 }), kind: 'active', type, name: name.trim(), ports, h, ...modelFields(current), ...rackFields(initial, rack) })}
         >
           <Zap size={15} /> {initial ? 'Salvar alterações' : 'Criar equipamento'}
         </button>
