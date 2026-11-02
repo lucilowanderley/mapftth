@@ -10,6 +10,7 @@ import {
   Pencil,
   Plug,
   Save,
+  Search,
   Server,
   Spline,
   Trash2,
@@ -42,7 +43,10 @@ import {
   oltPortLabel,
   partner,
   pruneConnections,
+  rackCode,
   rackConflicts,
+  duplicateRackCodes,
+  searchRacks,
   rackHeight,
   rackItems,
   rackUsed,
@@ -201,6 +205,30 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   const racks = diagram.components.filter(isRack);
   const rackById = new Map(racks.map((r) => [r.id, r]));
   const conflicts = useMemo(() => rackConflicts(diagram), [diagram]);
+  const dupCodes = useMemo(() => duplicateRackCodes(racks), [racks]);
+  /** Busca de rack por código/nome: centraliza o rack achado e destaca por alguns segundos. */
+  const [rackQuery, setRackQuery] = useState('');
+  const [found, setFound] = useState<string | null>(null);
+  useEffect(() => {
+    if (!found) return;
+    const t = setTimeout(() => setFound(null), 4000);
+    return () => clearTimeout(t);
+  }, [found]);
+  function locateRack(q: string) {
+    const hit = searchRacks(racks, q)[0];
+    if (!hit) {
+      notify(`Nenhum rack com "${q}".`, true);
+      return;
+    }
+    const el = canvasRef.current;
+    if (mode !== 'canvas') setMode('canvas');
+    const { w, h } = rackSize(hit);
+    const k = 0.8;
+    const rw = el?.clientWidth ?? 1200;
+    const rh = el?.clientHeight ?? 800;
+    setView({ k, x: rw / 2 - (hit.x + w / 2) * k, y: h * k > rh - 40 ? 40 - hit.y * k : rh / 2 - (hit.y + h / 2) * k });
+    setFound(hit.id);
+  }
   /** Rack onde o equipamento está instalado (só quando a posição é válida o bastante para desenhar). */
   const mountedIn = (c: PopComp) => (c.rack && typeof c.u === 'number' ? rackById.get(c.rack) : undefined);
   /** Faixa do equipamento no rack, no sistema do canvas. */
@@ -424,16 +452,23 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
 
   // ---------- Componentes ----------
   /** Novo card entra na coluna do seu tipo (DIOs ao lado dos cabos, OLT/ativos à direita), abaixo dos existentes. */
-  function addComponent(raw: PopComp | Rack) {
-    if (isRack(raw)) {
-      const right = Math.max(0, ...cables.map((k) => cablePos(`c${k.id}`).x + G.CABLE_W), ...cards.map((k) => k.x + anySize(k).w));
-      const top = Math.min(0, ...cards.map((k) => k.y));
-      const r = { ...raw, x: right + 90, y: top };
-      update((d) => ({ ...d, components: [...d.components, r] }));
-      setDialog(null);
-      setFitReq((n) => n + 1);
-      return;
-    }
+  /** Novos racks entram à direita de tudo, lado a lado (como numa fileira do datacenter). */
+  function addRacks(list: Rack[]) {
+    const right = Math.max(0, ...cables.map((k) => cablePos(`c${k.id}`).x + G.CABLE_W), ...cards.map((k) => k.x + anySize(k).w));
+    const top = Math.min(0, ...cards.map((k) => k.y));
+    let x = right + 90;
+    const placed = list.map((raw) => {
+      const r = { ...raw, x, y: top };
+      x += rackSize(r).w + 40;
+      return r;
+    });
+    update((d) => ({ ...d, components: [...d.components, ...placed] }));
+    setDialog(null);
+    if (placed.length > 1) notify(`${placed.length} racks criados (${rackCode(placed[0].loc)} a ${rackCode(placed[placed.length - 1].loc)}).`);
+    setFitReq((n) => n + 1);
+  }
+
+  function addComponent(raw: PopComp) {
     const placed = placeInRack(diagram, raw);
     if (!placed) return;
     const c = placed;
@@ -628,7 +663,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
       const ix = r.x + RACK.PAD + RACK.NUM + RACK.POST;
       parts.push(
         `<rect x="${r.x}" y="${r.y}" width="${rw}" height="${rh}" rx="8" fill="#ffffff" stroke="#94a3b8"/>`,
-        `<text x="${r.x + 12}" y="${r.y + 25}" font-size="13" font-weight="bold" fill="#0f172a">${esc(r.name)} <tspan font-size="10" fill="#64748b">${r.units}U · ${RACK_MOUNTS[r.mount].label}</tspan></text>`,
+        `<text x="${r.x + 12}" y="${r.y + 25}" font-size="13" font-weight="bold" fill="#0f172a">${esc(r.name)} <tspan font-size="10" fill="#64748b">${rackCode(r.loc) && rackCode(r.loc) !== r.name ? `${esc(rackCode(r.loc))} · ` : ''}${r.units}U · ${RACK_MOUNTS[r.mount].label}</tspan></text>`,
         `<rect x="${ix - RACK.POST}" y="${r.y + rackUTop(r, r.units)}" width="${RACK.INNER + RACK.POST * 2}" height="${r.units * RACK.RU}" fill="#1e293b"/>`,
         `<rect x="${ix}" y="${r.y + rackUTop(r, r.units)}" width="${RACK.INNER}" height="${r.units * RACK.RU}" fill="#f8fafc"/>`,
       );
@@ -783,6 +818,37 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
           <span title="Portas do DIO com cordão / total">Portas: {dioPatched}/{dioPorts}</span>
           <span title="Portas PON em uso / total">PON: {ponUsed}/{ponTotal}</span>
         </div>
+        {racks.length > 1 && (
+          <form
+            className="relative flex items-center"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (rackQuery.trim()) locateRack(rackQuery);
+            }}
+          >
+            <Search size={13} className="absolute left-2 text-slate-500 pointer-events-none" />
+            <input
+              list="pop-rack-codes"
+              className="w-28 rounded-md bg-slate-950 border border-slate-700 pl-7 pr-2 py-1 text-xs placeholder:text-slate-500"
+              placeholder="Rack (AJ05)"
+              title="Digite o código do rack (ex.: DC1.1A-AJ05, AJ05) ou o nome e tecle Enter"
+              value={rackQuery}
+              onChange={(e) => {
+                setRackQuery(e.target.value);
+                // Escolher uma opção da lista já localiza.
+                const exact = racks.find((r) => rackCode(r.loc) === e.target.value || r.name === e.target.value);
+                if (exact) locateRack(e.target.value);
+              }}
+            />
+            <datalist id="pop-rack-codes">
+              {searchRacks(racks, '').map((r) => (
+                <option key={r.id} value={rackCode(r.loc) || r.name}>
+                  {rackCode(r.loc) && rackCode(r.loc) !== r.name ? r.name : ''}
+                </option>
+              ))}
+            </datalist>
+          </form>
+        )}
 
         <div className="mx-auto flex rounded-lg bg-slate-950 border border-slate-800 p-0.5">
           {(
@@ -972,6 +1038,8 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                   rack={r}
                   diagram={diagram}
                   conflicts={conflicts}
+                  duplicate={dupCodes.has(rackCode(r.loc))}
+                  highlight={found === r.id}
                   readOnly={readOnly}
                   onDrag={(e) => startDrag(e, r.id)}
                   onAdd={(u) => setDialog({ t: 'mount', rack: r.id, u })}
@@ -1210,7 +1278,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         />
       )}
       {dialog?.t === 'rack' && (
-        <RackDialog initial={dialog.edit} count={racks.length} onClose={() => setDialog(null)} onSubmit={(r) => (dialog.edit ? editComponent(r) : addComponent(r))} />
+        <RackDialog initial={dialog.edit} racks={racks} onClose={() => setDialog(null)} onSubmit={(rs) => (dialog.edit ? editComponent(rs[0]) : addRacks(rs))} />
       )}
       {dialog?.t === 'mount' &&
         (() => {
@@ -1511,7 +1579,7 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
         {rack && (
           <span className={`flex items-center gap-1 truncate ${rackConflict ? 'text-red-400' : 'text-slate-400'}`} title={rackConflict ? 'Posição inválida no rack' : 'Posição no rack'}>
             <Rows4 size={11} />
-            {rack.name} · U{c.u}
+            {rackCode(rack.loc) || rack.name} · U{c.u}
             {rackHeight(c) > 1 ? `–${c.u! + rackHeight(c) - 1}` : ''}
           </span>
         )}
@@ -1525,6 +1593,10 @@ interface RackCardProps {
   rack: Rack;
   diagram: Diagram;
   conflicts: Set<string>;
+  /** Outro rack tem o mesmo código de endereçamento. */
+  duplicate?: boolean;
+  /** Rack encontrado pela busca (destaque). */
+  highlight?: boolean;
   readOnly?: boolean;
   onDrag: (e: React.PointerEvent) => void;
   /** Instalar equipamento (u = U vazia clicada). */
@@ -1540,7 +1612,8 @@ interface RackCardProps {
 }
 
 /** Rack em vista frontal: U numeradas (U1 embaixo) e os equipamentos instalados ocupando suas U. */
-function RackCard({ rack: r, diagram, conflicts, readOnly, onDrag, onAdd, onEdit, onDelete, expanded, hot, inUse, item }: RackCardProps) {
+function RackCard({ rack: r, diagram, conflicts, duplicate, highlight, readOnly, onDrag, onAdd, onEdit, onDelete, expanded, hot, inUse, item }: RackCardProps) {
+  const code = rackCode(r.loc);
   const { w, h } = rackSize(r);
   const items = rackItems(diagram, r.id);
   const used = rackUsed(diagram, r.id);
@@ -1553,10 +1626,20 @@ function RackCard({ rack: r, diagram, conflicts, readOnly, onDrag, onAdd, onEdit
   const top = rackUTop(r, r.units);
 
   return (
-    <div className="absolute rounded-lg border border-slate-700 bg-slate-900 shadow-xl" style={{ left: r.x, top: r.y, width: w, height: h }} onPointerDown={(e) => e.stopPropagation()}>
+    <div
+      className={`absolute rounded-lg border bg-slate-900 shadow-xl ${highlight ? 'border-amber-400 ring-4 ring-amber-400/40' : 'border-slate-700'}`}
+      style={{ left: r.x, top: r.y, width: w, height: h }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
       <div className="absolute inset-x-0 top-0 flex items-center gap-2 px-2.5 border-b border-slate-800 cursor-move" style={{ height: RACK.HEADER }} onPointerDown={onDrag}>
         <Rows4 size={15} className="text-amber-400" />
         <span className="text-sm font-semibold truncate">{r.name}</span>
+        {code && code !== r.name && <span className="font-mono text-[11px] font-semibold text-emerald-300 shrink-0">{code}</span>}
+        {duplicate && (
+          <span className="text-[10px] font-semibold text-amber-400 shrink-0" title="Outro rack usa o mesmo endereço">
+            duplicado
+          </span>
+        )}
         <span className="text-[10px] text-slate-500 shrink-0">
           {r.units}U · {RACK_MOUNTS[r.mount].label}
         </span>

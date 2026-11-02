@@ -1,5 +1,5 @@
 import { DIO_TRAY, splitterModel } from './catalog';
-import type { Connection, Diagram, DiagramComponent, End } from './types';
+import type { Connection, Diagram, DiagramComponent, End, RackLocation } from './types';
 
 /** Funções puras do editor de POP (sem React), usadas também nos testes. */
 
@@ -253,4 +253,112 @@ export function unmount<T extends DiagramComponent>(c: T): T {
   if (!isRackable(c)) return c;
   const { rack: _r, u: _u, ex: _x, ey: _y, ...rest } = c;
   return rest as T;
+}
+
+// ---------- Endereçamento de rack (datacenter) ----------
+
+/** Máximo de racks criados de uma vez numa fileira. */
+export const MAX_RACK_BATCH = 50;
+
+const clean = (v?: string) => (v ?? '').trim().toUpperCase().replace(/\s+/g, '');
+
+/** Fileira normalizada: só letras (A, B... Z, AA, AB...). */
+export const normalizeRow = (v?: string) => clean(v).replace(/[^A-Z]/g, '');
+
+/**
+ * Código do rack no estilo ANSI/TIA-606: `site.andarSala-FileiraPosição`, com a posição em 2 dígitos.
+ * Ex.: { site: 'DC1', floor: '1', room: 'A', row: 'AJ', pos: 5 } → "DC1.1A-AJ05". Partes vazias são omitidas.
+ */
+export function rackCode(loc?: RackLocation): string {
+  if (!loc) return '';
+  const site = clean(loc.site);
+  const space = clean(loc.floor) + clean(loc.room);
+  const row = normalizeRow(loc.row);
+  const pos = loc.pos && loc.pos > 0 ? String(Math.round(loc.pos)).padStart(2, '0') : '';
+  const grid = row + pos;
+  const head = [site, space].filter(Boolean).join('.');
+  return [head, grid].filter(Boolean).join('-');
+}
+
+/** Nome para exibir o rack: código de endereçamento (se houver) e o nome, sem repetir. */
+export function rackLabel(r: Rack): string {
+  const code = rackCode(r.loc);
+  if (!code || code === r.name) return r.name;
+  return `${code} · ${r.name}`;
+}
+
+/** Ordem da fileira: A < B < ... < Z < AA < AB (como colunas de planilha). */
+export function rowIndex(row?: string): number {
+  const r = normalizeRow(row);
+  let n = 0;
+  for (const ch of r) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n;
+}
+
+/** Fileira seguinte: A → B, Z → AA, AZ → BA. */
+export function nextRow(row?: string): string {
+  let n = rowIndex(row) + 1;
+  let out = '';
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    out = String.fromCharCode(65 + m) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
+}
+
+const natural = new Intl.Collator('pt-BR', { numeric: true, sensitivity: 'base' });
+
+/** Compara racks pelo endereço (site, andar, sala, fileira, posição) e depois pelo nome. Sem endereço vai para o fim. */
+export function compareRacks(a: Rack, b: Rack): number {
+  const ha = !!rackCode(a.loc);
+  const hb = !!rackCode(b.loc);
+  if (ha !== hb) return ha ? -1 : 1;
+  const la = a.loc ?? {};
+  const lb = b.loc ?? {};
+  return (
+    natural.compare(clean(la.site), clean(lb.site)) ||
+    natural.compare(clean(la.floor), clean(lb.floor)) ||
+    natural.compare(clean(la.room), clean(lb.room)) ||
+    rowIndex(la.row) - rowIndex(lb.row) ||
+    (la.pos ?? 0) - (lb.pos ?? 0) ||
+    natural.compare(a.name, b.name)
+  );
+}
+
+/** Grupo do rack para listas: "DC1 · Andar 1 · Sala A · Fileira AJ". */
+export function rackGroup(r: Rack): string {
+  const l = r.loc ?? {};
+  const parts = [clean(l.site), l.floor?.trim() && `Andar ${clean(l.floor)}`, l.room?.trim() && `Sala ${clean(l.room)}`, normalizeRow(l.row) && `Fileira ${normalizeRow(l.row)}`].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'Sem endereço';
+}
+
+/** Mesma sala e fileira (ignora a posição). */
+const sameRow = (a?: RackLocation, b?: RackLocation) =>
+  clean(a?.site) === clean(b?.site) && clean(a?.floor) === clean(b?.floor) && clean(a?.room) === clean(b?.room) && normalizeRow(a?.row) === normalizeRow(b?.row);
+
+/** Primeira posição livre na fileira do endereço `loc` (para sugerir o próximo rack). */
+export function nextRackPos(racks: Rack[], loc: RackLocation, ignoreId?: string): number {
+  const used = new Set(racks.filter((r) => r.id !== ignoreId && sameRow(r.loc, loc)).map((r) => r.loc?.pos ?? 0));
+  let p = 1;
+  while (used.has(p)) p++;
+  return p;
+}
+
+/** Racks que repetem o mesmo código de endereçamento (mesmo lugar no datacenter). */
+export function duplicateRackCodes(racks: Rack[]): Set<string> {
+  const seen = new Map<string, number>();
+  racks.forEach((r) => {
+    const c = rackCode(r.loc);
+    if (c) seen.set(c, (seen.get(c) ?? 0) + 1);
+  });
+  return new Set([...seen].filter(([, n]) => n > 1).map(([c]) => c));
+}
+
+/** Procura racks por código ou nome (sem diferenciar maiúsculas, espaços e pontuação). */
+export function searchRacks(racks: Rack[], q: string): Rack[] {
+  const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const k = norm(q);
+  if (!k) return [...racks].sort(compareRacks);
+  return racks.filter((r) => norm(rackCode(r.loc)).includes(k) || norm(r.name).includes(k)).sort(compareRacks);
 }
