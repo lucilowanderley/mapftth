@@ -89,6 +89,8 @@ interface Props {
 
 const isPopComp = (c: DiagramComponent): c is PopComp => c.kind === 'olt' || c.kind === 'dio' || c.kind === 'active';
 const isRack = (c: DiagramComponent): c is Rack => c.kind === 'rack';
+/** Quantos equipamentos do rack podem ficar expandidos ao mesmo tempo. */
+const MAX_EXPANDED = 10;
 
 /** Cor de cada tipo de equipamento (portas com cordão e blocos dentro do rack). */
 const KIND_COLOR: Record<Rackable['kind'], string> = { dio: '#0ea5e9', olt: '#8b5cf6', active: '#10b981' };
@@ -151,8 +153,17 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   const [dialog, setDialog] = useState<Dialog>(null);
   const [matrixDio, setMatrixDio] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; error?: boolean } | null>(null);
-  /** Equipamento instalado em rack que está expandido (os demais ficam recolhidos na faixa do rack). */
-  const [expanded, setExpanded] = useState<string | null>(null);
+  /** Equipamentos instalados em rack que estão expandidos (até MAX_EXPANDED; os demais ficam recolhidos na faixa). */
+  const [expanded, setExpanded] = useState<string[]>([]);
+  const toggleExpanded = (id: string) =>
+    setExpanded((list) => {
+      if (list.includes(id)) return list.filter((x) => x !== id);
+      if (list.length >= MAX_EXPANDED) {
+        notify(`Dá para expandir até ${MAX_EXPANDED} equipamentos ao mesmo tempo. Recolha um antes.`, true);
+        return list;
+      }
+      return [...list, id];
+    });
   const catalog = useEquipmentModels(node.project_id);
   const history = useRef<Diagram[]>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -198,15 +209,17 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     return r ? rackStrip(r, c.u!, rackHeight(c)) : null;
   };
   /**
-   * Onde o card do equipamento aparece: fora do rack, na posição dele; no rack, só quando expandido,
-   * ao lado direito do rack e na altura da sua faixa. Recolhido = null.
+   * Onde o card do equipamento aparece: fora do rack, na posição dele; no rack, só quando expandido:
+   * onde o usuário arrastou (ex/ey) ou, sem isso, ao lado direito do rack na altura da faixa. Recolhido = null.
    */
   const shownPos = (c: PopComp): { x: number; y: number } | null => {
     const r = mountedIn(c);
     if (!r) return { x: c.x, y: c.y };
-    if (expanded !== c.id) return null;
+    if (!expanded.includes(c.id)) return null;
+    if (typeof c.ex === 'number' && typeof c.ey === 'number') return { x: c.ex, y: c.ey };
     const st = stripOf(c)!;
-    return { x: r.x + rackSize(r).w + 60, y: Math.max(r.y, st.y - G.HEADER / 2) };
+    const i = expanded.indexOf(c.id);
+    return { x: r.x + rackSize(r).w + 60 + i * 30, y: Math.max(r.y, st.y - G.HEADER / 2) };
   };
   const shownComps = comps.flatMap((c) => {
     const p = shownPos(c);
@@ -273,7 +286,8 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     if (key) {
       if (readOnly) return;
       const c = compById.get(key);
-      const p = c ? { x: c.x, y: c.y } : cablePos(key);
+      // Card expandido de equipamento no rack: arrasta a posição de expansão (ex/ey), não a do card solto.
+      const p = c ? ((isPopComp(c) && mountedIn(c) && shownPos(c)) || { x: c.x, y: c.y }) : cablePos(key);
       ox = p.x;
       oy = p.y;
     }
@@ -301,7 +315,10 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     const key = d.key;
     setDiagram((dg) =>
       compById.has(key)
-        ? { ...dg, components: dg.components.map((c) => (c.id === key ? { ...c, x: nx, y: ny } : c)) }
+        ? {
+            ...dg,
+            components: dg.components.map((c) => (c.id !== key ? c : isPopComp(c) && mountedIn(c) ? { ...c, ex: nx, ey: ny } : { ...c, x: nx, y: ny })),
+          }
         : { ...dg, cablePos: { ...dg.cablePos, [key]: { x: nx, y: ny } } },
     );
     setDirty(true);
@@ -874,9 +891,13 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                       dots.push({ x: sx, y: ay }, { x: ex, y: sy });
                       const pos = shownPos(dio);
                       if (pos) {
+                        // Da faixa até o card expandido, para o lado onde o card estiver.
                         const by = pos.y + G.HEADER + G.CHIPS / 2;
-                        segs.push(curve(st.x + st.w, sy, pos.x, by, true));
-                        dots.push({ x: pos.x, y: by });
+                        const toRight = pos.x >= st.x + st.w;
+                        const fx = toRight ? st.x + st.w : st.x;
+                        const tx = toRight ? pos.x : pos.x + cardSize(dio).w;
+                        segs.push(curve(fx, sy, tx, by, toRight));
+                        dots.push({ x: tx, y: by });
                       }
                     } else {
                       const toLeft = dio.x >= p.x + G.CABLE_W / 2;
@@ -960,7 +981,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                   hot={(id) => !!vflResult && [...vflResult.ends].some((k) => k.startsWith(`${id}:`))}
                   inUse={(id) => [...usedEnds.keys()].some((k) => k.startsWith(`${id}:`))}
                   item={{
-                    toggle: (id) => setExpanded((x) => (x === id ? null : id)),
+                    toggle: toggleExpanded,
                     move: (id) => setDialog({ t: 'mount', rack: r.id, item: id }),
                     matrix: (id) => setMatrixDio(id),
                     link: (id) => setDialog({ t: 'linkDio', dio: id }),
@@ -985,7 +1006,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                 <EquipmentCard
                   key={c.id}
                   comp={c}
-                  onCollapse={mountedIn(c) ? () => setExpanded(null) : undefined}
+                  onCollapse={mountedIn(c) ? () => setExpanded((list) => list.filter((x) => x !== c.id)) : undefined}
                   rack={c.rack ? rackById.get(c.rack) : undefined}
                   rackConflict={conflicts.has(c.id)}
                   diagram={diagram}
@@ -996,7 +1017,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                   selConn={selConn}
                   lit={lit}
                   endLabel={endLabel}
-                  onDrag={(e) => (mountedIn(c) ? e.stopPropagation() : startDrag(e, c.id))}
+                  onDrag={(e) => startDrag(e, c.id)}
                   onPort={clickPort}
                   onMatrix={() => setMatrixDio(c.id)}
                   onLink={() => setDialog({ t: 'linkDio', dio: c.id })}
@@ -1363,7 +1384,7 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
       onPointerDown={(e) => e.stopPropagation()}
     >
       {/* Cabeçalho com as ferramentas do equipamento */}
-      <div className={`absolute inset-x-0 top-0 flex items-center gap-2 px-2.5 border-b border-slate-800 ${onCollapse ? '' : 'cursor-move'}`} style={{ height: G.HEADER }} onPointerDown={onDrag}>
+      <div className="absolute inset-x-0 top-0 flex items-center gap-2 px-2.5 border-b border-slate-800 cursor-move" style={{ height: G.HEADER }} onPointerDown={onDrag}>
         <span className={`w-2.5 h-2.5 rounded-full ${anyUsed ? 'bg-emerald-400' : 'bg-slate-600'}`} />
         {icon}
         <span className="text-sm font-semibold truncate">{c.name}</span>
@@ -1511,7 +1532,7 @@ interface RackCardProps {
   onEdit: () => void;
   onDelete: () => void;
   /** Equipamento expandido agora (os demais ficam recolhidos na faixa). */
-  expanded: string | null;
+  expanded: string[];
   hot: (id: string) => boolean;
   inUse: (id: string) => boolean;
   /** Ações da faixa de cada equipamento instalado. */
@@ -1590,7 +1611,7 @@ function RackCard({ rack: r, diagram, conflicts, readOnly, onDrag, onAdd, onEdit
         const st = rackStrip(r, it.u!, rackHeight(it));
         const col = KIND_COLOR[it.kind];
         const bad = conflicts.has(it.id);
-        const open = expanded === it.id;
+        const open = expanded.includes(it.id);
         const lit = hot(it.id);
         const fg = textOn(col);
         const detail = [it.modelName, it.kind === 'olt' ? `${it.slots}×${it.ports} PON` : it.kind === 'dio' ? `${it.ports}P` : it.type].filter(Boolean).join(' · ');

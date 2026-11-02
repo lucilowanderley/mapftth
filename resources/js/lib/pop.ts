@@ -251,6 +251,6 @@ export function rackConflicts(d: Diagram): Set<string> {
 /** Tira o equipamento do rack (continua no POP, só fica sem posição). */
 export function unmount<T extends DiagramComponent>(c: T): T {
   if (!isRackable(c)) return c;
-  const { rack: _r, u: _u, ...rest } = c;
+  const { rack: _r, u: _u, ex: _x, ey: _y, ...rest } = c;
   return rest as T;
 }

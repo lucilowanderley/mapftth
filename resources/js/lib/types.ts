@@ -81,6 +81,9 @@ export interface RackMount {
   u?: number;
   /** Altura em U (padrão calculado pelo tipo/tamanho do equipamento). */
   h?: number;
+  /** Posição do card quando expandido fora do rack (arrastado pelo usuário). Sem valor = ao lado do rack. */
+  ex?: number;
+  ey?: number;
 }
 
 export type RackMountType = 'floor' | 'wall';

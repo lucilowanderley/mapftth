@@ -361,7 +361,11 @@ equipamentos nem passar do topo do rack.
 como uma faixa na cor do tipo, com o nome, o modelo e os mesmos ícones do card (**Matriz de fusão**, **Vincular
 cabos**, **Patch**, **Posição no rack**, **Editar**, **Excluir**). Clique na faixa para **expandir**: o card completo,
 com as portas, abre ao lado do rack, na altura do equipamento, com uma borda laranja. Clique de novo na faixa (ou no
-ícone **Recolher** do card) para recolher. Só um equipamento fica expandido por vez. O rodapé do card mostra onde ele
+ícone **Recolher** do card) para recolher. Dá para deixar **até 10 equipamentos expandidos** ao mesmo tempo.
+
+O card expandido pode ser **arrastado** pelo cabeçalho para qualquer lugar do canvas. A posição fica gravada quando
+você salva o POP: da próxima vez que expandir, o card abre onde você deixou (o equipamento continua instalado na
+mesma U do rack, e a linha do cabo segue da faixa até o card). O rodapé do card mostra onde ele
 está (por exemplo *Rack 1 · U40–41*).
 
 **Cabo chegando no rack.** Quando o DIO está no rack, a linha do cabo vinculado chega primeiro na **lateral do
