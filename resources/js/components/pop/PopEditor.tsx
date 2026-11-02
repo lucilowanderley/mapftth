@@ -650,14 +650,16 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         const b = portBox(c, p);
         const n = Number(p.slice(1));
         const patched = usedEnds.has(`${c.id}:${p}`);
-        const fill = patched ? (c.kind === 'dio' ? PORT_FILL.dio : c.kind === 'active' ? PORT_FILL.active : p.startsWith('u') ? PORT_FILL.up : PORT_FILL.olt) : '#f8fafc';
+        const src = c.kind === 'dio' ? fusionSource(diagram, c.id, n) : null;
+        const cable = src && cableMap.get(src.cable);
+        const fiberHex = src && cable ? fiberColor(src.fiber, cable.fibers_per_tube).hex : undefined;
+        const fill = fiberHex ?? (patched ? (c.kind === 'dio' ? PORT_FILL.dio : c.kind === 'active' ? PORT_FILL.active : p.startsWith('u') ? PORT_FILL.up : PORT_FILL.olt) : '#f8fafc');
         const label = c.kind === 'olt' && !p.startsWith('u') ? ((n - 1) % c.ports) + 1 : n;
         parts.push(
           `<rect x="${c.x + b.x}" y="${c.y + b.y}" width="${G.PORT}" height="${G.PORT}" rx="4" fill="${fill}" stroke="#94a3b8"/>`,
-          `<text x="${c.x + b.x + G.PORT / 2}" y="${c.y + b.y + 18}" font-size="10" text-anchor="middle" fill="${patched ? textOn(fill) : '#64748b'}">${label}</text>`,
+          `<text x="${c.x + b.x + G.PORT / 2}" y="${c.y + b.y + 18}" font-size="10" text-anchor="middle" fill="${patched || fiberHex ? textOn(fill) : '#64748b'}">${label}</text>`,
         );
-        const src = c.kind === 'dio' ? fusionSource(diagram, c.id, n) : null;
-        const cable = src && cableMap.get(src.cable);
+        if (fiberHex && patched) parts.push(`<rect x="${c.x + b.x + 2}" y="${c.y + b.y + G.PORT - 4}" width="${G.PORT - 4}" height="2.5" fill="#334155"/>`);
         if (cable) parts.push(`<circle cx="${c.x + b.x + G.PORT - 1}" cy="${c.y + b.y + 1}" r="4" fill="${cable.color}" stroke="#0f172a" stroke-width="0.8"/>`);
       });
     });
@@ -1530,9 +1532,12 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
         const box = portBox(c, p);
         const n = Number(p.slice(1));
         const patched = usedEnds.has(`${c.id}:${p}`);
-        const fill = patched ? (c.kind === 'dio' ? PORT_FILL.dio : c.kind === 'active' ? PORT_FILL.active : p.startsWith('u') ? PORT_FILL.up : PORT_FILL.olt) : undefined;
         const src = c.kind === 'dio' ? fusionSource(diagram, c.id, n) : null;
         const dotCable = src ? cableMap.get(src.cable) : undefined;
+        // Porta do DIO fundida fica na cor ABNT da fibra (FO1 verde, FO2 amarela...).
+        const fiberHex = src && dotCable ? fiberColor(src.fiber, dotCable.fibers_per_tube).hex : undefined;
+        const fill = fiberHex ?? (patched ? (c.kind === 'dio' ? PORT_FILL.dio : c.kind === 'active' ? PORT_FILL.active : p.startsWith('u') ? PORT_FILL.up : PORT_FILL.olt) : undefined);
+        const frontPatched = !!fiberHex && patched;
         const isPending = !!pending && sameEnd(pending, end);
         const isSel = !!selConn && (sameEnd(selConn.a, end) || sameEnd(selConn.b, end));
         const hot = lit(end) || (c.kind === 'dio' && lit({ c: c.id, p: `a${n}` }));
@@ -1563,8 +1568,14 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
               height: G.PORT,
               background: fill ?? '#0b1220',
               color: fill ? textOn(fill) : '#64748b',
-              borderColor: hot ? VFL : isPending ? '#fbbf24' : isSel ? '#facc15' : fill ? fill : '#334155',
-              boxShadow: hot ? `0 0 10px ${VFL}, inset 0 0 6px ${VFL}` : isPending || isSel ? '0 0 0 2px #facc15' : undefined,
+              borderColor: hot ? VFL : isPending ? '#fbbf24' : isSel ? '#facc15' : fiberHex ? '#475569' : fill ? fill : '#334155',
+              boxShadow: hot
+                ? `0 0 10px ${VFL}, inset 0 0 6px ${VFL}`
+                : isPending || isSel
+                  ? '0 0 0 2px #facc15'
+                  : frontPatched
+                    ? 'inset 0 -3px 0 #e2e8f0'
+                    : undefined,
             }}
           >
             {label}
