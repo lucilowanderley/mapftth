@@ -113,3 +113,11 @@ export function planBoxesAlong(cable: Cable, nodes: NetNode[], tol = ALONG_TOLER
   if (!ordered.length) return null;
   return { path: out, cuts, from: start?.node.id ?? null, to: end?.node.id ?? null, nodes: ordered };
 }
+
+/** Ponto do traçado mais próximo de `at` (para encaixar a reserva técnica no cabo). */
+export function pointOnPath(path: LatLng[], at: LatLng): LatLng {
+  const { seg, t } = nearestOnPath(path, at);
+  const a = path[seg];
+  const b = path[Math.min(seg + 1, path.length - 1)];
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}

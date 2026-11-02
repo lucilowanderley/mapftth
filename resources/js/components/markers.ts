@@ -69,3 +69,27 @@ export const midpointIcon = (color: string) =>
 /** Alça do modo "Conectar a caixa": maior, para soltar sobre um objeto. */
 export const connectIcon = (color: string) =>
   handle(`c${color}`, 'connect', color, `width:16px;height:16px;background:#fff;border:4px solid ${color};box-shadow:0 0 0 2px rgba(15,23,42,.6)`);
+
+const slackIcons = new Map<string, L.DivIcon>();
+
+/** Reserva técnica: círculo (suspensa) ou quadrado (subterrânea) com a "bobina" do cabo. */
+export function slackIcon(kind: 'aerial' | 'underground', color: string, selected = false) {
+  const key = `${kind}|${color}|${selected ? 1 : 0}`;
+  let icon = slackIcons.get(key);
+  if (!icon) {
+    const ring = selected ? '#facc15' : kind === 'aerial' ? '#f59e0b' : '#a16207';
+    const shape =
+      kind === 'aerial'
+        ? `<circle cx="12" cy="12" r="9.5" fill="#fff" stroke="${ring}" stroke-width="3"/>`
+        : `<rect x="2.5" y="2.5" width="19" height="19" rx="3" fill="#fff" stroke="${ring}" stroke-width="3"/>`;
+    const coil = `<ellipse cx="12" cy="12" rx="5.5" ry="3.2" fill="none" stroke="${color}" stroke-width="1.8"/><ellipse cx="12" cy="12" rx="2.8" ry="1.6" fill="none" stroke="${color}" stroke-width="1.6"/>`;
+    icon = L.divIcon({
+      className: 'node-marker slack-marker',
+      html: `<svg viewBox="0 0 24 24" width="22" height="22" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))${selected ? ' drop-shadow(0 0 5px #facc15)' : ''}">${shape}${coil}</svg>`,
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+    });
+    slackIcons.set(key, icon);
+  }
+  return icon;
+}

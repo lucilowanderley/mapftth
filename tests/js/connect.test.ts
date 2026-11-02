@@ -123,3 +123,47 @@ describe('estilo da linha do cabo', () => {
     expect(lineDash('dotted', 4)).toBe('0.1 11');
   });
 });
+
+describe('reservas técnicas', () => {
+  it('encaixa a reserva no ponto mais próximo do cabo', async () => {
+    const { pointOnPath } = await import('../../resources/js/lib/connect');
+    const p = pointOnPath(
+      [
+        [0, 0],
+        [0, 0.002],
+      ],
+      [0.0003, 0.0005],
+    );
+    expect(p[0]).toBeCloseTo(0, 9);
+    expect(p[1]).toBeCloseTo(0.0005, 9);
+  });
+
+  it('relatório conta as reservas pelo local e pelo tipo', async () => {
+    const { buildReport } = await import('../../resources/js/lib/analysis');
+    const c = {
+      ...cable([
+        [0, 0],
+        [0, 0.002],
+      ]),
+      slack_m: 35,
+      slacks: [
+        { id: 'a', lat: 0, lng: 0.0002, length_m: 20, kind: 'aerial' as const },
+        { id: 'b', lat: 0, lng: 0.0018, length_m: 15, kind: 'underground' as const },
+      ],
+    };
+    const settings = { olt_tx_dbm: 5, fusion_loss_db: 0.1, connector_loss_db: 0.5, fiber_loss_db_km: 0.35, onu_min_dbm: -27, onu_warn_dbm: -25, onu_max_dbm: -8 };
+    const all = buildReport({ nodes: [], cables: [c], settings });
+    expect(all.slacks.aerial).toEqual({ count: 1, meters: 20 });
+    expect(all.slacks.underground).toEqual({ count: 1, meters: 15 });
+    // área que só pega o começo do cabo
+    const area = buildReport({ nodes: [], cables: [c], settings }, [
+      [-0.001, -0.001],
+      [0.001, -0.001],
+      [0.001, 0.001],
+      [-0.001, 0.001],
+    ]);
+    expect(area.slacks.aerial.count).toBe(1);
+    expect(area.slacks.underground.count).toBe(0);
+    expect(area.cables[0].slack).toBe(20);
+  });
+});

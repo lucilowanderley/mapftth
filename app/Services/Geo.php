@@ -26,4 +26,43 @@ class Geo
 
         return $total;
     }
+
+    /** Ponto a $meters metros do início da polilinha. */
+    public static function pointAlong(array $path, float $meters): array
+    {
+        for ($i = 1; $i < count($path); $i++) {
+            $seg = self::distance($path[$i - 1], $path[$i]);
+            if ($meters <= $seg && $seg > 0) {
+                $t = $meters / $seg;
+
+                return [
+                    round($path[$i - 1][0] + ($path[$i][0] - $path[$i - 1][0]) * $t, 7),
+                    round($path[$i - 1][1] + ($path[$i][1] - $path[$i - 1][1]) * $t, 7),
+                ];
+            }
+            $meters -= $seg;
+        }
+
+        return $path[count($path) - 1] ?? [0, 0];
+    }
+
+    /** Distância aproximada (m) de um ponto até a polilinha (projeção local plana). */
+    public static function distanceToPath(array $p, array $path): float
+    {
+        $k = cos(deg2rad((float) $p[0]));
+        $xy = fn ($q) => [(float) $q[1] * 111320 * $k, (float) $q[0] * 110574];
+        [$px, $py] = $xy($p);
+        $best = INF;
+        for ($i = 1; $i < count($path); $i++) {
+            [$ax, $ay] = $xy($path[$i - 1]);
+            [$bx, $by] = $xy($path[$i]);
+            $dx = $bx - $ax;
+            $dy = $by - $ay;
+            $len2 = $dx * $dx + $dy * $dy;
+            $t = $len2 ? max(0, min(1, (($px - $ax) * $dx + ($py - $ay) * $dy) / $len2)) : 0;
+            $best = min($best, hypot($ax + $t * $dx - $px, $ay + $t * $dy - $py));
+        }
+
+        return $best;
+    }
 }

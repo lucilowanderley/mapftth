@@ -3,6 +3,17 @@ export type Status = 'planned' | 'not_deployed' | 'deployed' | 'certified';
 export type CableCategory = 'backbone' | 'distribution' | 'drop';
 export type LatLng = [number, number];
 export type LineStyle = 'solid' | 'dashed' | 'dotted';
+export type SlackKind = 'aerial' | 'underground';
+
+/** Reserva técnica posicionada sobre o cabo. */
+export interface Slack {
+  id: string;
+  lat: number;
+  lng: number;
+  length_m: number;
+  kind: SlackKind;
+  notes?: string | null;
+}
 
 export interface Settings {
   olt_tx_dbm: number;
@@ -90,7 +101,9 @@ export interface Cable {
   path: LatLng[];
   from_node_id: number | null;
   to_node_id: number | null;
+  /** Soma das reservas (ou a metragem antiga, sem local). */
   slack_m: number;
+  slacks?: Slack[] | null;
   length_m: number;
   notes: string | null;
 }

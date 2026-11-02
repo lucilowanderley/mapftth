@@ -7,6 +7,7 @@ use App\Models\ActivityLog;
 use App\Models\Cable;
 use App\Models\NetworkNode;
 use App\Models\Project;
+use App\Services\Geo;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -33,7 +34,11 @@ class CableController extends Controller
         $data = $this->validated($request, $cable->project, partial: true);
         $fields = [];
         foreach ($data as $key => $value) {
-            if ($key !== 'path' && $value != $cable->{$key}) {
+            if ($key === 'slacks') {
+                if ($value != $cable->slacks) {
+                    $fields['reservas'] = count($cable->slacks ?? []).' → '.count($value ?? []).' reservas';
+                }
+            } elseif ($key !== 'path' && $value != $cable->{$key}) {
                 $fields[$key] = ['de' => $cable->{$key}, 'para' => $value];
             }
         }
@@ -146,13 +151,29 @@ class CableController extends Controller
             $bounds = [0, ...$cuts->pluck('index')->all(), count($path) - 1];
             $ends = [$cable->from_node_id, ...$cuts->pluck('node_id')->all(), $cable->to_node_id];
 
+            // Cada reserva posicionada vai para o trecho mais próximo dela.
+            $paths = [];
+            for ($k = 0; $k < count($bounds) - 1; $k++) {
+                $paths[] = array_slice($path, $bounds[$k], $bounds[$k + 1] - $bounds[$k] + 1);
+            }
+            $slacksBySeg = array_fill(0, count($paths), []);
+            foreach ($cable->slacks ?? [] as $slack) {
+                $dists = array_map(fn ($p) => Geo::distanceToPath([$slack['lat'], $slack['lng']], $p), $paths);
+                $slacksBySeg[array_search(min($dists), $dists, true)][] = $slack;
+            }
+            $hasSlacks = (bool) $cable->slacks;
+
             $segments = [];
             for ($k = 0; $k < count($bounds) - 1; $k++) {
                 $attrs = [
-                    'path' => array_slice($path, $bounds[$k], $bounds[$k + 1] - $bounds[$k] + 1),
+                    'path' => $paths[$k],
                     'from_node_id' => $ends[$k],
                     'to_node_id' => $ends[$k + 1],
                 ];
+                if ($hasSlacks) {
+                    $attrs['slacks'] = $slacksBySeg[$k] ?: null;
+                    $attrs['slack_m'] = (int) array_sum(array_column($slacksBySeg[$k], 'length_m'));
+                }
                 if ($k === 0) {
                     $cable->update($attrs + ['name' => $firstName]);
                     $segments[] = $cable;
@@ -167,9 +188,8 @@ class CableController extends Controller
                         'color' => $cable->color,
                         'width' => $cable->width,
                         'line_style' => $cable->line_style,
-                        'slack_m' => 0,
                         'notes' => $cable->notes,
-                    ]);
+                    ] + ['slack_m' => 0]);
                 }
             }
             $lastSeg = end($segments);
@@ -296,8 +316,29 @@ class CableController extends Controller
             'from_node_id' => ['nullable', 'integer', $nodeRule],
             'to_node_id' => ['nullable', 'integer', $nodeRule],
             'slack_m' => ['sometimes', 'integer', 'min:0'],
+            'slacks' => ['nullable', 'array', 'max:200'],
+            'slacks.*.id' => ['required', 'string', 'max:32'],
+            'slacks.*.lat' => ['required', 'numeric', 'between:-90,90'],
+            'slacks.*.lng' => ['required', 'numeric', 'between:-180,180'],
+            'slacks.*.length_m' => ['required', 'integer', 'min:0', 'max:5000'],
+            'slacks.*.kind' => ['required', Rule::in(Cable::SLACK_KINDS)],
+            'slacks.*.notes' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string'],
         ]);
+        if (array_key_exists('slacks', $data)) {
+            $data['slacks'] = array_values(array_map(fn ($s) => [
+                'id' => (string) $s['id'],
+                'lat' => round((float) $s['lat'], 7),
+                'lng' => round((float) $s['lng'], 7),
+                'length_m' => (int) $s['length_m'],
+                'kind' => $s['kind'],
+                'notes' => $s['notes'] ?? null,
+            ], $data['slacks'] ?? []));
+            if (! $data['slacks']) {
+                $data['slacks'] = null;
+                $data['slack_m'] = 0;
+            }
+        }
         if (isset($data['from_node_id'], $data['to_node_id']) && $data['from_node_id'] === $data['to_node_id']) {
             throw ValidationException::withMessages(['to_node_id' => 'O cabo precisa ligar duas caixas diferentes.']);
         }
