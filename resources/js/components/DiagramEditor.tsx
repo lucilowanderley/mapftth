@@ -412,7 +412,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         {isPop && <ToolButton icon={<SquareStack size={15} />} label="DIO" onClick={() => setDialog('dio')} />}
         <ToolButton icon={<Wand2 size={15} />} label="Auto-fusão" onClick={() => setDialog('auto')} />
         <ToolButton icon={<Activity size={15} />} label="Potência" active={showPower} onClick={() => setShowPower((v) => !v)} />
-        {selected && <ToolButton icon={<Trash2 size={15} />} label={selected.kind === 'conn' ? 'Remover fusão' : 'Remover'} onClick={removeSelected} danger />}
+        {selected && <ToolButton icon={<Trash2 size={15} />} label={selected.kind === 'conn' ? (diagram.connections.find((c) => c.id === selected.key)?.pass ? 'Remover passagem' : 'Remover fusão') : 'Remover'} onClick={removeSelected} danger />}
         {selected?.kind === 'block' && blocks.find((b) => b.key === selected.key)?.kind === 'cable' && (
           <ToolButton icon={<ArrowLeftRight size={15} />} label="Inverter lado" onClick={() => flipCable(selected.key)} />
         )}
@@ -464,7 +464,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   >
                     <path d={d} fill="none" stroke="transparent" strokeWidth={10} />
                     <path d={d} fill="none" stroke={isSel ? '#facc15' : '#0f172a'} strokeWidth={isSel ? 6 : 4} strokeOpacity={isSel ? 1 : 0.55} />
-                    <path d={d} fill="none" stroke={color} strokeWidth={2.4} />
+                    <path d={d} fill="none" stroke={color} strokeWidth={2.4} strokeDasharray={c.pass ? '6 4' : undefined} />
                   </g>
                 );
               })}

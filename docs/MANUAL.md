@@ -11,7 +11,7 @@ seções como consulta.
 3. [Meus projetos](#3-meus-projetos)
 4. [A tela do mapa](#4-a-tela-do-mapa)
 5. [Adicionar POP, CEO, CTO, poste e cliente](#5-adicionar-pop-ceo-cto-poste-e-cliente)
-6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos)
+6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos) (inclui as [3 formas de ligar a CTO no cabo](#ligar-a-cto-no-cabo-3-formas))
 7. [Editor do POP: OLT e DIO](#7-editor-do-pop-olt-e-dio)
 8. [Diagrama de fusão da CEO e da CTO (splitters)](#8-diagrama-de-fusão-da-ceo-e-da-cto)
 9. [Ligar o cliente e ver o sinal](#9-ligar-o-cliente-e-ver-o-sinal)
@@ -170,16 +170,62 @@ rodapé para voltar o último movimento.
 
 ## 6. Desenhar e editar cabos
 
-**Desenhar**
+### Ligar a CTO no cabo: 3 formas
 
-1. Escolha **Cabo** na barra de ferramentas.
-2. Clique na **caixa de origem** (ex.: o POP). Se clicar no mapa vazio, o cabo começa com a ponta solta.
-3. Clique no mapa para criar os **pontos do trajeto** (as curvas pela rua ou pelos postes).
-4. Clique na **caixa de destino** (ex.: a CEO ou CTO) para terminar. Também dá para terminar com **Enter** ou com
-   o botão **Finalizar cabo (metragem)** no rodapé.
-5. **Esc** cancela o desenho.
+| Situação | Use |
+| --- | --- |
+| O cabo ainda não existe | **Forma 1**: ferramenta **Cabo**, já ligando nas caixas |
+| O cabo já está no mapa e a caixa fica na ponta ou no meio | **Forma 2**: botão direito no cabo › **Conectar a caixa, poste ou POP** |
+| Várias CTOs ao longo do caminho, de uma vez | **Forma 3**: botão direito no cabo › **Conectar caixas no traçado** |
 
-O cabo nasce como **Cabo 12FO** de distribuição. Se uma das pontas for um cliente, ele vira **Cabo Drop 1FO**.
+**Forma 1: lançar o cabo já ligado nas caixas (ferramenta Cabo)**
+
+1. Escolha **Cabo** na barra de ferramentas. Logo abaixo dela aparece **Tipo de cabo**: escolha o modelo do
+   catálogo (Drop 1FO a 144FO). O último tipo usado fica lembrado neste navegador; o padrão é **Cabo 12FO**.
+2. Clique na **caixa de origem** (ex.: o POP ou a CEO). O cabo já nasce conectado nela. Se clicar no mapa vazio,
+   ele começa com a ponta solta.
+3. Clique no mapa para criar os **pontos do trajeto** (as curvas pela rua ou pelos postes). O **botão direito**
+   do mouse desfaz o último ponto; o botão **Desfazer ponto** no rodapé faz o mesmo.
+4. Clique na **caixa de destino**: o cabo é finalizado sozinho e já fica conectado nas duas caixas. Também dá para
+   terminar com **Enter** ou com o botão **Finalizar cabo (metragem)** no rodapé (aí a ponta fica solta).
+5. **Esc** ou **Cancelar** descarta o desenho.
+
+Se uma das pontas for um cliente, o cabo vira **Cabo Drop 1FO** (a não ser que você já tenha escolhido um Drop).
+
+**Forma 2: puxar o cabo até a caixa (ponta = conexão simples, meio = sangria)**
+
+1. Com **Selecionar**, clique com o **botão direito** no cabo e escolha **Conectar a caixa, poste ou POP**.
+2. Aparecem alças redondas verdes em todos os pontos do cabo (inclusive nas pontas) e, no rodapé, o aviso
+   **Conectando...** com o botão **Concluir**.
+3. **Na ponta (conexão simples)**: arraste a alça da ponta e solte sobre a caixa, o poste, o POP ou o cliente.
+   Um círculo verde mostra onde vai encaixar. A ponta gruda no objeto e o cabo passa a aparecer no diagrama da
+   caixa. Soltar a ponta no vazio desconecta (as fusões daquela ponta são removidas).
+4. **No meio (sangria)**: arraste um ponto do meio (ou um círculo pequeno entre dois pontos) e solte sobre uma
+   **CTO, CEO ou POP**. O sistema faz a **sangria**: o cabo é dividido em dois trechos (*Nome · T1* chegando na
+   caixa e *Nome · T2* saindo dela) e, dentro da caixa, todas as fibras ficam em **passagem direta** (veja abaixo).
+   Soltar um ponto do meio sobre um **poste** só apoia o cabo no poste, sem cortar.
+5. **Duplo clique** no cabo cria um ponto novo naquele lugar, para você puxá-lo até a caixa.
+6. Clique em **outro cabo** para trabalhar nele também. Clique em **Concluir** (ou **Esc**) para sair do modo.
+
+**Forma 3: conectar todas as CTOs do traçado de uma vez**
+
+1. Com **Selecionar**, clique com o **botão direito** no cabo. O item **Conectar caixas no traçado (N)** mostra
+   quantas CTOs e CEOs estão a até **30 m** do cabo.
+2. Clique nele e confirme em **Sim, conectar** (a caixa lista quais serão ligadas).
+3. Cada caixa no meio do caminho vira um ponto do cabo com **sangria** (trechos *T1, T2, T3...*). Uma caixa logo
+   depois de uma **ponta solta** vira a ponta do cabo (conexão simples).
+
+Vale para CTO e CEO. Para poste e POP, use a **forma 2**.
+
+**O que é a passagem direta (sangria)**
+
+Na sangria as fibras **não são cortadas**: no diagrama da caixa elas aparecem ligadas de um trecho ao outro com
+uma **linha tracejada**. Passagem direta **não conta como fusão** (não soma perda no orçamento óptico nem entra na
+contagem de fusões). Para derivar uma fibra na caixa (ex.: levar a fibra 3 a um splitter), abra o **Diagrama de
+fusão**, clique na fibra, use **Remover passagem** e ligue a fibra ao splitter normalmente. As caixas no fim do
+cabo original continuam com as fusões que já tinham, agora no último trecho.
+
+O menu do botão direito no cabo também tem **Editar** (abre o painel do cabo) e **Excluir**.
 
 **Editar** (clique no cabo com **Selecionar**):
 
@@ -513,6 +559,9 @@ Ao salvar, todos os sinais, cores e relatórios são recalculados.
 | **Enter** / **Esc** ao soltar | Mapa | Confirma ou cancela o novo lugar do elemento arrastado. |
 | **Ctrl+Z** | Mapa | Desfaz o último movimento de elemento. |
 | **Arrastar** alça do cabo | Mapa | Move ou cria um ponto do traçado (botão direito remove). |
+| **Botão direito** desenhando cabo | Mapa | Desfaz o último ponto. |
+| **Botão direito** no cabo | Mapa | Menu: Editar, Conectar a caixa, poste ou POP, Conectar caixas no traçado, Excluir. |
+| **Esc** no modo conectar | Mapa | Sai do modo (mesmo que **Concluir**). |
 | **Delete** | Diagrama | Remove a fusão ou o bloco selecionado. |
 | **Esc** | Diagrama | Cancela a porta selecionada. |
 | **Rolar o mouse** | Diagrama | Zoom. |

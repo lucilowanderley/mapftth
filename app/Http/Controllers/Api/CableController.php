@@ -9,6 +9,7 @@ use App\Models\NetworkNode;
 use App\Models\Project;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -76,6 +77,175 @@ class CableController extends Controller
         $cable->delete();
 
         return response()->json(['nodes' => $nodes->values()]);
+    }
+
+    /**
+     * Sangria: divide o cabo em trechos nas caixas indicadas. Cada corte é um vértice
+     * do traçado (`index`) que passa a ficar sobre a caixa (`node_id`). O 1º trecho
+     * mantém o cabo original; os demais são cabos novos com as mesmas características.
+     * Dentro de cada caixa as fibras dos dois trechos ficam ligadas em passagem direta
+     * (sem fusão), prontas para o projetista derivar só as fibras que for usar.
+     */
+    public function split(Request $request, Cable $cable): JsonResponse
+    {
+        $project = $cable->project;
+        $this->authorizeProject($request, $project, 'edit');
+        $data = $request->validate([
+            'path' => ['required', 'array', 'min:3'],
+            'path.*' => ['array', 'size:2'],
+            'path.*.*' => ['numeric'],
+            'cuts' => ['required', 'array', 'min:1'],
+            'cuts.*.index' => ['required', 'integer', 'min:1'],
+            'cuts.*.node_id' => ['required', 'integer', Rule::exists('network_nodes', 'id')->where('project_id', $project->id)],
+        ]);
+        $path = array_map(fn ($p) => [(float) $p[0], (float) $p[1]], $data['path']);
+        $last = count($path) - 1;
+        $cuts = collect($data['cuts'])->sortBy('index')->values();
+
+        $seen = [$cable->from_node_id, $cable->to_node_id];
+        $prev = 0;
+        foreach ($cuts as $cut) {
+            if ($cut['index'] >= $last || $cut['index'] <= $prev) {
+                throw ValidationException::withMessages(['cuts' => 'A sangria precisa ser num ponto do meio do cabo.']);
+            }
+            if (in_array($cut['node_id'], $seen, true)) {
+                throw ValidationException::withMessages(['cuts' => 'O cabo já está ligado a esta caixa.']);
+            }
+            $seen[] = $cut['node_id'];
+            $prev = $cut['index'];
+        }
+        $nodes = NetworkNode::whereIn('id', $cuts->pluck('node_id'))->get()->keyBy('id');
+        foreach ($nodes as $node) {
+            if ($node->type === 'client' || $node->type === 'pole') {
+                throw ValidationException::withMessages(['cuts' => 'A sangria só pode ser feita em CTO, CEO ou POP.']);
+            }
+        }
+
+        // Pontas e cortes ficam exatamente sobre os objetos.
+        foreach ([[0, $cable->from_node_id], [$last, $cable->to_node_id]] as [$i, $nodeId]) {
+            if ($nodeId && ($n = NetworkNode::find($nodeId))) {
+                $path[$i] = [$n->lat, $n->lng];
+            }
+        }
+        foreach ($cuts as $cut) {
+            $n = $nodes[$cut['node_id']];
+            $path[$cut['index']] = [$n->lat, $n->lng];
+        }
+
+        // Nome dos trechos: "Base · T1", "Base · T2"...
+        $base = preg_replace('/ · T\d+$/u', '', $cable->name);
+        $numbers = $project->cables()->where('name', 'like', $base.' · T%')->pluck('name')
+            ->map(fn ($name) => (int) preg_replace('/^.* · T(\d+)$/u', '$1', $name));
+        $next = max(1, (int) $numbers->max()) + 1;
+        $firstName = $base === $cable->name ? $base.' · T1' : $cable->name;
+
+        $touched = collect();
+        $segments = DB::transaction(function () use ($cable, $project, $path, $cuts, $nodes, $base, $firstName, &$next, &$touched) {
+            $oldId = $cable->id;
+            $oldTo = $cable->to_node_id;
+            $bounds = [0, ...$cuts->pluck('index')->all(), count($path) - 1];
+            $ends = [$cable->from_node_id, ...$cuts->pluck('node_id')->all(), $cable->to_node_id];
+
+            $segments = [];
+            for ($k = 0; $k < count($bounds) - 1; $k++) {
+                $attrs = [
+                    'path' => array_slice($path, $bounds[$k], $bounds[$k + 1] - $bounds[$k] + 1),
+                    'from_node_id' => $ends[$k],
+                    'to_node_id' => $ends[$k + 1],
+                ];
+                if ($k === 0) {
+                    $cable->update($attrs + ['name' => $firstName]);
+                    $segments[] = $cable;
+                } else {
+                    $segments[] = $project->cables()->create($attrs + [
+                        'name' => $base.' · T'.($next++),
+                        'category' => $cable->category,
+                        'model' => $cable->model,
+                        'fiber_count' => $cable->fiber_count,
+                        'fibers_per_tube' => $cable->fibers_per_tube,
+                        'status' => $cable->status,
+                        'color' => $cable->color,
+                        'width' => $cable->width,
+                        'slack_m' => 0,
+                        'notes' => $cable->notes,
+                    ]);
+                }
+            }
+            $lastSeg = end($segments);
+
+            // A caixa do fim do cabo original passa a enxergar o último trecho.
+            if ($oldTo && $lastSeg->id !== $oldId && ($node = NetworkNode::find($oldTo))) {
+                if ($this->renameCableInDiagram($node, $oldId, $lastSeg->id)) {
+                    $touched->put($node->id, $node);
+                }
+            }
+
+            // Passagem direta das fibras em cada caixa sangrada.
+            foreach ($cuts as $k => $cut) {
+                $node = $nodes[$cut['node_id']];
+                $in = $segments[$k];
+                $out = $segments[$k + 1];
+                $diagram = $node->diagram ?: [];
+                $diagram += ['components' => [], 'cablePos' => [], 'connections' => []];
+                for ($f = 1; $f <= $cable->fiber_count; $f++) {
+                    $diagram['connections'][] = [
+                        'id' => 'p'.$in->id.'x'.$out->id.'f'.$f,
+                        'a' => ['c' => 'c'.$in->id, 'p' => 'f'.$f],
+                        'b' => ['c' => 'c'.$out->id, 'p' => 'f'.$f],
+                        'pass' => true,
+                    ];
+                }
+                $node->diagram = $diagram;
+                $node->save();
+                $touched->put($node->id, $node);
+            }
+
+            $names = $cuts->map(fn ($c) => $nodes[$c['node_id']]->name)->implode(', ');
+            ActivityLog::record($project, 'cable', $cable, 'updated', [
+                'sangria' => 'dividido em '.count($segments).' trechos em '.$names,
+            ]);
+            foreach (array_slice($segments, 1) as $seg) {
+                ActivityLog::record($project, 'cable', $seg, 'created', ['sangria' => 'trecho de '.$base]);
+            }
+            $project->touch();
+
+            return $segments;
+        });
+
+        return response()->json([
+            'cables' => collect($segments)->map(fn ($c) => $c->fresh())->values(),
+            'nodes' => $touched->map(fn ($n) => $n->fresh())->values(),
+        ]);
+    }
+
+    /** Troca as referências do cabo $from por $to no diagrama da caixa. */
+    private function renameCableInDiagram(NetworkNode $node, int $from, int $to): bool
+    {
+        $diagram = $node->diagram;
+        if (! $diagram) {
+            return false;
+        }
+        $old = 'c'.$from;
+        $changed = false;
+        foreach ($diagram['connections'] ?? [] as $i => $conn) {
+            foreach (['a', 'b'] as $side) {
+                if (($conn[$side]['c'] ?? null) === $old) {
+                    $diagram['connections'][$i][$side]['c'] = 'c'.$to;
+                    $changed = true;
+                }
+            }
+        }
+        if (isset($diagram['cablePos'][$old])) {
+            $diagram['cablePos']['c'.$to] = $diagram['cablePos'][$old];
+            unset($diagram['cablePos'][$old]);
+            $changed = true;
+        }
+        if ($changed) {
+            $node->diagram = $diagram;
+            $node->save();
+        }
+
+        return $changed;
     }
 
     /**

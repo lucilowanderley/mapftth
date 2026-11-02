@@ -23,6 +23,13 @@ import {
   Upload,
   User,
   Zap,
+  Undo2,
+  X,
+  Check,
+  Pencil,
+  Link2,
+  Waypoints,
+  Trash2,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Circle, CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
@@ -36,7 +43,8 @@ import type { Activity as ActivityItem, Area, Cable, CableCategory, LatLng, NetN
 import { viability } from '../lib/analysis';
 import { LAYERS, MAP_ENGINES, MAP_STYLES, availableEngines, googleTileUrl, loadEngine, loadStyle, saveEngine, saveStyle, type MapEngine, type MapStyle } from '../lib/basemaps';
 import { appConfig } from '../lib/user';
-import { midpointIcon, nodeIcon, vertexIcon } from '../components/markers';
+import { connectIcon, midpointIcon, nodeIcon, vertexIcon } from '../components/markers';
+import { ALONG_TOLERANCE_M, nearestOnPath, planBoxesAlong, type AlongPlan } from '../lib/connect';
 import { formatCoord, parseLatLng, parsePair } from '../lib/coords';
 import { movePath, roundLatLng } from '../lib/move';
 import { Logo, Toast, formatLength } from '../components/ui';
@@ -170,6 +178,28 @@ export default function MapPage() {
       // ignora
     }
   };
+  /** Modelo usado pela ferramenta Cabo (lembrado neste navegador). */
+  const [cableModelId, setCableModelIdState] = useState<string>(() => {
+    try {
+      return localStorage.getItem('mapftth.cableModel') ?? 'as-12';
+    } catch {
+      return 'as-12';
+    }
+  });
+  const setCableModelId = (v: string) => {
+    setCableModelIdState(v);
+    try {
+      localStorage.setItem('mapftth.cableModel', v);
+    } catch {
+      // ignora
+    }
+  };
+  /** Cabo em "Conectar a caixa, poste ou POP": pontas e pontos do meio podem ser soltos sobre objetos. */
+  const [connectId, setConnectId] = useState<number | null>(null);
+  /** Menu do botão direito sobre um cabo. */
+  const [cableMenu, setCableMenu] = useState<{ id: number; x: number; y: number; confirm?: boolean } | null>(null);
+  /** Objeto onde o ponto arrastado vai encaixar (destaque durante o arrasto). */
+  const [snapNode, setSnapNode] = useState<NetNode | null>(null);
   const [lastMove, setLastMove] = useState<{ id: number; from: LatLng; name: string } | null>(null);
   const [placeLat, setPlaceLat] = useState('');
   const [placeLng, setPlaceLng] = useState('');
@@ -219,6 +249,8 @@ export default function MapPage() {
         return;
       }
       if (e.key === 'Escape') {
+        if (cableMenu) return setCableMenu(null);
+        if (connectId) return setConnectId(null);
         setDraft(null);
         setRuler([]);
         setAreaDraft([]);
@@ -234,6 +266,11 @@ export default function MapPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+
+  // O modo conectar acompanha o cabo selecionado; selecionar outra coisa (ou nada) encerra o modo.
+  useEffect(() => {
+    if (connectId && !(selection?.kind === 'cable' && selection.id === connectId)) setConnectId(null);
+  }, [selection, connectId]);
 
   const network = useMemo(() => (settings ? { nodes, cables, settings } : null), [nodes, cables, settings]);
 
@@ -358,6 +395,114 @@ export default function MapPage() {
     }
   }
 
+  /** Aplica a resposta de uma sangria: o cabo original encolhe e os novos trechos entram na lista. */
+  function applySplit(r: { cables: Cable[]; nodes: NetNode[] }) {
+    setCables((list) => [...list.map((c) => r.cables.find((u) => u.id === c.id) ?? c), ...r.cables.filter((u) => !list.some((c) => c.id === u.id))]);
+    mergeNodes(r.nodes);
+  }
+
+  /** Desfaz o último ponto do cabo em desenho (botão direito ou botão ↶). */
+  function undoDraftPoint() {
+    setDraft((d) => (!d || d.path.length <= 1 ? null : { ...d, path: d.path.slice(0, -1) }));
+  }
+
+  /**
+   * Objeto sob um ponto arrastado (até ~20 px na tela). Pontas encaixam em qualquer objeto;
+   * pontos do meio só em caixas, POP (sangria) e postes (apoio).
+   */
+  function snapTarget(cable: Cable, index: number, insert: boolean, at: LatLng): NetNode | null {
+    const map = mapRef.current;
+    if (!map) return null;
+    const last = cable.path.length - 1;
+    const isEnd = !insert && (index === 0 || index === last);
+    const other = isEnd ? (index === 0 ? cable.to_node_id : cable.from_node_id) : null;
+    const p = map.latLngToContainerPoint(at);
+    let best: NetNode | null = null;
+    let bestD = 20;
+    for (const n of nodes) {
+      if (!visible[n.type]) continue;
+      if (isEnd ? n.id === other : n.type === 'client' || n.id === cable.from_node_id || n.id === cable.to_node_id) continue;
+      const d = map.latLngToContainerPoint([n.lat, n.lng]).distanceTo(p);
+      if (d < bestD) {
+        bestD = d;
+        best = n;
+      }
+    }
+    return best;
+  }
+
+  /** Solta um ponto do cabo no modo conectar: ponta = conexão simples; meio sobre caixa = sangria. */
+  async function connectDrop(cable: Cable, index: number, insert: boolean, at: LatLng) {
+    const target = snapTarget(cable, index, insert, at);
+    const last = cable.path.length - 1;
+    const isEnd = !insert && (index === 0 || index === last);
+    const pos: LatLng = target ? [target.lat, target.lng] : at;
+    const path = (insert ? [...cable.path.slice(0, index), pos, ...cable.path.slice(index)] : cable.path.map((p, j) => (j === index ? pos : p))).map(roundLatLng);
+    setCables((list) => list.map((c) => (c.id === cable.id ? { ...c, path } : c)));
+    try {
+      if (isEnd) {
+        const key = index === 0 ? 'from_node_id' : 'to_node_id';
+        const before = cable[key];
+        const r = await api.updateCable(cable.id, { path, [key]: target?.id ?? null });
+        mergeCables([r.cable]);
+        mergeNodes(r.nodes);
+        if (target) notify(`${cable.name} conectado em ${target.name}`);
+        else if (before) notify(`Ponta de ${cable.name} desconectada`);
+        return;
+      }
+      if (target && target.type !== 'pole') {
+        const r = await api.splitCable(cable.id, path, [{ index, node_id: target.id }]);
+        applySplit(r);
+        notify(`Sangria em ${target.name}: ${cable.name} dividido em ${r.cables.length} trechos`);
+        return;
+      }
+      const r = await api.updateCable(cable.id, { path });
+      mergeCables([r.cable]);
+      mergeNodes(r.nodes);
+      if (target) notify(`${cable.name} apoiado em ${target.name}`);
+    } catch (e) {
+      notify(errorMessage(e), 'error');
+      load();
+    }
+  }
+
+  /** Forma 3: conecta de uma vez as caixas no traçado do cabo. */
+  async function connectAlong(cable: Cable, plan: AlongPlan) {
+    setCableMenu(null);
+    const path = plan.path.map(roundLatLng);
+    try {
+      if (plan.from !== null || plan.to !== null) {
+        const r = await api.updateCable(cable.id, {
+          path,
+          from_node_id: plan.from ?? cable.from_node_id,
+          to_node_id: plan.to ?? cable.to_node_id,
+        });
+        mergeCables([r.cable]);
+        mergeNodes(r.nodes);
+      }
+      if (plan.cuts.length) applySplit(await api.splitCable(cable.id, path, plan.cuts));
+      const n = plan.nodes.length;
+      notify(`${n} caixa${n > 1 ? 's' : ''} conectada${n > 1 ? 's' : ''} a ${cable.name}${plan.cuts.length ? ' com sangria' : ''}`);
+    } catch (e) {
+      notify(errorMessage(e), 'error');
+      load();
+    }
+  }
+
+  async function deleteCable(cable: Cable) {
+    setCableMenu(null);
+    if (!window.confirm(`Excluir o cabo ${cable.name}? As fusões dele nas caixas também serão removidas.`)) return;
+    try {
+      const r = await api.deleteCable(cable.id);
+      setCables((list) => list.filter((c) => c.id !== cable.id));
+      mergeNodes(r.nodes);
+      setSelection(null);
+      notify('Cabo excluído');
+    } catch (e) {
+      notify(errorMessage(e), 'error');
+    }
+  }
+
   /** Traçado exibido de um cabo, considerando um arrasto em andamento. */
   function displayPath(c: Cable): LatLng[] {
     let path = drag ? movePath(c, drag.id, drag.from, drag.at) : c.path;
@@ -413,11 +558,11 @@ export default function MapPage() {
       setDraft(null);
       return;
     }
-    const model = CABLE_MODELS.find((m) => m.id === 'as-12')!;
+    const model = CABLE_MODELS.find((m) => m.id === cableModelId) ?? CABLE_MODELS.find((m) => m.id === 'as-12')!;
     const fromNode = nodes.find((n) => n.id === draft.from);
     const toNode = nodes.find((n) => n.id === to);
     const isDrop = fromNode?.type === 'client' || toNode?.type === 'client';
-    const m = isDrop ? CABLE_MODELS[0] : model;
+    const m = isDrop && model.category !== 'drop' ? CABLE_MODELS[0] : model;
     try {
       const cable = await api.createCable(projectId, {
         name: m.name,
@@ -426,14 +571,14 @@ export default function MapPage() {
         fibers_per_tube: m.perTube,
         category: m.category,
         color: CABLE_CATEGORIES[m.category].color,
-        width: isDrop ? 2 : 4,
+        width: m.category === 'drop' ? 2 : 4,
         path,
         from_node_id: draft.from,
         to_node_id: to,
       });
       setCables((list) => [...list, cable]);
       setSelection({ kind: 'cable', id: cable.id });
-      notify('Cabo criado');
+      notify(toNode ? `Cabo criado e conectado em ${fromNode ? `${fromNode.name} e ` : ''}${toNode.name}` : 'Cabo criado');
     } catch (e) {
       notify(errorMessage(e), 'error');
     }
@@ -480,6 +625,9 @@ export default function MapPage() {
   const selectedCable = selection?.kind === 'cable' ? cables.find((c) => c.id === selection.id) : undefined;
   const selectedArea = selection?.kind === 'area' ? areas.find((a) => a.id === selection.id) : undefined;
   const diagramNode = nodes.find((n) => n.id === diagramNodeId);
+  const connectedCable = connectId ? cables.find((c) => c.id === connectId) : undefined;
+  const menuCable = cableMenu ? cables.find((c) => c.id === cableMenu.id) : undefined;
+  const menuPlan = useMemo(() => (menuCable ? planBoxesAlong(menuCable, nodes.filter((n) => visible[n.type])) : null), [menuCable, nodes, visible]);
   // Pontos médios do cabo selecionado (memorizados pelo mesmo motivo de positionOf).
   const selectedPath = selectedCable?.path;
   const midpoints = useMemo<LatLng[]>(
@@ -540,14 +688,14 @@ export default function MapPage() {
           ? 'Acesso somente leitura. Clique num elemento para ver detalhes.'
           : tool === 'cable'
             ? draft
-              ? 'Clique para adicionar pontos. Clique numa caixa ou pressione Enter para finalizar. Esc cancela.'
-              : 'Clique numa caixa (ou no mapa) para iniciar o cabo.'
+              ? `${draft.from ? 'Cabo nascendo conectado. ' : ''}Clique para adicionar pontos (botão direito desfaz o último). Clique na caixa de destino para concluir já conectado, ou Enter.`
+              : 'Clique na caixa de origem para o cabo já nascer conectado (ou no mapa para uma ponta solta).'
             : tool === 'ruler'
               ? `Régua: ${formatLength(pathLength(ruler))} · clique para medir, Esc limpa.`
               : tool !== 'select'
                 ? `Clique no mapa para adicionar ${NODE_TYPES[tool].label} ou digite as coordenadas no painel acima.`
                 : selectedCable
-                  ? 'Arraste os quadrados para mover vértices e os círculos para criar novos. Botão direito num vértice o remove.'
+                  ? 'Arraste os quadrados para mover vértices e os círculos para criar novos. Botão direito num vértice o remove; no cabo, abre o menu de conexão.'
                   : 'Clique para selecionar, duplo clique abre o editor. Arraste um objeto para reposicioná-lo.';
 
   return (
@@ -652,6 +800,8 @@ export default function MapPage() {
           />
           <MapEvents
             onClick={(at) => {
+              if (cableMenu) return setCableMenu(null);
+              if (connectId) return;
               if (tool === 'select') setSelection(null);
               else if (tool === 'viability') setViaPoint(at);
               else if (tool === 'area') setAreaDraft((a) => [...a, at]);
@@ -661,6 +811,11 @@ export default function MapPage() {
             }}
             onMove={setCursor}
             onZoom={setZoom}
+            onContextMenu={() => {
+              if (tool === 'cable' && draft) undoDraftPoint();
+              setCableMenu(null);
+            }}
+            onMoveStart={() => setCableMenu(null)}
           />
 
           {visible.areas &&
@@ -704,11 +859,30 @@ export default function MapPage() {
                   click: (e) => {
                     if (tool !== 'select') return;
                     L.DomEvent.stopPropagation(e);
+                    setCableMenu(null);
                     setSelection({
                       kind: 'cable',
                       id: c.id,
                     });
-                    if (isDoubleClick(`c${c.id}`)) setEditorFocus(Date.now());
+                    const double = isDoubleClick(`c${c.id}`);
+                    if (connectId) {
+                      // No modo conectar: clicar em outro cabo passa a trabalhar nele; duplo clique cria um ponto.
+                      if (connectId !== c.id) return setConnectId(c.id);
+                      if (double) {
+                        const at: LatLng = roundLatLng([e.latlng.lat, e.latlng.lng]);
+                        const seg = nearestOnPath(c.path, at).seg;
+                        saveCablePath(c, [...c.path.slice(0, seg + 1), at, ...c.path.slice(seg + 1)]);
+                      }
+                      return;
+                    }
+                    if (double) setEditorFocus(Date.now());
+                  },
+                  contextmenu: (e) => {
+                    if (tool !== 'select' || readOnly) return;
+                    L.DomEvent.stopPropagation(e);
+                    e.originalEvent.preventDefault();
+                    setSelection({ kind: 'cable', id: c.id });
+                    setCableMenu({ id: c.id, x: e.containerPoint.x, y: e.containerPoint.y });
                   },
                 }}
               >
@@ -775,13 +949,14 @@ export default function MapPage() {
             <>
               {selectedCable.path.map((p, i) => {
                 const last = selectedCable.path.length - 1;
-                // Pontas ligadas a um objeto se movem arrastando o próprio objeto.
-                if ((i === 0 && selectedCable.from_node_id) || (i === last && selectedCable.to_node_id)) return null;
+                const connecting = connectId === selectedCable.id;
+                // Pontas ligadas a um objeto se movem arrastando o próprio objeto (fora do modo conectar).
+                if (!connecting && ((i === 0 && selectedCable.from_node_id) || (i === last && selectedCable.to_node_id))) return null;
                 return (
                   <Marker
-                    key={`v${selectedCable.id}-${i}-${selectedCable.path.length}`}
+                    key={`v${selectedCable.id}-${i}-${selectedCable.path.length}-${connecting ? 'c' : ''}`}
                     position={p}
-                    icon={vertexIcon}
+                    icon={connecting ? connectIcon : vertexIcon}
                     draggable
                     zIndexOffset={1000}
                     eventHandlers={{
@@ -789,10 +964,13 @@ export default function MapPage() {
                       drag: (e) => {
                         const ll = (e.target as L.Marker).getLatLng();
                         setVertexDrag({ cableId: selectedCable.id, index: i, at: [ll.lat, ll.lng], insert: false });
+                        if (connecting) setSnapNode(snapTarget(selectedCable, i, false, [ll.lat, ll.lng]));
                       },
                       dragend: (e) => {
                         const ll = (e.target as L.Marker).getLatLng();
                         setVertexDrag(null);
+                        setSnapNode(null);
+                        if (connecting) return connectDrop(selectedCable, i, false, [ll.lat, ll.lng]);
                         saveCablePath(
                           selectedCable,
                           selectedCable.path.map((q, j) => (j === i ? [ll.lat, ll.lng] : q)),
@@ -823,10 +1001,13 @@ export default function MapPage() {
                       drag: (e) => {
                         const ll = (e.target as L.Marker).getLatLng();
                         setVertexDrag({ cableId: selectedCable.id, index: i + 1, at: [ll.lat, ll.lng], insert: true });
+                        if (connectId === selectedCable.id) setSnapNode(snapTarget(selectedCable, i + 1, true, [ll.lat, ll.lng]));
                       },
                       dragend: (e) => {
                         const ll = (e.target as L.Marker).getLatLng();
                         setVertexDrag(null);
+                        setSnapNode(null);
+                        if (connectId === selectedCable.id) return connectDrop(selectedCable, i + 1, true, [ll.lat, ll.lng]);
                         saveCablePath(selectedCable, [...selectedCable.path.slice(0, i + 1), [ll.lat, ll.lng], ...selectedCable.path.slice(i + 1)]);
                       },
                     }}
@@ -836,6 +1017,14 @@ export default function MapPage() {
             </>
           )}
 
+          {snapNode && (
+            <CircleMarker
+              center={[snapNode.lat, snapNode.lng]}
+              radius={18}
+              interactive={false}
+              pathOptions={{ color: '#10b981', weight: 3, fillColor: '#10b981', fillOpacity: 0.15 }}
+            />
+          )}
           {draft && (
             <Polyline
               positions={cursor ? [...draft.path, cursor] : draft.path}
@@ -928,6 +1117,8 @@ export default function MapPage() {
                 key={t.id}
                 onClick={() => {
                   setTool(t.id);
+                  setConnectId(null);
+                  setCableMenu(null);
                   setDraft(null);
                   setAreaDraft([]);
                   if (t.id !== 'ruler') setRuler([]);
@@ -945,6 +1136,23 @@ export default function MapPage() {
           </div>
 
           {toast && !overlayOpen && <Toast inline message={toast.message} kind={toast.kind} onClose={() => setToast(null)} />}
+
+          {/* Tipo do cabo lançado pela ferramenta Cabo */}
+          {!readOnly && tool === 'cable' && (
+            <div className="panel flex items-center gap-2 p-2 text-xs pointer-events-auto">
+              <span className="text-slate-300 flex items-center gap-1">
+                <CableIcon size={14} /> Tipo de cabo
+              </span>
+              <select className="input !py-1 !w-40" value={cableModelId} onChange={(e) => setCableModelId(e.target.value)} disabled={!!draft}>
+                {CABLE_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} · {CABLE_CATEGORIES[m.category].label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-slate-500 hidden lg:inline">Ligado a um cliente vira Drop.</span>
+            </div>
+          )}
 
           {/* Inserir objeto por coordenadas */}
           {!readOnly && tool in NODE_TYPES && (
@@ -987,7 +1195,21 @@ export default function MapPage() {
 
         {/* Dica e ações do desenho */}
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2">
-          {pendingMove ? (
+          {connectedCable ? (
+            <div className="panel px-3 py-1.5 text-xs text-slate-200 flex items-center gap-3 !border-emerald-500">
+              <Link2 size={16} className="text-emerald-400 shrink-0" />
+              <span>
+                <b>Conectando {connectedCable.name}</b>
+                <br />
+                <span className="text-slate-400">
+                  Arraste a ponta até um objeto (conexão) ou um ponto do meio até uma CTO, CEO ou POP (sangria). Duplo clique no cabo cria um ponto. Clique em outro cabo para trabalhar nele.
+                </span>
+              </span>
+              <button className="btn-primary !py-1 text-xs flex items-center gap-1 shrink-0" onClick={() => setConnectId(null)} title="Esc">
+                <Check size={14} /> Concluir
+              </button>
+            </div>
+          ) : pendingMove ? (
             <div className="panel px-3 py-1.5 text-xs text-slate-200 flex items-center gap-2 !border-yellow-500">
               <span>
                 Mover <b>{pendingMove.node.name}</b> {formatLength(distance([pendingMove.node.lat, pendingMove.node.lng], pendingMove.at))} para{' '}
@@ -1018,12 +1240,83 @@ export default function MapPage() {
               Limpar marcação
             </button>
           )}
+          {draft && (
+            <>
+              <button className="btn-ghost !py-1.5 text-xs flex items-center gap-1 whitespace-nowrap" onClick={undoDraftPoint} title="Botão direito no mapa">
+                <Undo2 size={14} /> Desfazer ponto
+              </button>
+              <button className="btn-ghost !py-1.5 text-xs flex items-center gap-1" onClick={() => setDraft(null)} title="Esc">
+                <X size={14} /> Cancelar
+              </button>
+            </>
+          )}
           {draft && draft.path.length > 1 && (
-            <button className="btn-primary !py-1.5 text-xs" onClick={() => finishCable()}>
+            <button className="btn-primary !py-1.5 text-xs whitespace-nowrap" onClick={() => finishCable()}>
               Finalizar cabo ({formatLength(pathLength(draft.path))})
             </button>
           )}
         </div>
+
+        {/* Menu do botão direito no cabo */}
+        {menuCable && cableMenu && (
+          <div
+            className="absolute z-[1100] panel w-64 py-1 text-sm shadow-xl"
+            style={{ left: Math.max(8, cableMenu.x - 128), top: cableMenu.y + 12 }}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <div className="px-3 py-1.5 border-b border-slate-800">
+              <div className="font-semibold truncate">{menuCable.name}</div>
+              <div className="text-[11px] text-slate-400">
+                Cabo {menuCable.fiber_count}FO · {formatLength(menuCable.length_m)}
+              </div>
+            </div>
+            <MenuItem
+              icon={<Pencil size={14} />}
+              label="Editar"
+              onClick={() => {
+                setCableMenu(null);
+                setEditorFocus(Date.now());
+              }}
+            />
+            <MenuItem
+              icon={<Link2 size={14} />}
+              label="Conectar a caixa, poste ou POP"
+              onClick={() => {
+                setCableMenu(null);
+                setConnectId(menuCable.id);
+              }}
+            />
+            {cableMenu.confirm && menuPlan ? (
+              <div className="mx-1 my-1 rounded-md bg-emerald-950/60 border border-emerald-800 p-2">
+                <div className="text-xs font-semibold text-emerald-200">
+                  Conectar {menuPlan.nodes.length} caixa{menuPlan.nodes.length > 1 ? 's' : ''} a este cabo?
+                </div>
+                <div className="text-[11px] text-slate-400 mt-0.5">
+                  {menuPlan.nodes.map((n) => n.name).join(', ')}.{' '}
+                  {menuPlan.cuts.length ? 'O cabo será sangrado em cada caixa do meio.' : 'A ponta solta será ligada à caixa.'}
+                </div>
+                <div className="flex gap-1 mt-2">
+                  <button className="btn-ghost flex-1 !py-1 text-xs flex items-center justify-center gap-1" onClick={() => setCableMenu({ ...cableMenu, confirm: false })}>
+                    <X size={12} /> Não
+                  </button>
+                  <button className="btn-primary flex-1 !py-1 text-xs flex items-center justify-center gap-1" onClick={() => connectAlong(menuCable, menuPlan)}>
+                    <Check size={12} /> Sim, conectar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <MenuItem
+                icon={<Waypoints size={14} />}
+                label={`Conectar caixas no traçado (${menuPlan?.nodes.length ?? 0})`}
+                title={menuPlan ? undefined : `Nenhuma CTO ou CEO a até ${ALONG_TOLERANCE_M} m do traçado`}
+                disabled={!menuPlan}
+                onClick={() => setCableMenu({ ...cableMenu, confirm: true })}
+              />
+            )}
+            <div className="border-t border-slate-800 my-1" />
+            <MenuItem icon={<Trash2 size={14} />} label="Excluir" danger onClick={() => deleteCable(menuCable)} />
+          </div>
+        )}
 
         {/* Camadas */}
         <div className="absolute top-3 right-3 z-[1000] panel w-48 p-3 text-sm space-y-3">
@@ -1125,7 +1418,7 @@ export default function MapPage() {
                 result: clientPower.get(n.id)!,
               })
             }
-            key={`${selection?.kind}${selection?.id}`}
+            key={`${selection?.kind}${selection?.id}-${selectedCable?.name ?? ''}`}
             focusKey={editorFocus}
             onLocate={(at) => mapRef.current?.setView(at, Math.max(mapRef.current.getZoom(), 18))}
             node={selectedNode}
@@ -1280,9 +1573,23 @@ function BaseTiles({ engine, mapStyle, onError }: { engine: MapEngine; mapStyle:
   return <TileLayer key={url} url={url} attribution={layer.attribution} maxZoom={21} maxNativeZoom={layer.maxNativeZoom} />;
 }
 
-function MapEvents({ onClick, onMove, onZoom }: { onClick: (at: LatLng) => void; onMove: (at: LatLng) => void; onZoom: (z: number) => void }) {
+function MapEvents({
+  onClick,
+  onMove,
+  onZoom,
+  onContextMenu,
+  onMoveStart,
+}: {
+  onClick: (at: LatLng) => void;
+  onMove: (at: LatLng) => void;
+  onZoom: (z: number) => void;
+  onContextMenu: () => void;
+  onMoveStart: () => void;
+}) {
   const map = useMapEvents({
     click: (e) => onClick([e.latlng.lat, e.latlng.lng]),
+    contextmenu: () => onContextMenu(),
+    movestart: () => onMoveStart(),
     mousemove: (e) => onMove([e.latlng.lat, e.latlng.lng]),
     zoomend: () => onZoom(map.getZoom()),
   });
@@ -1319,5 +1626,34 @@ function Toggle({ label, on, onChange, color }: { label: string; on: boolean; on
       {color && <span className="w-2.5 h-2.5 rounded-sm" style={{ background: color }} />}
       {label}
     </label>
+  );
+}
+
+function MenuItem({
+  icon,
+  label,
+  onClick,
+  danger,
+  disabled,
+  title,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-[13px] cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${
+        danger ? 'text-red-400 hover:bg-red-950/40' : 'text-slate-200 hover:bg-slate-800'
+      }`}
+    >
+      {icon} {label}
+    </button>
   );
 }
