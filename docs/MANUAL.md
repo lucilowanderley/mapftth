@@ -96,8 +96,23 @@ A tela tem quatro partes:
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
 
-**Mapa base** (painel da direita): **Satélite** (Esri), **Ruas** (OpenStreetMap) ou **Escuro** (Esri). Nenhum
-precisa de chave. O zoom vai até 21; acima do zoom máximo de cada mapa a imagem é ampliada.
+**Mapa base** (painel da direita): escolha na lista. O sistema lembra o último mapa escolhido neste navegador,
+mesmo depois de fechar ou apertar F5.
+
+| Grupo | Opções | Chave? |
+| --- | --- | --- |
+| Esri | **Satélite**, **Híbrido (satélite + ruas)**, **Ruas**, **Topográfico**, **Escuro** | Não precisa |
+| OpenStreetMap | **Ruas (OSM)**, **Relevo (OpenTopoMap)** | Não precisa |
+| Google | **Google Satélite**, **Google Híbrido**, **Google Mapa** | Só aparecem com a chave configurada (abaixo) |
+
+O zoom vai até 21; acima do zoom máximo de cada mapa a imagem é ampliada.
+
+> **Mapas do Google**: o Google só permite usar os mapas dele com uma chave da **Map Tiles API** (o uso direto dos
+> tiles, sem chave, é proibido pelos termos do Google). Para ativar: no Google Cloud Console crie um projeto, ative
+> a cobrança e a **Map Tiles API**, crie uma chave de API e restrinja-a ao domínio do sistema (restrição por site
+> HTTP). Depois coloque `GOOGLE_MAPS_KEY=sua-chave` no `.env` do servidor e rode `php artisan config:cache` (no Laragon, `php artisan config:clear`). O
+> Google dá uma cota mensal gratuita e cobra acima dela. Se a chave for recusada, o sistema avisa e volta para o
+> Satélite da Esri.
 
 **Camadas** (painel da direita): ligue e desligue **POPs, CEOs, CTOs, Postes, Clientes**, **Cabos backbone,
 distribuição e drop**, **Áreas** e **Rótulos** (nomes). Os nomes das caixas aparecem a partir do zoom 17 (o POP
@@ -141,8 +156,13 @@ abre o diagrama de fusão / editor do POP; no poste e no cliente coloca o cursor
 **Mover (arrastar)**: com **Selecionar**, clique e arraste qualquer elemento (POP, CEO, CTO, poste ou cliente).
 Enquanto você arrasta, os cabos acompanham: as pontas ligadas ao elemento e os pontos de cabos que passam
 exatamente por ele (por exemplo, um cabo apoiado num poste). Ao soltar, a posição é salva e o comprimento dos
-cabos é recalculado. Errou? Aperte **Ctrl+Z** ou clique em **Desfazer movimento** no rodapé para voltar o último
-movimento.
+cabos é recalculado.
+
+Para evitar movimentos acidentais, ao soltar o elemento o rodapé pergunta **Mover (nome) (distância) para
+(coordenadas)?**. Clique em **Confirmar** (ou Enter) para salvar, ou **Cancelar** (ou Esc) para o elemento e os
+cabos voltarem ao lugar. Se preferir mover sem pergunta, desmarque **Confirmar ao mover** no painel da direita (a
+escolha fica salva neste navegador). Errou mesmo assim? Aperte **Ctrl+Z** ou clique em **Desfazer movimento** no
+rodapé para voltar o último movimento.
 
 ---
 
@@ -483,6 +503,7 @@ Ao salvar, todos os sinais, cores e relatórios são recalculados.
 | **Duplo clique** numa caixa | Mapa | Abre o diagrama de fusão / editor do POP. |
 | **Duplo clique** em poste, cliente ou cabo | Mapa | Abre o painel de edição no campo Nome. |
 | **Arrastar** elemento | Mapa | Move o elemento e os cabos ligados a ele. |
+| **Enter** / **Esc** ao soltar | Mapa | Confirma ou cancela o novo lugar do elemento arrastado. |
 | **Ctrl+Z** | Mapa | Desfaz o último movimento de elemento. |
 | **Arrastar** alça do cabo | Mapa | Move ou cria um ponto do traçado (botão direito remove). |
 | **Delete** | Diagrama | Remove a fusão ou o bloco selecionado. |
