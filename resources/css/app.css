@@ -87,3 +87,49 @@
 path.leaflet-interactive:focus {
   outline: none;
 }
+
+/* Barra de rolagem fina e discreta nas cores dos painéis (vale para o app todo: painéis, diálogos, listas). */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(51 65 85 / 0.7); /* slate-700 */
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(71 85 105); /* slate-600 */
+}
+.panel::-webkit-scrollbar-track {
+  margin-block: 10px; /* não encosta nos cantos arredondados */
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(51 65 85 / 0.7) transparent;
+  }
+}
+
+/* Painel de propriedades do objeto: campos mais baixos para caber mais sem rolar. */
+.inspector .input {
+  padding: 0.3125rem 0.625rem;
+}
+.inspector textarea.input {
+  padding-block: 0.375rem;
+}
+.inspector .label {
+  margin-bottom: 0.1875rem;
+  font-size: 0.6875rem;
+}
+.inspector .btn-primary,
+.inspector .btn-ghost,
+.inspector .btn-danger {
+  padding-block: 0.4375rem;
+}
