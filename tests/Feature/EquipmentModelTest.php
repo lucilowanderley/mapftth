@@ -55,4 +55,26 @@ class EquipmentModelTest extends TestCase
             'kind' => 'active', 'model' => 'X', 'ports' => 1, 'height_u' => 1, 'port_groups' => [['type' => 'SFP', 'count' => 0]],
         ])->assertUnprocessable();
     }
+
+    public function test_builtin_model_can_be_edited_hidden_and_restored(): void
+    {
+        $user = User::factory()->create();
+        $base = ['kind' => 'active', 'model' => 'Switch 24', 'type' => 'Switch', 'ports' => 24, 'height_u' => 1];
+
+        // Editar um padrão cria a versão do usuário; editar de novo atualiza a mesma linha.
+        $a = $this->actingAs($user)->postJson('/api/equipment-models', [...$base, 'replaces' => 'sw-24'])->assertCreated()->json();
+        $b = $this->postJson('/api/equipment-models', [...$base, 'model' => 'Switch 24 v2', 'replaces' => 'sw-24'])->assertCreated()->json();
+        $this->assertSame($a['id'], $b['id']);
+        $this->assertSame('sw-24', $b['replaces']);
+        $this->assertFalse($b['hidden']);
+
+        // Atualizar sem `replaces` mantém o vínculo; excluir um padrão editado vira oculto.
+        $this->putJson("/api/equipment-models/{$a['id']}", [...$base, 'model' => 'Switch 24 v3'])->assertOk()->assertJsonPath('replaces', 'sw-24');
+        $this->putJson("/api/equipment-models/{$a['id']}", [...$base, 'replaces' => 'sw-24', 'hidden' => true])->assertOk()->assertJsonPath('hidden', true);
+
+        // Ocultar exige um padrão; restaurar = apagar a linha.
+        $this->postJson('/api/equipment-models', [...$base, 'hidden' => true])->assertStatus(422);
+        $this->deleteJson("/api/equipment-models/{$a['id']}")->assertNoContent();
+        $this->getJson('/api/equipment-models')->assertOk()->assertJsonCount(0);
+    }
 }

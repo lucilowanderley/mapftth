@@ -1,4 +1,4 @@
-import { BookOpen, Pencil, Plus, Trash2 } from 'lucide-react';
+import { BookOpen, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { api, errorMessage } from '../../lib/api';
 import { ACTIVE_TYPES, BUILTIN_EQUIPMENT, EQUIPMENT_KINDS, equipmentLabel } from '../../lib/catalog';
@@ -10,7 +10,18 @@ import { groupsTotal, speedLabel } from '../../lib/pop';
 
 type Kind = EquipmentModel['kind'];
 
-/** Modelos padrão + cadastrados (do usuário e do dono do projeto). */
+/**
+ * Modelos padrão + cadastrados (do usuário e do dono do projeto). Um padrão editado aparece
+ * só na versão editada; um padrão excluído fica oculto (e pode ser restaurado).
+ */
+export function mergeModels(saved: EquipmentModel[]): { models: EquipmentModel[]; hidden: EquipmentModel[] } {
+  const replaced = new Set(saved.filter((m) => m.replaces).map((m) => m.replaces));
+  return {
+    models: [...BUILTIN_EQUIPMENT.filter((b) => !replaced.has(String(b.id))), ...saved.filter((m) => !m.hidden)],
+    hidden: saved.filter((m) => m.hidden),
+  };
+}
+
 export function useEquipmentModels(projectId?: number) {
   const [saved, setSaved] = useState<EquipmentModel[]>([]);
   const reload = useCallback(() => {
@@ -20,7 +31,13 @@ export function useEquipmentModels(projectId?: number) {
       .catch(() => setSaved([]));
   }, [projectId]);
   useEffect(reload, [reload]);
-  return { models: [...BUILTIN_EQUIPMENT, ...saved], reload };
+  return { ...mergeModels(saved), reload };
+}
+
+/** Campos enviados ao servidor (sem id, flags de exibição etc.). */
+function payload(m: Partial<EquipmentModel>): Partial<EquipmentModel> {
+  const { kind, vendor, model, type, ports, slots, uplinks, tx_dbm, height_u, port_groups, notes, replaces, hidden } = m;
+  return { kind, vendor, model, type, ports, slots, uplinks, tx_dbm, height_u, port_groups, notes, replaces: replaces ?? null, hidden: !!hidden };
 }
 
 const EMPTY = (kind: Kind): Partial<EquipmentModel> => ({
@@ -38,12 +55,14 @@ const EMPTY = (kind: Kind): Partial<EquipmentModel> => ({
 /** Cadastro de equipamentos: fabricante, modelo, portas e altura em U de OLTs, DIOs e ativos. */
 export default function EquipmentCatalog({
   models,
+  hidden = [],
   initialKind = 'olt',
   readOnly,
   onChanged,
   onClose,
 }: {
   models: EquipmentModel[];
+  hidden?: EquipmentModel[];
   initialKind?: Kind;
   readOnly?: boolean;
   onChanged: () => void;
@@ -62,8 +81,8 @@ export default function EquipmentCatalog({
     setBusy(true);
     setError(null);
     try {
-      if (typeof form.id === 'number') await api.updateEquipmentModel(form.id, form);
-      else await api.createEquipmentModel(form);
+      if (typeof form.id === 'number') await api.updateEquipmentModel(form.id, payload(form));
+      else await api.createEquipmentModel(payload(form));
       setForm(null);
       onChanged();
     } catch (e) {
@@ -72,15 +91,33 @@ export default function EquipmentCatalog({
     setBusy(false);
   }
 
-  async function remove(m: EquipmentModel) {
-    if (typeof m.id !== 'number' || !confirm(`Excluir o modelo ${equipmentLabel(m)} do cadastro? Equipamentos já criados não mudam.`)) return;
+  async function run(fn: () => Promise<unknown>) {
+    setError(null);
     try {
-      await api.deleteEquipmentModel(m.id);
+      await fn();
       onChanged();
     } catch (e) {
       setError(errorMessage(e));
     }
   }
+
+  /** Excluir: cadastrado = apaga; padrão (ou padrão editado) = oculta para você e a equipe. */
+  function remove(m: EquipmentModel) {
+    if (!confirm(`Excluir o modelo ${equipmentLabel(m)} do cadastro? Equipamentos já criados não mudam.`)) return;
+    if (m.builtin) return run(() => api.createEquipmentModel(payload({ ...m, replaces: String(m.id), hidden: true })));
+    if (typeof m.id !== 'number') return;
+    if (m.replaces) return run(() => api.updateEquipmentModel(m.id as number, payload({ ...m, hidden: true })));
+    return run(() => api.deleteEquipmentModel(m.id as number));
+  }
+
+  /** Volta o padrão original (desfaz edição ou exclusão). */
+  function restore(m: EquipmentModel) {
+    if (typeof m.id === 'number') run(() => api.deleteEquipmentModel(m.id as number));
+  }
+
+  /** Editar um padrão cria a sua versão dele (mesma chave: os equipamentos continuam vinculados). */
+  const edit = (m: EquipmentModel) => setForm(m.builtin ? { ...m, id: undefined, builtin: undefined, replaces: String(m.id) } : { ...m });
+  const hiddenHere = hidden.filter((m) => m.kind === kind);
 
   const detail = (m: EquipmentModel) =>
     m.kind === 'olt'
@@ -126,19 +163,23 @@ export default function EquipmentCatalog({
                 <td className="text-xs text-slate-400">{detail(m)}</td>
                 <td className="text-center font-mono">{m.height_u}U</td>
                 <td className="pr-2 text-right whitespace-nowrap">
-                  {m.builtin ? (
-                    <span className="text-[10px] uppercase text-slate-500">padrão</span>
-                  ) : m.own && !readOnly ? (
+                  {(m.builtin || m.replaces) && <span className="text-[10px] uppercase text-slate-500 mr-1">{m.builtin ? 'padrão' : 'padrão editado'}</span>}
+                  {(m.builtin || m.own) && !readOnly ? (
                     <>
-                      <button title="Editar" className="p-1.5 text-slate-400 hover:text-white cursor-pointer" onClick={() => setForm({ ...m })}>
+                      <button title={m.builtin ? 'Editar (cria a sua versão do padrão)' : 'Editar'} className="p-1.5 text-slate-400 hover:text-white cursor-pointer" onClick={() => edit(m)}>
                         <Pencil size={13} />
                       </button>
+                      {m.replaces && (
+                        <button title="Restaurar o padrão original" className="p-1.5 text-slate-400 hover:text-white cursor-pointer" onClick={() => restore(m)}>
+                          <RotateCcw size={13} />
+                        </button>
+                      )}
                       <button title="Excluir" className="p-1.5 text-slate-400 hover:text-red-400 cursor-pointer" onClick={() => remove(m)}>
                         <Trash2 size={13} />
                       </button>
                     </>
                   ) : (
-                    <span className="text-[10px] uppercase text-slate-500">do dono</span>
+                    !m.builtin && <span className="text-[10px] uppercase text-slate-500">do dono</span>
                   )}
                 </td>
               </tr>
@@ -155,7 +196,10 @@ export default function EquipmentCatalog({
 
       {form && (
         <div className="mt-3 rounded-lg border border-slate-700 p-3 space-y-3">
-          <div className="text-xs font-semibold text-slate-300">{typeof form.id === 'number' ? 'Editar modelo' : `Novo modelo de ${kind === 'active' ? 'ativo' : EQUIPMENT_KINDS[kind]}`}</div>
+          <div className="text-xs font-semibold text-slate-300">
+            {typeof form.id === 'number' || form.replaces ? 'Editar modelo' : `Novo modelo de ${kind === 'active' ? 'ativo' : EQUIPMENT_KINDS[kind]}`}
+            {form.replaces && <span className="ml-2 font-normal text-slate-500">versão sua do modelo padrão; os equipamentos já criados continuam vinculados</span>}
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Fabricante">
               <input className="input" placeholder="Huawei, ZTE, Furukawa..." value={form.vendor ?? ''} onChange={(e) => set({ vendor: e.target.value })} />
@@ -221,6 +265,22 @@ export default function EquipmentCatalog({
         </div>
       )}
       {!form && error && <div className="text-xs text-red-400 mt-2">{error}</div>}
+      {hiddenHere.length > 0 && (
+        <div className="mt-2 text-[11px] text-slate-500">
+          Padrões excluídos:{' '}
+          {hiddenHere.map((m, i) => (
+            <span key={String(m.id)}>
+              {i > 0 && ', '}
+              {m.model}
+              {m.own && !readOnly && (
+                <button className="ml-1 text-emerald-400 hover:text-emerald-300 cursor-pointer" onClick={() => restore(m)}>
+                  restaurar
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
       <p className="text-[11px] text-slate-500 mt-3">
         Os modelos cadastrados aparecem para escolher ao criar OLT, DIO ou Ativo no editor do POP, e valem para todos os seus projetos (a equipe vê os modelos do dono do projeto).
       </p>

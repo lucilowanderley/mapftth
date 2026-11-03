@@ -461,6 +461,15 @@ preenchidos sozinhos (e ainda podem ser ajustados). O fabricante e o modelo apar
 Seus modelos valem para todos os seus projetos; quem é da equipe de um projeto vê também os modelos do dono do
 projeto, mas só pode editar os próprios.
 
+**Editar e excluir modelos.** Todo modelo da lista tem os botões **Editar** (lápis) e **Excluir** (lixeira),
+inclusive os **padrão** do sistema:
+
+- Editar um modelo padrão cria a **sua versão** dele (a linha passa a mostrar *padrão editado*). Os equipamentos já
+  criados com esse modelo continuam vinculados a ele. O botão **Restaurar** (seta circular) volta ao padrão original.
+- Excluir um modelo padrão tira ele da lista para você e para a sua equipe. Embaixo da lista aparece
+  *Padrões excluídos: ...* com o link **restaurar** para trazê-lo de volta.
+- Excluir um modelo cadastrado por você apaga o modelo. Equipamentos já criados não mudam.
+
 **Adicionar o DIO**
 
 1. Clique em **DIO**.
@@ -504,9 +513,11 @@ salva o POP).
 1. Clique em **OLT**.
 2. No campo **Modelo**, procure e escolha: **Configuração personalizada**, **OLT Huawei MA5608T** (2×16),
    **OLT V-Sol 8 portas** (1×8) ou **OLT ZTE C320** (2×16).
-3. Ajuste **Nome**, **Slots**, **PON/slot**, **Uplinks** e **TX dBm** (o padrão vem das Configurações). A miniatura
-   mostra como fica a frente da OLT.
-4. Clique em **Criar OLT**.
+3. Ajuste **Nome**, **Slots**, **PON/slot**, **TX dBm** (o padrão vem das Configurações), **Uplinks** e a
+   **Capacidade** dos uplinks (1G, 10G, 100G...). A miniatura mostra como fica a frente da OLT.
+4. Se quiser, configure a **Agregação de portas (LAG)** dos uplinks, a **Gerência** e as **VLANs** (veja
+   *Equipamento ativo*, abaixo: funcionam do mesmo jeito; na OLT entram só as portas de uplink).
+5. Clique em **Criar OLT**.
 
 A OLT aparece em **vista frontal**: uma linha por slot (**S1**, **S2**...) com as portas PON e uma linha **UP** com
 os uplinks. Portas PON com cordão ficam **roxas**; uplinks com cordão ficam **laranja**. Ferramentas do card:
@@ -517,7 +528,8 @@ os uplinks. Portas PON com cordão ficam **roxas**; uplinks com cordão ficam **
 Clique em **Ativo** para adicionar um switch, roteador, BNG, servidor, multiplex DWDM/CWDM, firewall, nobreak ou
 patch panel UTP. As portas do ativo recebem cordões dos **uplinks da OLT** (ou da frente do DIO, em links ponto a
 ponto). O ativo não é fonte de sinal PON: o orçamento óptico só conta caminhos que chegam numa porta PON de OLT.
-Na janela do ativo:
+A janela do ativo (e a da OLT) é larga, em três colunas, para quase não precisar rolar: à esquerda modelo, nome,
+portas e rack; no meio agregação e gerência; à direita as VLANs.
 
 - **Portas**: o total de portas Ethernet, quando o ativo não tem grupos.
 - **Grupos de portas**: tipo, quantidade e capacidade de cada grupo (como no cadastro). Escolher um modelo do
@@ -532,8 +544,25 @@ Na janela do ativo:
   mouse a porta mostra a agregação.
 - **Gerência**: **IP / host** (IPv4, IPv4 com máscara, IPv6 ou nome), **Porta** e **Protocolo** (SSH, HTTPS, HTTP,
   Telnet, SNMP, Winbox ou API). Ao escolher o protocolo, a porta padrão dele é preenchida (SSH 22, HTTPS 443,
-  Winbox 8291...). O endereço aparece no rodapé do card, por exemplo *SSH 10.10.0.2:22*. A **OLT** também tem o
-  campo **Gerência**.
+  Winbox 8291...). Informe também a **Porta física / interface** usada na gerência (uma porta, uma agregação ou
+  **Porta MGMT dedicada (fora de banda)**) e a **VLAN** de gerência. O endereço aparece no rodapé do card, por
+  exemplo *SSH 10.10.0.2:22*, e a porta de gerência ganha um **quadradinho azul** no canto. A janela avisa se a VLAN
+  de gerência não passa pela interface escolhida. A **OLT** tem os mesmos campos.
+- **VLANs**: digite as VLANs do equipamento (uma ou várias, como *10, 20, 100-110*) e clique em **+ VLAN**. Dê um
+  nome a cada uma se quiser (GERENCIA, CLIENTES...). Depois, em **Portas e agregações**, escolha o **Modo** de cada
+  interface:
+
+  | Modo | Uso |
+  |---|---|
+  | **Access** | Uma VLAN, sem tag (porta de cliente, servidor, câmera). Escolha a VLAN. |
+  | **Trunk** | Várias VLANs com tag (802.1Q), na coluna **Com tag** (ex.: *10, 20, 100-110*), e uma **nativa** opcional. Marque **todas** para liberar 1-4094. |
+  | **Híbrida** | Uma VLAN sem tag (PVID) e outras com tag na mesma porta. |
+
+  Uma porta que está numa agregação é configurada pela agregação. Para configurar várias portas de uma vez,
+  marque as caixinhas da esquerda (ou a do cabeçalho, para todas), escolha modo e VLANs na faixa azul e clique em
+  **Aplicar**. Cada VLAN mostra quantas interfaces a usam, e a janela avisa VLAN usada sem cadastro, porta access
+  sem VLAN e VLAN repetida. No card, ao passar o mouse numa porta aparece a VLAN dela (*VLAN: trunk 10, 20 · nativa
+  1*).
 
 **Cordões (patch)**
 

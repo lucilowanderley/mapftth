@@ -397,7 +397,11 @@ export function speedLabel(gbps?: number | null): string {
 }
 
 /** Nome legível da porta: "SFP+ 3 (10G)" ou "porta 5" quando não há grupos. */
-export function activePortLabel(c: Pick<Active, 'ports' | 'groups'>, port: string): string {
+export function activePortLabel(c: PortHost, port: string): string {
+  if (port.startsWith('u')) {
+    const sp = speedLabel(portSpeedOf(c, port));
+    return `Uplink ${port.slice(1)}${sp ? ` (${sp})` : ''}`;
+  }
   const pg = portGroupOf(c, port);
   if (!pg || !c.groups?.length) return `porta ${port.slice(1)}`;
   const sp = speedLabel(pg.group.speed);
@@ -405,24 +409,37 @@ export function activePortLabel(c: Pick<Active, 'ports' | 'groups'>, port: strin
 }
 
 /** Capacidade total (Gbps) das portas informadas. */
-export function portsCapacity(c: Pick<Active, 'ports' | 'groups'>, ports: string[]): number {
-  return ports.reduce((a, p) => a + (portGroupOf(c, p)?.group.speed ?? 0), 0);
+export function portsCapacity(c: PortHost, ports: string[]): number {
+  return ports.reduce((a, p) => a + (portSpeedOf(c, p) ?? 0), 0);
+}
+
+/** Equipamento com portas agregáveis: ativo (portas "eN") ou OLT (uplinks "uN"). */
+export type PortHost = { kind?: 'olt' | 'active'; ports: number; groups?: PortGroup[]; uplinks?: number; uplink_speed?: number; lags?: PortLag[] };
+
+/** Velocidade padrão dos uplinks da OLT (Gbps). */
+export const OLT_UPLINK_SPEED = 10;
+
+/** Capacidade (Gbps) de uma porta: uplink da OLT ou porta do ativo (pelo grupo). */
+export function portSpeedOf(c: PortHost, port: string): number | null {
+  if (port.startsWith('u')) return c.uplink_speed ?? OLT_UPLINK_SPEED;
+  if (c.kind === 'olt') return 2.5;
+  return portGroupOf(c, port)?.group.speed ?? null;
 }
 
 /** Capacidade total do ativo por soma das portas (Gbps). */
 export const activeCapacity = (c: Pick<Active, 'ports' | 'groups'>) => activeGroups(c).reduce((a, g) => a + g.count * (g.speed ?? 0), 0);
 
 /** LAG de que a porta faz parte (se houver). */
-export const lagOf = (c: Pick<Active, 'lags'>, port: string): PortLag | undefined => c.lags?.find((l) => l.ports.includes(port));
+export const lagOf = (c: { lags?: PortLag[] }, port: string): PortLag | undefined => c.lags?.find((l) => l.ports.includes(port));
 
 /**
  * Problemas de uma agregação: portas de capacidades diferentes ou de outro LAG.
  * Agregação de portas com velocidades diferentes não sobe na maioria dos equipamentos.
  */
-export function lagIssues(c: Pick<Active, 'ports' | 'groups' | 'lags'>, lag: PortLag): string[] {
+export function lagIssues(c: PortHost, lag: PortLag): string[] {
   const out: string[] = [];
   if (lag.ports.length < 2) out.push('Escolha ao menos 2 portas.');
-  const speeds = new Set(lag.ports.map((p) => portGroupOf(c, p)?.group.speed ?? null));
+  const speeds = new Set(lag.ports.map((p) => portSpeedOf(c, p)));
   if (speeds.size > 1) out.push('As portas têm capacidades diferentes.');
   const taken = lag.ports.filter((p) => c.lags?.some((o) => o.id !== lag.id && o.ports.includes(p)));
   if (taken.length) out.push(`Porta(s) já em outra agregação: ${taken.map((p) => p.slice(1)).join(', ')}.`);

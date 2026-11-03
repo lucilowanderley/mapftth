@@ -72,6 +72,7 @@ import FusionMatrix from './FusionMatrix';
 import { G, RACK, anySize, cardPorts, cardSize, labelW, portBox, rackSize, rackStrip, rackUTop, rowLabels, textOn, type PopComp } from './geometry';
 import EquipmentCatalog, { useEquipmentModels } from './EquipmentCatalog';
 import { LAG_COLORS } from './ActiveFields';
+import { lagKey, mgmtPath, vlanSummary } from '../../lib/netcfg';
 import ManobraView from './ManobraView';
 
 type Olt = Extract<DiagramComponent, { kind: 'olt' }>;
@@ -1285,6 +1286,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
       {dialog?.t === 'catalog' && (
         <EquipmentCatalog
           models={catalog.models}
+          hidden={catalog.hidden}
           initialKind={dialog.kind}
           readOnly={readOnly}
           onChanged={catalog.reload}
@@ -1465,7 +1467,7 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
         ? `${c.slots} slot${c.slots > 1 ? 's' : ''} · TX ${c.tx_dbm} dBm`
         : `${c.ports} portas${cap ? ` · ${speedLabel(cap)}` : ''}`;
   const footRight =
-    c.kind === 'dio' ? `${fusedCount}/${c.ports} fusões` : c.kind === 'olt' ? 'GPON' : c.lags?.length ? `${c.lags.length} LAG` : c.groups?.length ? `${c.groups.length} grupo(s)` : 'ETH';
+    c.kind === 'dio' ? `${fusedCount}/${c.ports} fusões` : c.kind === 'olt' ? (c.lags?.length ? `GPON · ${c.lags.length} LAG` : 'GPON') : c.lags?.length ? `${c.lags.length} LAG` : c.groups?.length ? `${c.groups.length} grupo(s)` : 'ETH';
 
   return (
     <div
@@ -1562,13 +1564,17 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
         const isSel = !!selConn && (sameEnd(selConn.a, end) || sameEnd(selConn.b, end));
         const hot = lit(end) || (c.kind === 'dio' && lit({ c: c.id, p: `a${n}` }));
         const label = c.kind === 'olt' ? (p.startsWith('u') ? String(n) : String(((n - 1) % c.ports) + 1)) : c.kind === 'active' ? String(portGroupOf(c, p)?.index ?? n) : String(n);
-        const lag = c.kind === 'active' ? lagOf(c, p) : undefined;
-        const lagColor = lag ? LAG_COLORS[(c.kind === 'active' ? (c.lags ?? []).indexOf(lag) : 0) % LAG_COLORS.length] : undefined;
+        const lag = c.kind !== 'dio' ? lagOf(c, p) : undefined;
+        const lagColor = lag && c.kind !== 'dio' ? LAG_COLORS[(c.lags ?? []).indexOf(lag) % LAG_COLORS.length] : undefined;
+        const vlan = c.kind !== 'dio' ? vlanSummary(c.portVlans?.[lag ? lagKey(lag) : p]) : '';
+        const isMgmt = c.kind !== 'dio' && !!c.mgmt?.iface && c.mgmt.iface === (lag ? lagKey(lag) : p);
         const partnerEnd = diagram.connections.find((k) => sameEnd(k.a, end) || sameEnd(k.b, end));
         const other = partnerEnd ? (sameEnd(partnerEnd.a, end) ? partnerEnd.b : partnerEnd.a) : null;
         const tip = [
           endLabel(end),
           lag ? `Agregação: ${lag.name} (${lag.mode === 'lacp' ? 'LACP' : 'estática'})` : null,
+          vlan ? `VLAN: ${vlan}` : null,
+          isMgmt ? `Gerência${c.mgmt?.vlan ? ` (VLAN ${c.mgmt.vlan})` : ''}` : null,
           src && dotCable ? `Fusão: ${dotCable.name} · fibra ${src.fiber} (${fiberColor(src.fiber, dotCable.fibers_per_tube).name})${src.splitter ? ' via splitter' : ''}` : null,
           other ? `Cordão: ${endLabel(other)}` : 'Frente livre',
         ]
@@ -1604,6 +1610,7 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
             }}
           >
             {label}
+            {isMgmt && <span className="absolute rounded-sm bg-sky-400 border border-slate-950" title="Gerência" style={{ top: -3, left: -3, width: 8, height: 8 }} />}
             {dotCable && (
               <span
                 className="absolute rounded-full border border-slate-950"
@@ -1616,7 +1623,9 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
 
       {/* Rodapé */}
       <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 px-2.5 text-[10px] font-mono text-slate-500 border-t border-slate-800/60" style={{ height: G.FOOT }}>
-        <span>{footLeft}</span>
+        <span className="truncate" title={c.kind !== 'dio' && mgmt ? [`Gerência: ${mgmt}`, mgmtPath(c)].filter(Boolean).join(' · ') : undefined}>
+          {footLeft}
+        </span>
         {rack && (
           <span className={`flex items-center gap-1 truncate ${rackConflict ? 'text-red-400' : 'text-slate-400'}`} title={rackConflict ? 'Posição inválida no rack' : 'Posição no rack'}>
             <Rows4 size={11} />

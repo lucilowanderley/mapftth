@@ -32,7 +32,14 @@ class EquipmentModelController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $model = $request->user()->equipmentModels()->create($this->validated($request));
+        $data = $this->validated($request);
+        if ($data['replaces']) {
+            // Um padrão tem no máximo uma substituição por usuário: editar de novo atualiza a mesma.
+            $model = $request->user()->equipmentModels()->updateOrCreate(['replaces' => $data['replaces']], $data);
+
+            return response()->json([...$model->fresh()->toArray(), 'own' => true], 201);
+        }
+        $model = $request->user()->equipmentModels()->create($data);
 
         return response()->json([...$model->fresh()->toArray(), 'own' => true], 201);
     }
@@ -40,7 +47,15 @@ class EquipmentModelController extends Controller
     public function update(Request $request, EquipmentModel $equipmentModel): JsonResponse
     {
         abort_unless($equipmentModel->user_id === $request->user()->id, 403, 'Só quem cadastrou pode alterar este modelo.');
-        $equipmentModel->update($this->validated($request));
+        $data = $this->validated($request);
+        // Sem `replaces` no pedido, mantém o vínculo com o padrão que este modelo substitui.
+        if (! $request->has('replaces')) {
+            unset($data['replaces']);
+        }
+        if (! $request->has('hidden')) {
+            unset($data['hidden']);
+        }
+        $equipmentModel->update($data);
 
         return response()->json([...$equipmentModel->toArray(), 'own' => true]);
     }
@@ -70,7 +85,12 @@ class EquipmentModelController extends Controller
             'port_groups.*.type' => ['required', 'string', 'max:40'],
             'port_groups.*.count' => ['required', 'integer', 'min:1', 'max:576'],
             'port_groups.*.speed' => ['nullable', 'numeric', 'min:0', 'max:1600'],
+            'replaces' => ['nullable', 'string', 'max:60'],
+            'hidden' => ['nullable', 'boolean'],
         ]);
+        $data['hidden'] = (bool) ($data['hidden'] ?? false);
+        $data['replaces'] = $data['replaces'] ?? null;
+        abort_if($data['hidden'] && ! $data['replaces'], 422, 'Só modelos padrão podem ser ocultados.');
         if ($data['kind'] !== 'olt') {
             $data['slots'] = $data['uplinks'] = $data['tx_dbm'] = null;
         }
