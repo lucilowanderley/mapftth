@@ -77,4 +77,23 @@ describe('bandeja aberta: linhas do cabo e portas da bandeja', () => {
     expect(p.left[0]).toEqual({ c: 'c1', p: 'f1' });
     expect(p.right[11]).toEqual({ c: 'c2', p: 'f12' });
   });
+
+  it('portas: lado pela posição do cabo no desenho; os dois do mesmo lado se dividem', () => {
+    const t = tray('b1', ['c1:t1', 'c2:t1']);
+    // Os dois cabos marcados como "direita", mas c2 desenhado à esquerda da bandeja.
+    const p = trayPorts(t, [
+      { key: 'c1', side: 'right', cx: 900, cable: cables[0] },
+      { key: 'c2', side: 'right', cx: 100, cable: cables[1] },
+    ], 500);
+    expect(p.left.every((e) => e.c === 'c2')).toBe(true);
+    expect(p.right.every((e) => e.c === 'c1')).toBe(true);
+    expect(p.left).toHaveLength(12);
+    // Os dois à direita da bandeja: o mais à esquerda vai para a esquerda.
+    const q = trayPorts(t, [
+      { key: 'c1', side: 'right', cx: 900, cable: cables[0] },
+      { key: 'c2', side: 'right', cx: 700, cable: cables[1] },
+    ], 500);
+    expect(q.left.every((e) => e.c === 'c2')).toBe(true);
+    expect(q.right).toHaveLength(12);
+  });
 });

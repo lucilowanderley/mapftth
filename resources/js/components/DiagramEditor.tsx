@@ -308,7 +308,11 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     const cableInfo = blocks.filter((b): b is Extract<Block, { kind: 'cable' }> => b.kind === 'cable');
     const map = new Map<string, { left: End[]; right: End[]; h: number; ports: Port[] }>();
     for (const t of diagram.trays ?? []) {
-      const { left, right } = trayPorts(t, cableInfo);
+      const { left, right } = trayPorts(
+        t,
+        cableInfo.map((b) => ({ ...b, cx: b.x + CABLE_W / 2 })),
+        t.x + TRAY_W / 2,
+      );
       const color = (e: End) => {
         const cb = cableInfo.find((b) => b.key === e.c)!;
         return fiberColor(Number(e.p.slice(1)), cb.cable.fibers_per_tube).hex;
@@ -738,11 +742,12 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     const reqs: { id: string; color: string; fan: Pt; ports: Port[]; a: { x: number; y: number; dir: 1 | -1 }; b: { x: number; y: number; dir: 1 | -1 } }[] = [];
     blocks.forEach((b) => {
       if (b.kind !== 'cable') return;
-      const inner = b.side === 'left';
       b.rows.forEach((r) => {
         if (r.kind !== 'tube') return;
         const g = trayGeo.get(r.tray.id);
         if (!g) return;
+        // O tubo sai pela borda do cabo voltada para a bandeja.
+        const inner = b.x + CABLE_W / 2 < r.tray.x + TRAY_W / 2;
         const [f1, f2] = tubeFibers(r.tube, b.cable);
         const tp = g.ports.filter((p) => p.end.c === b.key && Number(p.end.p.slice(1)) >= f1 && Number(p.end.p.slice(1)) <= f2);
         if (!tp.length) return;
