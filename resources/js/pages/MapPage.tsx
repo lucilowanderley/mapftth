@@ -599,17 +599,19 @@ export default function MapPage() {
     }
   }
 
-  async function deleteCable(cable: Cable) {
+  async function deleteCable(cable: Cable, confirmed = false): Promise<boolean> {
     setCableMenu(null);
-    if (!window.confirm(`Excluir o cabo ${cable.name}? As fusões dele nas caixas também serão removidas.`)) return;
+    if (!confirmed && !window.confirm(`Excluir o cabo ${cable.name}? As fusões dele nas caixas também serão removidas.`)) return false;
     try {
       const r = await api.deleteCable(cable.id);
       setCables((list) => list.filter((c) => c.id !== cable.id));
       mergeNodes(r.nodes);
       setSelection(null);
       notify('Cabo excluído');
+      return true;
     } catch (e) {
       notify(errorMessage(e), 'error');
+      return false;
     }
   }
 
@@ -1784,6 +1786,7 @@ export default function MapPage() {
             notify('Diagrama salvo');
           }}
           onShowBudget={(title, result) => setBudget({ title, result })}
+          onDeleteCable={readOnly ? undefined : (c) => deleteCable(c, true)}
         />
       )}
       {budget && <BudgetModal title={budget.title} result={budget.result} settings={settings} onClose={() => setBudget(null)} />}

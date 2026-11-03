@@ -690,7 +690,10 @@ perda na hora. Passe o mouse sobre uma emenda para ver o tipo e a perda. Tudo po
    e o orçamento são recalculados na hora.
 
 Para remover um splitter, selecione o bloco e clique em **Apagar** (lixeira). Num bloco de cabo, **Apagar**
-remove só as emendas desse cabo nesta caixa (o cabo em si se exclui no mapa).
+(ou **Delete**) pergunta o que apagar: **Só as emendas deste cabo nesta caixa** (o cabo continua no mapa) ou
+**Excluir o cabo do projeto** (some do mapa e de todas as caixas; não dá para desfazer com Ctrl+Z). O cartão
+**"Drop Cliente-1"** é o cabo drop do cliente vindo do mapa: se o cliente agora está desenhado como objeto
+**Cliente** no diagrama, exclua o drop por aqui.
 
 **Cliente no diagrama**
 

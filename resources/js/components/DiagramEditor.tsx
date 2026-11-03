@@ -214,9 +214,11 @@ interface Props {
   onShowBudget: (title: string, result: BudgetResult) => void;
   /** Acesso de leitura: permite explorar o diagrama, mas não salvar. */
   readOnly?: boolean;
+  /** Exclui o cabo do projeto (some do mapa e de todas as caixas). true quando excluiu. */
+  onDeleteCable?: (cable: Cable) => Promise<boolean>;
 }
 
-export default function DiagramEditor({ node, network, onClose, onSaved, onShowBudget, readOnly }: Props) {
+export default function DiagramEditor({ node, network, onClose, onSaved, onShowBudget, readOnly, onDeleteCable }: Props) {
   const [diagram, setDiagram] = useState<Diagram>(() => {
     const d = structuredClone(node.diagram ?? emptyDiagram());
     // Clientes vinculados ao mapa: ID, serial e tipo vêm do cliente do mapa (podem ter sido editados lá).
@@ -243,6 +245,8 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const [jointEdit, setJointEdit] = useState<string | null>(null);
   /** Splitter aberto no editor (duplo clique). */
   const [splitterEdit, setSplitterEdit] = useState<string | null>(null);
+  /** Cabo selecionado para apagar (só emendas ou o cabo inteiro). */
+  const [cableDelete, setCableDelete] = useState<string | null>(null);
   const [showPower, setShowPower] = useState(true);
   const [tool, setTool] = useState<Tool>('fuse');
   const [route, setRoute] = useState<RouteStyle>(() => {
@@ -533,9 +537,9 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         connections: d.connections.filter((c) => c.a.c !== selected.key && c.b.c !== selected.key),
       }));
     } else {
-      // Cabo: só remove as fusões (o cabo em si é excluído no mapa).
-      if (!confirm('Remover todas as fusões deste cabo nesta caixa?')) return;
-      update((d) => ({ ...d, connections: d.connections.filter((c) => c.a.c !== selected.key && c.b.c !== selected.key) }));
+      // Cabo: pergunta se apaga só as emendas nesta caixa ou o cabo inteiro (do mapa).
+      setCableDelete(selected.key);
+      return;
     }
     setSelected(null);
   }
@@ -929,7 +933,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         <IconTool icon={<Copy size={16} />} label="Duplicar splitter (Ctrl+D)" onClick={duplicateSelected} disabled={selBlock?.kind !== 'splitter'} />
         <IconTool
           icon={<Trash2 size={16} />}
-          label={selConn ? (selConn.pass ? 'Apagar passagem (Delete)' : 'Apagar emenda (Delete)') : selBlock?.kind === 'cable' ? 'Apagar as emendas deste cabo (Delete)' : 'Apagar o selecionado (Delete)'}
+          label={selConn ? (selConn.pass ? 'Apagar passagem (Delete)' : 'Apagar emenda (Delete)') : selBlock?.kind === 'cable' ? 'Apagar emendas ou o cabo (Delete)' : 'Apagar o selecionado (Delete)'}
           onClick={removeSelected}
           disabled={!selected}
           danger
@@ -1580,6 +1584,59 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
               onTubes={() => setDialog('trays')}
               onClose={() => setDialog(null)}
             />
+          );
+        })()}
+      {cableDelete &&
+        (() => {
+          const blk = blocks.find((b): b is Extract<Block, { kind: 'cable' }> => b.key === cableDelete && b.kind === 'cable');
+          if (!blk) return null;
+          const key = blk.key;
+          const splices = diagram.connections.filter((c) => c.a.c === key || c.b.c === key).length;
+          const toClient = [blk.cable.from_node_id, blk.cable.to_node_id].some((id) => network.nodes.find((n) => n.id === id)?.type === 'client');
+          return (
+            <Modal title={`Apagar ${blk.cable.name}`} onClose={() => setCableDelete(null)}>
+              <div className="space-y-3 text-sm">
+                <p className="text-slate-300">
+                  Este cartão é um <b>cabo do mapa</b> que chega nesta caixa ({blk.label}). O que você quer apagar?
+                </p>
+                {toClient && (
+                  <p className="text-xs text-sky-300">
+                    É o cabo drop de um cliente. Se o cliente agora está desenhado no diagrama (objeto Cliente), pode excluir o drop: o cálculo passa a usar o
+                    objeto Cliente.
+                  </p>
+                )}
+                <button
+                  className="w-full text-left rounded-md border border-slate-700 hover:bg-slate-800 px-3 py-2 cursor-pointer disabled:opacity-50"
+                  disabled={!splices}
+                  onClick={() => {
+                    update((d) => ({ ...d, connections: d.connections.filter((c) => c.a.c !== key && c.b.c !== key) }));
+                    setCableDelete(null);
+                    setSelected(null);
+                  }}
+                >
+                  <div className="font-medium">Só as emendas deste cabo nesta caixa</div>
+                  <div className="text-xs text-slate-400">{splices ? `${splices} emenda(s). O cabo continua no mapa.` : 'Este cabo não tem emendas aqui.'}</div>
+                </button>
+                {onDeleteCable && (
+                  <button
+                    className="w-full text-left rounded-md border border-red-800 hover:bg-red-950/50 px-3 py-2 cursor-pointer"
+                    onClick={async () => {
+                      if (!(await onDeleteCable(blk.cable))) return;
+                      // Tira o cabo do diagrama em edição também (o servidor já removeu das caixas salvas).
+                      update((d) => {
+                        const { [key]: _gone, ...cablePos } = d.cablePos;
+                        return { ...d, cablePos, connections: d.connections.filter((c) => c.a.c !== key && c.b.c !== key) };
+                      });
+                      setCableDelete(null);
+                      setSelected(null);
+                    }}
+                  >
+                    <div className="font-medium text-red-300">Excluir o cabo do projeto</div>
+                    <div className="text-xs text-slate-400">Some do mapa e de todas as caixas, com as emendas dele. Não dá para desfazer com Ctrl+Z.</div>
+                  </button>
+                )}
+              </div>
+            </Modal>
           );
         })()}
       {splitterEdit &&
