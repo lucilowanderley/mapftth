@@ -19,6 +19,12 @@ const SHAPES: Record<NetNode['type'], (fill: string, ring: string) => string> = 
     `<rect x="2" y="2" width="20" height="20" rx="5" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M6 18V8h5v10M13 18V5h5v13" fill="white"/><path d="M7.5 10h2M7.5 13h2M14.5 7.5h2M14.5 10.5h2M14.5 13.5h2" stroke="${f}" stroke-width="1.3"/>`,
 };
 
+/** Cliente empresarial (loja com toldo) e corporativo (prédio). O residencial usa a casinha padrão. */
+const CLIENT_BUSINESS = (f: string, r: string) =>
+  `<circle cx="12" cy="12" r="9" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M7 11l1-3h8l1 3zM8 12h8v5H8z" fill="white"/><path d="M11 17v-3h2v3" fill="${f}"/>`;
+const CLIENT_CORPORATE = (f: string, r: string) =>
+  `<circle cx="12" cy="12" r="9" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M8 6.5h5v11H8zM13.5 10h3v7.5h-3z" fill="white"/><path d="M9.3 8.5h1M11.2 8.5h1M9.3 11h1M11.2 11h1M9.3 13.5h1M11.2 13.5h1" stroke="${f}" stroke-width="1"/>`;
+
 /** Condomínio de casas: duas casinhas. */
 const CONDO_HOUSES = (f: string, r: string) =>
   `<rect x="2" y="2" width="20" height="20" rx="5" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M4.5 12l3.5-3.5 3.5 3.5v5h-7zM12.5 12l3.5-3.5 3.5 3.5v5h-7z" fill="white"/>`;
@@ -37,13 +43,15 @@ export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: strin
   const fill = opts.fill ?? NODE_TYPES[node.type].color;
   const ring = opts.selected ? '#facc15' : STATUSES[node.status].color;
   const houses = node.type === 'condo' && node.attributes?.condo_kind === 'houses';
-  const key = `${node.type}${houses ? '-h' : ''}|${fill}|${ring}|${opts.selected ? 1 : 0}`;
+  const seg = node.type === 'client' ? node.attributes?.segment : undefined;
+  const variant = houses ? '-h' : seg === 'business' || seg === 'corporate' ? `-${seg}` : '';
+  const key = `${node.type}${variant}|${fill}|${ring}|${opts.selected ? 1 : 0}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const glow = opts.selected ? 'filter:drop-shadow(0 0 6px #facc15);' : 'filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));';
   const icon = L.divIcon({
     className: 'node-marker',
-    html: `<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}">${(houses ? CONDO_HOUSES : SHAPES[node.type])(fill, ring)}</svg>`,
+    html: `<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}">${(houses ? CONDO_HOUSES : variant === '-business' ? CLIENT_BUSINESS : variant === '-corporate' ? CLIENT_CORPORATE : SHAPES[node.type])(fill, ring)}</svg>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });

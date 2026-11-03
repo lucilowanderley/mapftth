@@ -45,7 +45,7 @@ export const api = {
   createNode: (projectId: number, data: Partial<NetNode>) =>
     http.post<NetNode>(`/api/projects/${projectId}/nodes`, data).then((r) => r.data),
   updateNode: (id: number, data: Partial<NetNode>) =>
-    http.put<{ node: NetNode; cables: Cable[] }>(`/api/nodes/${id}`, data).then((r) => r.data),
+    http.put<{ node: NetNode; cables: Cable[]; clients?: NetNode[] }>(`/api/nodes/${id}`, data).then((r) => r.data),
   deleteNode: (id: number) => http.delete(`/api/nodes/${id}`),
 
   createCable: (projectId: number, data: Partial<Cable>) =>

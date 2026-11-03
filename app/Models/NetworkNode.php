@@ -11,6 +11,9 @@ class NetworkNode extends Model
 
     public const STATUSES = ['planned', 'not_deployed', 'deployed', 'certified'];
 
+    /** Tipos de cliente (assinante): residencial, empresarial e corporativo. */
+    public const CLIENT_SEGMENTS = ['residential', 'business', 'corporate'];
+
     protected $fillable = ['type', 'name', 'lat', 'lng', 'status', 'notes', 'attributes', 'diagram'];
 
     protected function casts(): array
