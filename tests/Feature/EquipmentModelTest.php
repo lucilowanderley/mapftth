@@ -35,4 +35,24 @@ class EquipmentModelTest extends TestCase
             ->assertOk()->assertJsonPath('height_u', 7);
         $this->deleteJson("/api/equipment-models/{$olt['id']}")->assertNoContent();
     }
+
+    public function test_active_model_with_port_groups_sums_ports(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user)->postJson('/api/equipment-models', [
+            'kind' => 'active', 'type' => 'Multiplex DWDM', 'model' => 'Mux 40', 'ports' => 1, 'height_u' => 1,
+            'port_groups' => [['type' => 'Canal DWDM', 'count' => 40, 'speed' => 10], ['type' => 'Linha / COM', 'count' => 1]],
+        ])->assertCreated()
+            ->assertJsonPath('ports', 41)
+            ->assertJsonPath('port_groups.0.speed', 10)
+            ->assertJsonPath('port_groups.1.speed', null);
+
+        $this->postJson('/api/equipment-models', [
+            'kind' => 'dio', 'model' => 'DIO', 'ports' => 24, 'height_u' => 1, 'port_groups' => [['type' => 'SFP', 'count' => 2]],
+        ])->assertCreated()->assertJsonPath('port_groups', null);
+
+        $this->postJson('/api/equipment-models', [
+            'kind' => 'active', 'model' => 'X', 'ports' => 1, 'height_u' => 1, 'port_groups' => [['type' => 'SFP', 'count' => 0]],
+        ])->assertUnprocessable();
+    }
 }

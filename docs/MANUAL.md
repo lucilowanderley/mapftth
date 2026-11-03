@@ -445,7 +445,16 @@ cadastrou. Para cadastrar, clique em **Cadastrar** e preencha:
 
 - **Fabricante** e **Modelo**;
 - **OLT**: **Slots**, **PON/slot**, **Uplinks** e **TX dBm**; **DIO**: **Portas**; **Ativo**: **Tipo** e **Portas**;
-- **Altura (U)**: quantas unidades de rack o equipamento ocupa.
+- **Altura (U)**: quantas unidades de rack o equipamento ocupa;
+- **Ativo**: **Grupos de portas** (opcional). Clique em **+ Grupo** e informe o **Tipo** de porta (RJ45, SFP, SFP+,
+  SFP28, QSFP28, Canal DWDM, Linha / COM, Gerência (MGMT)...), a **Qtd.** e a **Capacidade** de cada porta (100M,
+  1G, 10G, 25G, 100G...). Com grupos, o total de portas é a soma deles e a lista mostra, por exemplo,
+  *48×RJ45 1G + 4×SFP+ 10G*.
+
+Os tipos de ativo são Switch, Roteador, BNG / Concentrador, **Servidor**, **Multiplex DWDM**, **Multiplex CWDM**,
+Firewall, Nobreak / UPS, Patch panel UTP e Outro. Já vêm prontos modelos padrão de **servidor** (1U e 2U, com portas
+RJ45, SFP28/SFP+ e porta de gerência), de **Mux/Demux DWDM** (8 e 40 canais, com porta de linha e de monitor), de
+**Mux/Demux CWDM** (18 canais) e de switch/roteador com portas SFP+.
 
 Ao criar uma OLT, um DIO ou um Ativo, escolha o modelo no campo **Modelo (fabricante)**: portas, slots e altura são
 preenchidos sozinhos (e ainda podem ser ajustados). O fabricante e o modelo aparecem no card e na faixa do rack.
@@ -505,10 +514,26 @@ os uplinks. Portas PON com cordão ficam **roxas**; uplinks com cordão ficam **
 
 **Equipamento ativo**
 
-Clique em **Ativo** para adicionar um switch, roteador, BNG, servidor, firewall, nobreak ou patch panel UTP com o
-número de portas que quiser (até 96). As portas
-do ativo recebem cordões dos **uplinks da OLT** (ou da frente do DIO, em links ponto a ponto). O ativo não é fonte
-de sinal PON: o orçamento óptico só conta caminhos que chegam numa porta PON de OLT.
+Clique em **Ativo** para adicionar um switch, roteador, BNG, servidor, multiplex DWDM/CWDM, firewall, nobreak ou
+patch panel UTP. As portas do ativo recebem cordões dos **uplinks da OLT** (ou da frente do DIO, em links ponto a
+ponto). O ativo não é fonte de sinal PON: o orçamento óptico só conta caminhos que chegam numa porta PON de OLT.
+Na janela do ativo:
+
+- **Portas**: o total de portas Ethernet, quando o ativo não tem grupos.
+- **Grupos de portas**: tipo, quantidade e capacidade de cada grupo (como no cadastro). Escolher um modelo do
+  cadastro já preenche os grupos. No card, cada grupo começa numa linha própria, com o tipo à esquerda (**RJ45**,
+  **SFP+**, **Canal DWDM**...) e as portas numeradas dentro do grupo. O rodapé do card mostra o total de portas e a
+  capacidade somada (por exemplo *52 portas · 88G*). Nos cordões e na Manobra a porta aparece como
+  *SFP+ 2 (10G)*.
+- **Agregação de portas (LAG)**: clique em **+ Agregação**, dê um nome (LAG1, Po1, bond0...), escolha o modo
+  **LACP (802.3ad)** ou **Estático** e clique nas portas que fazem parte dela (agrupadas por tipo). A janela mostra a
+  capacidade agregada e avisa se as portas têm capacidades diferentes ou se alguma já está em outra agregação.
+  No card, as portas de cada agregação ganham uma **barrinha colorida** embaixo (uma cor por LAG), e ao passar o
+  mouse a porta mostra a agregação.
+- **Gerência**: **IP / host** (IPv4, IPv4 com máscara, IPv6 ou nome), **Porta** e **Protocolo** (SSH, HTTPS, HTTP,
+  Telnet, SNMP, Winbox ou API). Ao escolher o protocolo, a porta padrão dele é preenchida (SSH 22, HTTPS 443,
+  Winbox 8291...). O endereço aparece no rodapé do card, por exemplo *SSH 10.10.0.2:22*. A **OLT** também tem o
+  campo **Gerência**.
 
 **Cordões (patch)**
 
