@@ -539,19 +539,52 @@ como um bloco (*de POP...* / *para CTO...*), com as fibras nas cores ABNT.
 
 > Se aparecer *"Nenhum cabo chega nesta caixa ainda"*, desenhe primeiro os cabos no mapa ligando a caixa.
 
+**Barra de ferramentas** (logo abaixo do título; passe o mouse sobre um ícone para ver o nome e o atalho)
+
+| Ícone | Ferramenta | O que faz |
+|---|---|---|
+| ↶ ↷ | **Desfazer / Refazer** | Volta ou refaz a última alteração (**Ctrl+Z** / **Ctrl+Y**). |
+| tubete | **Emenda** (F) | Ferramenta padrão: ligar duas portas cria uma **emenda por fusão** (perda de fusão). |
+| conector | **Conector** (C) | Ligar duas portas cria uma **emenda por conector/acoplador** (soma a perda de conector). |
+| ↔ | **Passagem** (P) | A fibra atravessa a caixa **sem emenda e sem perda** (sangria). Linha tracejada. |
+| ◁ | **Splitter** (S) | Adiciona um splitter (veja abaixo). |
+| varinha | **Auto-fusão** | Funde as fibras em sequência entre dois cabos. |
+| ↻ | **Girar** (R) | Splitter: gira **90°** a cada clique (entrada à esquerda, em cima, à direita, embaixo). Cabo: passa para o outro lado. |
+| ⧉ | **Duplicar** (Ctrl+D) | Cria uma cópia do splitter selecionado. |
+| lixeira | **Apagar** (Delete) | Apaga a emenda, o splitter ou as emendas do cabo selecionado. |
+| borracha | **Limpar** | Apaga todas as emendas e passagens da caixa (pede confirmação; dá para desfazer). |
+| grade | **Organizar** | Cabos de entrada à esquerda, de saída à direita (lado a lado) e splitters numa fileira acima. |
+| curva | **Rotas** | Alterna as fibras entre **ângulo reto** (padrão) e **curvas**. A escolha fica salva no navegador. |
+| pulso | **Potência** | Mostra ou esconde a potência (dBm) nas saídas dos splitters. |
+| teclado | **Atalhos** (?) | Mostra a lista de atalhos do teclado. |
+| PNG | **PNG** | Exporta o unifilar da caixa. |
+
+**Como o diagrama é desenhado**
+
+- Os cabos aparecem como cartões **CABO 12FO (A)**, **(B)**... com as fibras numeradas nas cores ABNT.
+- As fibras andam em **ângulo reto (90°)**, cada uma na sua pista, sem se sobrepor.
+- Cada **emenda por fusão** aparece como um **tubete cinza** sobre a fibra; a **emenda por conector** aparece
+  como **dois conectores (azul e verde) num acoplador**. A **passagem** é a linha tracejada, sem ícone.
+- As **saídas (derivações) dos splitters são numeradas** (1, 2, 3...). Splitters conectorizados (AC APC/UPC)
+  mostram as saídas como **conectores verdes** em leque.
+
 **Mexer no diagrama**
 
-- **Arrastar** um bloco muda a posição dele. Arrastar o fundo move a tela.
+- **Arrastar** um bloco (cabo ou splitter) muda a posição dele. Arrastar o fundo move a tela.
 - **Rolar o mouse** dá zoom. Os botões no canto fazem zoom +, zoom − e **ajustar à tela**.
-- **Inverter lado**: selecione o bloco de um cabo e clique para passá-lo para o outro lado.
+- **Girar**: selecione o splitter e clique em **Girar** (ou tecla **R**) quantas vezes precisar.
+- **Ajustar o traçado de uma fibra (90°)**: clique na fibra para selecioná-la. Aparece uma **alça amarela**
+  (‹ ›) no trecho vertical: arraste para a esquerda ou para a direita. Duplo clique na alça (ou **Traçado
+  automático** no quadro da emenda) volta ao traçado automático. **Organizar** também volta todos ao automático.
 
 **Fundir duas fibras (ou fibra com splitter)**
 
 1. Clique na **primeira porta**. Ela fica selecionada e um quadro no canto mostra a **potência que chega nela**,
    com o link **Ver orçamento**.
 2. Clique na **segunda porta**. A linha da fusão é desenhada.
-3. Para desfazer, clique numa porta já ligada (isso seleciona a fusão) e use **Remover fusão** ou a tecla
-   **Delete**.
+3. A emenda criada depende da ferramenta ativa na barra: **Emenda** (fusão), **Conector** ou **Passagem**.
+4. Clique numa fibra ou numa porta já ligada para selecionar a emenda. Um quadro no canto mostra as duas pontas
+   e permite **trocar o tipo** (Fusão / Conector / Passagem) ou **Apagar** (também pela tecla **Delete**).
 
 O sistema não deixa ligar duas portas do mesmo elemento nem uma porta que já está ocupada.
 
@@ -564,8 +597,8 @@ O sistema não deixa ligar duas portas do mesmo elemento nem uma porta que já e
    às fibras que saem (drops ou outros cabos).
 4. Splitters conectorizados (APC/UPC) somam também a perda de conector no orçamento.
 
-Para remover um splitter, selecione o bloco e clique em **Remover**. Num bloco de cabo, **Remover** apaga
-só as fusões desse cabo nesta caixa (o cabo em si se exclui no mapa).
+Para remover um splitter, selecione o bloco e clique em **Apagar** (lixeira). Num bloco de cabo, **Apagar**
+remove só as emendas desse cabo nesta caixa (o cabo em si se exclui no mapa).
 
 <a id="auto-fusão"></a>
 **Auto-fusão** (sangria e emendas em sequência)

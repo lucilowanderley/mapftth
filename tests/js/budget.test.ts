@@ -73,6 +73,15 @@ describe('orçamento óptico', () => {
     expect(r.error).toContain('CTO-2');
   });
 
+  it('emenda por conector/acoplador soma a perda de conector no lugar da fusão', () => {
+    const net = network();
+    const k4 = net.nodes[1].diagram!.connections.find((c) => c.id === 'k4')!;
+    k4.joint = 'connector';
+    const r = clientBudget(net, net.nodes[2]);
+    expect(r.totalLoss).toBeCloseTo(11.68 - 0.1 + 0.5, 2);
+    expect(r.steps.some((st) => st.kind === 'connector' && st.detail.includes('CTO-2'))).toBe(true);
+  });
+
   it('classifica níveis de potência', () => {
     expect(powerLevel(-26, settings)).toBe('warn');
     expect(powerLevel(-28, settings)).toBe('critical');

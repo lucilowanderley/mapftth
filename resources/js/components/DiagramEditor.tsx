@@ -1,8 +1,31 @@
-import { Activity, ArrowLeftRight, Image, Maximize, Plus, Save, Server, SquareStack, Trash2, Wand2, X, ZoomIn, ZoomOut } from 'lucide-react';
+import {
+  Activity,
+  Copy,
+  Eraser,
+  Image,
+  Keyboard,
+  LayoutGrid,
+  Maximize,
+  MoveHorizontal,
+  Redo2,
+  RotateCw,
+  Save,
+  Server,
+  Spline,
+  SquareStack,
+  Trash2,
+  Triangle,
+  Undo2,
+  Wand2,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, powerLevel, traceUpstream, type BudgetResult } from '../lib/budget';
 import { DIO_SIZES, OLT_MODELS, SPLITTER_MODELS, STATUSES, fiberColor, splitterModel, tubeColor } from '../lib/catalog';
+import { cableLetter, curvePath, laneSegment, polylinePath, routeOrthogonal, spliceAnchor, textOn, type Pt } from '../lib/splice';
 import type { Cable, Connection, Diagram, DiagramComponent, End, NetNode, Network, Status } from '../lib/types';
 import { Field, Modal } from './ui';
 
@@ -11,18 +34,29 @@ const HEADER = 34;
 const CABLE_W = 150;
 const BOX_W = 130;
 const SPLIT_W = 56;
+/** Leque até os conectores das saídas de um splitter conectorizado. */
+const CONN_W = 26;
+const HISTORY_MAX = 60;
+const ROUTE_KEY = 'mapftth.splice.route';
+
+type RouteStyle = 'ortho' | 'curve';
+type Tool = 'fuse' | 'connector' | 'pass';
 
 /** Racks só existem no editor de POP e não entram no diagrama de fusão. */
 type BoxComponent = Exclude<DiagramComponent, { kind: 'rack' }>;
-type Block = { key: string; kind: 'cable'; cable: Cable; x: number; y: number; side: 'left' | 'right'; label: string } | (BoxComponent & { key: string });
+type Block = { key: string; kind: 'cable'; cable: Cable; x: number; y: number; side: 'left' | 'right'; label: string; letter: string } | (BoxComponent & { key: string });
 
 interface Port {
   end: End;
   x: number;
   y: number;
   dir: 1 | -1;
+  /** Porta virada para cima (-1) ou para baixo (1): splitter girado 90°/270°. */
+  vdir?: 1 | -1;
   color: string;
   label: string;
+  /** Saída conectorizada (splitter AC APC/UPC): desenhada como conector quadrado. */
+  connector?: boolean;
 }
 
 // Ids de componentes começam com "k" para nunca colidir com cabos ("c{id}").
@@ -61,19 +95,27 @@ function blockPorts(b: Block): Port[] {
       }));
     }
     case 'splitter': {
-      const n = splitterModel(b.model).outputs;
+      // Geometria sem rotação (entrada à esquerda, saídas à direita), girada em torno do centro do bloco.
+      const m = splitterModel(b.model);
+      const n = m.outputs;
       const top = b.y + (h - n * ROW) / 2;
-      return [
-        { end: { c: b.key, p: 'in' }, x: b.x, y: b.y + h / 2, dir: -1, color: '#334155', label: 'E' },
-        ...Array.from({ length: n }, (_, i) => ({
-          end: { c: b.key, p: `o${i + 1}` },
-          x: b.x + w,
-          y: top + (i + 0.5) * ROW,
-          dir: 1 as const,
+      const g = splitterFrame(b);
+      const outX = b.x + w + (m.connectorized ? CONN_W : 0);
+      const make = (p: string, x: number, y: number, ux: number, label: string, connector?: boolean): Port => {
+        const r = g.pt(x, y);
+        const [vx, vy] = g.vec(ux, 0);
+        return {
+          end: { c: b.key, p },
+          x: r.x,
+          y: r.y,
+          dir: (vx < 0 ? -1 : 1) as 1 | -1,
+          vdir: vy ? ((vy < 0 ? -1 : 1) as 1 | -1) : undefined,
           color: '#334155',
-          label: String(i + 1),
-        })),
-      ];
+          label,
+          connector,
+        };
+      };
+      return [make('in', b.x, b.y + h / 2, -1, 'E'), ...Array.from({ length: n }, (_, i) => make(`o${i + 1}`, outX, top + (i + 0.5) * ROW, 1, String(i + 1), m.connectorized))];
     }
     case 'olt':
       return Array.from({ length: b.slots * b.ports }, (_, i) => ({
@@ -94,6 +136,36 @@ function blockPorts(b: Block): Port[] {
       // Equipamentos ativos só existem no editor de POP.
       return [];
   }
+}
+
+/** Rotação do splitter (0, 90, 180, 270) e funções para girar pontos/vetores em torno do centro do bloco. */
+function splitterFrame(b: Extract<Block, { kind: 'splitter' }>) {
+  const { w, h } = blockSize(b);
+  const m = splitterModel(b.model);
+  const W = w + (m.connectorized ? CONN_W : 0);
+  const rot = ((((b.rot ?? 0) % 360) + 360) % 360) as 0 | 90 | 180 | 270;
+  const cx = b.x + W / 2;
+  const cy = b.y + h / 2;
+  const vec = (dx: number, dy: number): [number, number] => {
+    switch (rot) {
+      case 90:
+        return [-dy, dx];
+      case 180:
+        return [-dx, -dy];
+      case 270:
+        return [dy, -dx];
+      default:
+        return [dx, dy];
+    }
+  };
+  const pt = (x: number, y: number) => {
+    const [dx, dy] = vec(x - cx, y - cy);
+    return { x: cx + dx, y: cy + dy };
+  };
+  const vertical = rot === 90 || rot === 270;
+  // Caixa já girada (para seleção e rótulo).
+  const box = { x: cx - (vertical ? h : W) / 2, y: cy - (vertical ? W : h) / 2, w: vertical ? h : W, h: vertical ? W : h };
+  return { rot, cx, cy, W, vec, pt, box };
 }
 
 function emptyDiagram(): Diagram {
@@ -119,24 +191,78 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const [selected, setSelected] = useState<{ kind: 'conn' | 'block'; key: string } | null>(null);
   const [dialog, setDialog] = useState<'splitter' | 'olt' | 'dio' | 'auto' | null>(null);
   const [showPower, setShowPower] = useState(true);
+  const [tool, setTool] = useState<Tool>('fuse');
+  const [route, setRoute] = useState<RouteStyle>(() => {
+    try {
+      return localStorage.getItem(ROUTE_KEY) === 'curve' ? 'curve' : 'ortho';
+    } catch {
+      return 'ortho';
+    }
+  });
+  const [showHelp, setShowHelp] = useState(false);
   const [error, setError] = useState('');
+  // Desfazer / refazer (Ctrl+Z / Ctrl+Y): fotos do diagrama antes de cada alteração.
+  const past = useRef<Diagram[]>([]);
+  const future = useRef<Diagram[]>([]);
+  const [, setHistoryTick] = useState(0);
   const svgRef = useRef<SVGSVGElement>(null);
   const contentRef = useRef<SVGGElement>(null);
-  const drag = useRef<{ key?: string; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
+  const drag = useRef<{ key?: string; lane?: string; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
 
   const cables = useMemo(() => network.cables.filter((c) => c.from_node_id === node.id || c.to_node_id === node.id), [network.cables, node.id]);
   const nodeName = (id: number | null) => network.nodes.find((n) => n.id === id)?.name ?? 'ponta solta';
 
+  const remember = (d: Diagram) => {
+    past.current = [...past.current.slice(-(HISTORY_MAX - 1)), structuredClone(d)];
+    future.current = [];
+    setHistoryTick((t) => t + 1);
+  };
+
   const update = (fn: (d: Diagram) => Diagram) => {
+    remember(diagram);
     setDiagram((d) => fn(structuredClone(d)));
     setDirty(true);
   };
+
+  function undo() {
+    const prev = past.current.pop();
+    if (!prev) return;
+    future.current.push(structuredClone(diagram));
+    setDiagram(prev);
+    setDirty(true);
+    setSelected(null);
+    setPending(null);
+    setHistoryTick((t) => t + 1);
+  }
+
+  function redo() {
+    const next = future.current.pop();
+    if (!next) return;
+    past.current.push(structuredClone(diagram));
+    setDiagram(next);
+    setDirty(true);
+    setSelected(null);
+    setHistoryTick((t) => t + 1);
+  }
+
+  function resetLane(id: string) {
+    update((d) => ({ ...d, connections: d.connections.map((c) => (c.id === id ? (({ lane: _l, ...rest }) => rest)(c) : c)) }));
+  }
+
+  function changeRoute(r: RouteStyle) {
+    setRoute(r);
+    try {
+      localStorage.setItem(ROUTE_KEY, r);
+    } catch {
+      /* sem localStorage: vale só nesta sessão */
+    }
+  }
 
   // Blocos: cabos que chegam na caixa + componentes do diagrama.
   const blocks: Block[] = useMemo(() => {
     let leftY = 0;
     let rightY = 0;
-    const cableBlocks = cables.map((c) => {
+    const cableBlocks = cables.map((c, i) => {
       const key = `c${c.id}`;
       const incoming = c.to_node_id === node.id;
       const pos = diagram.cablePos[key];
@@ -151,6 +277,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         y: pos?.y ?? auto.y,
         side,
         label: incoming ? `de ${nodeName(c.from_node_id)}` : `para ${nodeName(c.to_node_id)}`,
+        letter: cableLetter(i),
       };
     });
     return [...cableBlocks, ...diagram.components.filter((c): c is BoxComponent => c.kind !== 'rack').map((c) => ({ ...c, key: c.id }))];
@@ -200,8 +327,18 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     if (!d) return;
     const dx = e.clientX - d.sx;
     const dy = e.clientY - d.sy;
-    if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
+    if (!d.moved && Math.abs(dx) + Math.abs(dy) > 3) {
+      d.moved = true;
+      if (d.key || d.lane) remember(diagram);
+    }
     if (!d.moved) return;
+    if (d.lane) {
+      const id = d.lane;
+      const x = Math.round((d.ox + dx / view.k) / 2) * 2;
+      setDiagram((dg) => ({ ...dg, connections: dg.connections.map((c) => (c.id === id ? { ...c, lane: x } : c)) }));
+      setDirty(true);
+      return;
+    }
     if (!d.key) {
       setView((v) => ({ ...v, x: d.ox + dx, y: d.oy + dy }));
       return;
@@ -225,7 +362,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   function onPointerUp() {
     const d = drag.current;
     drag.current = null;
-    if (d && !d.moved) {
+    if (d && !d.moved && !d.lane) {
       if (d.key) setSelected({ kind: 'block', key: d.key });
       else {
         setSelected(null);
@@ -265,7 +402,8 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       return;
     }
     const a = pending;
-    update((d) => ({ ...d, connections: [...d.connections.filter((c) => portOf(c.a) && portOf(c.b)), { id: uid(), a, b: port.end }] }));
+    const extra: Partial<Connection> = tool === 'pass' ? { pass: true } : tool === 'connector' ? { joint: 'connector' } : {};
+    update((d) => ({ ...d, connections: [...d.connections.filter((c) => portOf(c.a) && portOf(c.b)), { id: uid(), a, b: port.end, ...extra }] }));
     setPending(null);
     setError('');
   }
@@ -288,10 +426,71 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     setSelected(null);
   }
 
-  function flipCable(key: string) {
-    const b = blocks.find((x) => x.key === key);
-    if (!b || b.kind !== 'cable') return;
-    update((d) => ({ ...d, cablePos: { ...d.cablePos, [key]: { x: b.x, y: b.y, side: b.side === 'left' ? 'right' : 'left' } } }));
+  /** Girar: no cabo, troca o lado das fibras; no splitter, espelha (entrada ↔ saídas). */
+  function rotateSelected() {
+    const b = selected?.kind === 'block' ? blocks.find((x) => x.key === selected.key) : undefined;
+    if (!b) {
+      setError('Selecione um cabo ou splitter para girar.');
+      return;
+    }
+    if (b.kind === 'cable') {
+      update((d) => ({ ...d, cablePos: { ...d.cablePos, [b.key]: { x: b.x, y: b.y, side: b.side === 'left' ? 'right' : 'left' } } }));
+    } else if (b.kind === 'splitter') {
+      // Gira 90° no sentido horário a cada clique.
+      update((d) => ({ ...d, components: d.components.map((c) => (c.id === b.key && c.kind === 'splitter' ? { ...c, rot: (((c.rot ?? 0) + 90) % 360) } : c)) }));
+    }
+  }
+
+  function duplicateSelected() {
+    const c = selected?.kind === 'block' ? diagram.components.find((x) => x.id === selected.key) : undefined;
+    if (!c || c.kind !== 'splitter') {
+      setError('Selecione um splitter para duplicar.');
+      return;
+    }
+    const copy = { ...c, id: uid(), name: undefined, x: c.x + 30, y: c.y + blockSize({ ...c, key: c.id }).h + 30 };
+    update((d) => ({ ...d, components: [...d.components, copy] }));
+    setSelected({ kind: 'block', key: copy.id });
+  }
+
+  function clearConnections() {
+    if (!validConnections.length) return;
+    if (!confirm(`Remover todas as ${validConnections.length} fusões/passagens desta caixa? (Dá para desfazer com Ctrl+Z.)`)) return;
+    update((d) => ({ ...d, connections: [] }));
+    setSelected(null);
+  }
+
+  /** Organizar: cabos de entrada à esquerda, de saída à direita, splitters numa fileira acima. */
+  function organize() {
+    const cableBlocks = blocks.filter((b): b is Extract<Block, { kind: 'cable' }> => b.kind === 'cable');
+    const splitters = diagram.components.filter((c) => c.kind === 'splitter');
+    const gapX = Math.max(300, 80 + validConnections.length * 7);
+    const cablePos: Diagram['cablePos'] = {};
+    let ly = 0;
+    let ry = 0;
+    cableBlocks.forEach((b) => {
+      const h = blockSize(b).h + 30;
+      if (b.side === 'left') {
+        cablePos[b.key] = { x: 0, y: ly, side: 'left' };
+        ly += h;
+      } else {
+        cablePos[b.key] = { x: CABLE_W + gapX, y: ry, side: 'right' };
+        ry += h;
+      }
+    });
+    const maxH = Math.max(0, ...splitters.map((c) => blockSize({ ...c, key: c.id }).h));
+    const pos = new Map<string, { x: number; y: number }>();
+    splitters.forEach((c, i) => {
+      const h = blockSize({ ...c, key: c.id }).h;
+      pos.set(c.id, { x: CABLE_W + 60 + i * (SPLIT_W + CONN_W + 90), y: -60 - maxH + (maxH - h) / 2 });
+    });
+    // Os ajustes manuais das pistas deixam de fazer sentido com os blocos em outro lugar: voltam ao automático.
+    update((d) => ({
+      ...d,
+      cablePos,
+      components: d.components.map((c) => (pos.has(c.id) ? { ...c, ...pos.get(c.id)! } : c)),
+      connections: d.connections.map(({ lane: _l, ...c }) => c),
+    }));
+    setTimeout(fit, 30);
   }
 
   function addComponent(c: DiagramComponent) {
@@ -354,10 +553,35 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest('input,textarea,select')) return;
+      if (readOnly) return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if (mod && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        duplicateSelected();
+        return;
+      }
+      if (mod) return;
       if (e.key === 'Delete' || e.key === 'Backspace') removeSelected();
+      else if (e.key === 'r' || e.key === 'R') rotateSelected();
+      else if (e.key === 'f' || e.key === 'F') setTool('fuse');
+      else if (e.key === 'p' || e.key === 'P') setTool('pass');
+      else if (e.key === 'c' || e.key === 'C') setTool('connector');
+      else if (e.key === 's' || e.key === 'S') setDialog('splitter');
+      else if (e.key === '?') setShowHelp((v) => !v);
       if (e.key === 'Escape') {
         setPending(null);
         setSelected(null);
+        setShowHelp(false);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -405,6 +629,30 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const pendingPort = pending ? portOf(pending) : undefined;
   const pendingPower = pending ? powerAt(pending) : null;
   const isPop = node.type === 'pop';
+  const selBlock = selected?.kind === 'block' ? blocks.find((b) => b.key === selected.key) : undefined;
+  const selConn = selected?.kind === 'conn' ? validConnections.find((c) => c.id === selected.key) : undefined;
+  const isCablePort = (p: Port) => p.end.c.startsWith('c') && p.end.p.startsWith('f') && !diagram.components.some((c) => c.id === p.end.c);
+  const describe = (e: End) => {
+    const b = blocks.find((x) => x.key === e.c);
+    if (!b) return e.p;
+    if (b.kind === 'cable') return `Cabo ${b.letter} · FO ${e.p.slice(1)} ${fiberColor(Number(e.p.slice(1)), b.cable.fibers_per_tube).name}`;
+    if (b.kind === 'splitter') return `${b.name || splitterModel(b.model).name} · ${e.p === 'in' ? 'entrada' : `saída ${e.p.slice(1)}`}`;
+    return `${b.name} · ${e.p}`;
+  };
+
+  // Rotas das fibras: em ângulo reto (padrão, uma pista por fibra) ou em curva.
+  const routes = useMemo(() => {
+    if (route !== 'ortho') return new Map<string, Pt[]>();
+    return routeOrthogonal(
+      validConnections.map((c) => {
+        const a = portOf(c.a)!;
+        const b = portOf(c.b)!;
+        return { id: c.id, a: { x: a.x, y: a.y, dir: a.dir, vdir: a.vdir }, b: { x: b.x, y: b.y, dir: b.dir, vdir: b.vdir }, lane: c.lane };
+      }),
+      { stub: 16, gap: 6 },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route, ports, diagram.connections]);
 
   return (
     <div className="fixed inset-0 z-[1500] flex flex-col bg-slate-900">
@@ -413,20 +661,52 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         <div className="font-semibold mr-2">
           {node.name} <span className="text-slate-400 font-normal text-sm">· {isPop ? 'Editor do POP' : 'Diagrama de fusão'}</span>
         </div>
-        <ToolButton icon={<Plus size={15} />} label="Splitter" onClick={() => setDialog('splitter')} />
-        {isPop && <ToolButton icon={<Server size={15} />} label="OLT" onClick={() => setDialog('olt')} />}
-        {isPop && <ToolButton icon={<SquareStack size={15} />} label="DIO" onClick={() => setDialog('dio')} />}
-        <ToolButton icon={<Wand2 size={15} />} label="Auto-fusão" onClick={() => setDialog('auto')} />
-        <ToolButton icon={<Activity size={15} />} label="Potência" active={showPower} onClick={() => setShowPower((v) => !v)} />
-        {selected && <ToolButton icon={<Trash2 size={15} />} label={selected.kind === 'conn' ? (diagram.connections.find((c) => c.id === selected.key)?.pass ? 'Remover passagem' : 'Remover fusão') : 'Remover'} onClick={removeSelected} danger />}
-        {selected?.kind === 'block' && blocks.find((b) => b.key === selected.key)?.kind === 'cable' && (
-          <ToolButton icon={<ArrowLeftRight size={15} />} label="Inverter lado" onClick={() => flipCable(selected.key)} />
-        )}
         <div className="ml-auto flex items-center gap-2">
-          <ToolButton icon={<Image size={15} />} label="PNG" onClick={exportPng} />
           <button onClick={requestClose} className="text-slate-400 hover:text-white cursor-pointer ml-2" aria-label="Fechar">
             <X size={20} />
           </button>
+        </div>
+      </div>
+
+      {/* Barra de ferramentas */}
+      <div className="flex flex-wrap items-center gap-1 px-3 py-1.5 bg-white border-b border-slate-200 text-slate-700">
+        {!readOnly && (
+          <>
+            <IconTool icon={<Undo2 size={16} />} label="Desfazer (Ctrl+Z)" onClick={undo} disabled={!past.current.length} />
+            <IconTool icon={<Redo2 size={16} />} label="Refazer (Ctrl+Y)" onClick={redo} disabled={!future.current.length} />
+            <Sep />
+          </>
+        )}
+        <IconTool icon={<SpliceIcon />} label="Emenda / fusão (F): clique numa porta e depois em outra" text="Emenda" active={tool === 'fuse'} onClick={() => setTool('fuse')} />
+        <IconTool icon={<ConnectorIcon />} label="Emenda por conector / acoplador (C): soma a perda de conector no orçamento" text="Conector" active={tool === 'connector'} onClick={() => setTool('connector')} />
+        <IconTool icon={<MoveHorizontal size={16} />} label="Passagem sem fusão (P): a fibra atravessa a caixa sem emenda e sem perda" text="Passagem" active={tool === 'pass'} onClick={() => setTool('pass')} />
+        <IconTool icon={<Triangle size={15} className="-rotate-90" />} label="Adicionar splitter (S)" text="Splitter" onClick={() => setDialog('splitter')} />
+        {isPop && <IconTool icon={<Server size={16} />} label="Adicionar OLT" text="OLT" onClick={() => setDialog('olt')} />}
+        {isPop && <IconTool icon={<SquareStack size={16} />} label="Adicionar DIO" text="DIO" onClick={() => setDialog('dio')} />}
+        <IconTool icon={<Wand2 size={16} />} label="Auto-fusão: funde as fibras em sequência entre dois cabos" onClick={() => setDialog('auto')} />
+        <Sep />
+        <IconTool icon={<RotateCw size={16} />} label="Girar o selecionado (R): cabo troca de lado, splitter espelha" onClick={rotateSelected} disabled={!selBlock || (selBlock.kind !== 'cable' && selBlock.kind !== 'splitter')} />
+        <IconTool icon={<Copy size={16} />} label="Duplicar splitter (Ctrl+D)" onClick={duplicateSelected} disabled={selBlock?.kind !== 'splitter'} />
+        <IconTool
+          icon={<Trash2 size={16} />}
+          label={selConn ? (selConn.pass ? 'Apagar passagem (Delete)' : 'Apagar emenda (Delete)') : selBlock?.kind === 'cable' ? 'Apagar as emendas deste cabo (Delete)' : 'Apagar o selecionado (Delete)'}
+          onClick={removeSelected}
+          disabled={!selected}
+          danger
+        />
+        <IconTool icon={<Eraser size={16} />} label="Limpar todas as emendas e passagens" onClick={clearConnections} disabled={!validConnections.length} danger />
+        <Sep />
+        <IconTool icon={<LayoutGrid size={16} />} label="Organizar: cabos lado a lado e splitters acima" onClick={organize} />
+        <IconTool
+          icon={<Spline size={16} />}
+          label={route === 'ortho' ? 'Rotas em ângulo reto (clique para curvas)' : 'Rotas em curva (clique para ângulo reto)'}
+          active={route === 'curve'}
+          onClick={() => changeRoute(route === 'ortho' ? 'curve' : 'ortho')}
+        />
+        <IconTool icon={<Activity size={16} />} label="Mostrar potência (dBm) nas saídas" active={showPower} onClick={() => setShowPower((v) => !v)} />
+        <IconTool icon={<Keyboard size={16} />} label="Atalhos do teclado (?)" active={showHelp} onClick={() => setShowHelp((v) => !v)} />
+        <div className="ml-auto flex items-center gap-1">
+          <IconTool icon={<Image size={16} />} label="Exportar unifilar em PNG" text="PNG" onClick={exportPng} />
         </div>
       </div>
 
@@ -453,11 +733,14 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
               {validConnections.map((c) => {
                 const a = portOf(c.a)!;
                 const b = portOf(c.b)!;
-                const cablePort = [a, b].find((p) => p.end.c.startsWith('c') && p.end.p.startsWith('f'));
-                const color = cablePort?.color ?? '#475569';
-                const dx = Math.max(40, Math.abs(b.x - a.x) / 2);
-                const d = `M${a.x},${a.y} C${a.x + a.dir * dx},${a.y} ${b.x + b.dir * dx},${b.y} ${b.x},${b.y}`;
+                const aCable = isCablePort(a);
+                const cablePort = aCable ? a : isCablePort(b) ? b : undefined;
+                const color = cablePort?.color ?? '#334155';
+                const pts = routes.get(c.id);
+                const d = pts ? polylinePath(pts) : curvePath(a, b);
                 const isSel = selected?.kind === 'conn' && selected.key === c.id;
+                // Emenda desenhada sobre a fibra, perto da ponta do cabo (fibras vizinhas ficam em coluna).
+                const splice = !c.pass ? (pts ? spliceAnchor(pts, aCable || !cablePort ? 'a' : 'b') : { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, vertical: false }) : null;
                 return (
                   <g
                     key={c.id}
@@ -469,11 +752,42 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                     }}
                   >
                     <path d={d} fill="none" stroke="transparent" strokeWidth={10} />
-                    <path d={d} fill="none" stroke={isSel ? '#facc15' : '#0f172a'} strokeWidth={isSel ? 6 : 4} strokeOpacity={isSel ? 1 : 0.55} />
-                    <path d={d} fill="none" stroke={color} strokeWidth={2.4} strokeDasharray={c.pass ? '6 4' : undefined} />
+                    <path d={d} fill="none" stroke={isSel ? '#facc15' : '#0f172a'} strokeWidth={isSel ? 6 : 4} strokeOpacity={isSel ? 1 : 0.55} strokeLinejoin="round" />
+                    <path d={d} fill="none" stroke={color} strokeWidth={2.4} strokeDasharray={c.pass ? '6 4' : undefined} strokeLinejoin="round" />
+                    {splice && (c.joint === 'connector' ? <ConnectorMark x={splice.x} y={splice.y} vertical={splice.vertical} selected={isSel} /> : <SpliceMark x={splice.x} y={splice.y} vertical={splice.vertical} selected={isSel} />)}
                   </g>
                 );
               })}
+
+              {/* Ajuste do traçado em 90°: arraste a pista vertical da fibra selecionada. */}
+              {selConn &&
+                !readOnly &&
+                (() => {
+                  const pts = routes.get(selConn.id);
+                  const seg = pts && laneSegment(pts);
+                  if (!seg) return null;
+                  const my = (seg.y1 + seg.y2) / 2;
+                  return (
+                    <g
+                      className="cursor-ew-resize"
+                      onPointerDown={(e) => {
+                        if (e.button !== 0) return;
+                        e.stopPropagation();
+                        drag.current = { lane: selConn.id, sx: e.clientX, sy: e.clientY, ox: seg.x, oy: 0, moved: false };
+                        (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        resetLane(selConn.id);
+                      }}
+                    >
+                      <title>Arraste para ajustar o traçado (duplo clique volta ao automático)</title>
+                      <line x1={seg.x} y1={seg.y1} x2={seg.x} y2={seg.y2} stroke="transparent" strokeWidth={12} />
+                      <rect x={seg.x - 7} y={my - 11} width={14} height={22} rx={4} fill="#ffffff" stroke="#eab308" strokeWidth={2} />
+                      <path d={`M${seg.x - 3.5},${my - 4} l-2,4 l2,4 M${seg.x + 3.5},${my - 4} l2,4 l-2,4`} fill="none" stroke="#0f172a" strokeWidth={1.3} />
+                    </g>
+                  );
+                })()}
 
               {/* Blocos */}
               {blocks.map((b) => (
@@ -489,17 +803,54 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
               {ports.map((p) => {
                 const isPending = pending && sameEnd(pending, p.end);
                 const linked = !!connectedTo(p.end);
+                const cablePort = isCablePort(p);
                 return (
                   <g key={`${p.end.c}:${p.end.p}`} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => clickPort(e, p)} className="cursor-pointer">
+                    <title>{describe(p.end)}</title>
                     <circle cx={p.x} cy={p.y} r={8} fill="transparent" />
-                    <circle
-                      cx={p.x}
-                      cy={p.y}
-                      r={isPending ? 6 : 4.5}
-                      fill={p.end.c.startsWith('c') ? p.color : linked ? '#0f172a' : '#ffffff'}
-                      stroke={isPending ? '#facc15' : '#0f172a'}
-                      strokeWidth={isPending ? 2.5 : 1.2}
-                    />
+                    {p.connector ? (
+                      <rect
+                        x={p.x - (isPending ? 5.5 : 4.5)}
+                        y={p.y - (isPending ? 5.5 : 4.5)}
+                        width={isPending ? 11 : 9}
+                        height={isPending ? 11 : 9}
+                        rx={1.5}
+                        fill={linked ? '#15803d' : '#4ade80'}
+                        stroke={isPending ? '#facc15' : '#14532d'}
+                        strokeWidth={isPending ? 2.5 : 1}
+                      />
+                    ) : (
+                      <circle
+                        cx={p.x}
+                        cy={p.y}
+                        r={isPending ? 7 : cablePort ? 5.6 : 4.5}
+                        fill={cablePort ? p.color : linked ? '#0f172a' : '#ffffff'}
+                        stroke={isPending ? '#facc15' : '#0f172a'}
+                        strokeWidth={isPending ? 2.5 : 1.2}
+                      />
+                    )}
+                    {cablePort && (
+                      <text x={p.x} y={p.y + 2.2} fontSize={6.2} fontWeight="bold" textAnchor="middle" fill={textOn(p.color)} className="pointer-events-none">
+                        {p.label}
+                      </text>
+                    )}
+                    {/* Número da derivação (saída) do splitter. */}
+                    {p.end.p.startsWith('o') && !cablePort && (
+                      <text
+                        x={p.vdir ? p.x + 4 : p.x + p.dir * 7}
+                        y={p.vdir ? p.y + p.vdir * 8 + (p.vdir > 0 ? 3 : 0) : p.y - 3.5}
+                        fontSize={6.5}
+                        fontWeight="bold"
+                        textAnchor={p.vdir ? 'start' : p.dir > 0 ? 'start' : 'end'}
+                        fill="#1e3a8a"
+                        stroke="#f1f5f9"
+                        strokeWidth={2}
+                        paintOrder="stroke"
+                        className="pointer-events-none"
+                      >
+                        {p.label}
+                      </text>
+                    )}
                   </g>
                 );
               })}
@@ -512,12 +863,15 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   const port = portOf({ c, p });
                   if (!port) return null;
                   const color = POWER_COLORS[powerLevel(r.power, network.settings)];
+                  const vx = port.vdir ? port.x - 4 : port.x + port.dir * 17;
+                  const vy = port.vdir ? port.y + port.vdir * 9 + (port.vdir > 0 ? 3 : 0) : port.y - 3;
                   return (
                     <text
                       key={key}
-                      x={port.x + 9}
-                      y={port.y - 3}
-                      fontSize={8.5}
+                      x={vx}
+                      y={vy}
+                      textAnchor={port.vdir ? 'end' : port.dir > 0 ? 'start' : 'end'}
+                      fontSize={port.vdir ? 7 : 8.5}
                       fill={color}
                       fontWeight="bold"
                       stroke="#f1f5f9"
@@ -565,6 +919,87 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
               )}
             </div>
             {!pendingPower.ok && pendingPower.error && <div className="text-xs text-slate-500 mt-1">{pendingPower.error}</div>}
+          </div>
+        )}
+        {selConn && !pendingPort && (
+          <div className="absolute left-3 bottom-3 panel px-4 py-3 text-sm max-w-sm">
+            <div className="text-xs text-slate-400">
+              {selConn.pass ? 'Passagem (sem fusão, sem perda)' : selConn.joint === 'connector' ? 'Emenda por conector / acoplador' : 'Emenda por fusão'}
+            </div>
+            <div className="mt-1">{describe(selConn.a)}</div>
+            <div className="text-slate-400 text-xs">↕</div>
+            <div>{describe(selConn.b)}</div>
+            {!readOnly && (
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                {(
+                  [
+                    ['fuse', 'Fusão'],
+                    ['connector', 'Conector'],
+                    ['pass', 'Passagem'],
+                  ] as const
+                ).map(([k, label]) => {
+                  const cur = selConn.pass ? 'pass' : selConn.joint === 'connector' ? 'connector' : 'fuse';
+                  return (
+                    <button
+                      key={k}
+                      disabled={cur === k}
+                      className={cur === k ? 'text-slate-500' : 'text-emerald-400 hover:underline cursor-pointer'}
+                      onClick={() =>
+                        update((d) => ({
+                          ...d,
+                          connections: d.connections.map((c) => {
+                            if (c.id !== selConn.id) return c;
+                            const { pass: _p, joint: _j, ...rest } = c;
+                            return k === 'pass' ? { ...rest, pass: true } : k === 'connector' ? { ...rest, joint: 'connector' as const } : rest;
+                          }),
+                        }))
+                      }
+                    >
+                      {cur === k ? `✓ ${label}` : label}
+                    </button>
+                  );
+                })}
+                {selConn.lane !== undefined && (
+                  <button className="text-sky-400 hover:underline cursor-pointer" onClick={() => resetLane(selConn.id)}>
+                    Traçado automático
+                  </button>
+                )}
+                <button className="text-red-400 hover:underline cursor-pointer" onClick={removeSelected}>
+                  Apagar
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        {showHelp && (
+          <div className="absolute right-14 top-3 panel px-4 py-3 text-xs w-80">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-semibold text-sm">Atalhos do teclado</span>
+              <button onClick={() => setShowHelp(false)} className="text-slate-400 hover:text-white cursor-pointer" aria-label="Fechar atalhos">
+                <X size={14} />
+              </button>
+            </div>
+            <table className="w-full">
+              <tbody>
+                {[
+                  ['F', 'Ferramenta Emenda (fusão)'],
+                  ['C', 'Ferramenta Conector / acoplador'],
+                  ['P', 'Ferramenta Passagem (sem fusão)'],
+                  ['S', 'Adicionar splitter'],
+                  ['R', 'Girar o selecionado'],
+                  ['Ctrl+D', 'Duplicar splitter'],
+                  ['Delete', 'Apagar o selecionado'],
+                  ['Ctrl+Z / Ctrl+Y', 'Desfazer / refazer'],
+                  ['Esc', 'Cancelar seleção'],
+                  ['Roda do mouse', 'Zoom'],
+                ].map(([k, v]) => (
+                  <tr key={k}>
+                    <td className="py-0.5 pr-2 font-mono text-emerald-400 whitespace-nowrap">{k}</td>
+                    <td className="py-0.5 text-slate-300">{v}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
         {cables.length === 0 && diagram.components.length === 0 && (
@@ -641,28 +1076,94 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   );
 }
 
-function ToolButton({
+/** Botão da barra de ferramentas (ícone com dica; texto opcional em telas largas). */
+function IconTool({
   icon,
   label,
+  text,
   onClick,
   active,
   danger,
+  disabled,
 }: {
   icon: React.ReactNode;
   label: string;
+  text?: string;
   onClick: () => void;
   active?: boolean;
   danger?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs cursor-pointer ${
-        danger ? 'bg-red-600/90 hover:bg-red-500' : active ? 'bg-emerald-600' : 'bg-slate-800 hover:bg-slate-700'
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      className={`flex items-center gap-1.5 h-8 min-w-8 justify-center rounded-md border px-2 text-xs font-medium transition-colors ${
+        disabled
+          ? 'border-transparent text-slate-300 cursor-not-allowed'
+          : active
+            ? 'border-emerald-600 bg-emerald-600 text-white cursor-pointer'
+            : danger
+              ? 'border-slate-200 bg-white text-slate-600 hover:border-red-300 hover:bg-red-50 hover:text-red-600 cursor-pointer'
+              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100 cursor-pointer'
       }`}
     >
-      {icon} {label}
+      {icon}
+      {text && <span className="hidden lg:inline">{text}</span>}
     </button>
+  );
+}
+
+function Sep() {
+  return <div className="mx-1 h-5 w-px bg-slate-200" />;
+}
+
+/** Ícone da emenda (protetor de fusão) para a barra de ferramentas. */
+function SpliceIcon() {
+  return (
+    <svg width={18} height={16} viewBox="0 0 18 16" fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden>
+      <line x1={0} y1={8} x2={18} y2={8} />
+      <rect x={4} y={5} width={10} height={6} rx={3} fill="currentColor" fillOpacity={0.15} />
+      <circle cx={7} cy={8} r={1.3} fill="currentColor" />
+      <circle cx={11} cy={8} r={1.3} fill="currentColor" />
+    </svg>
+  );
+}
+
+/** Ícone do conector/acoplador para a barra de ferramentas. */
+function ConnectorIcon() {
+  return (
+    <svg width={18} height={16} viewBox="0 0 18 16" fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden>
+      <line x1={0} y1={8} x2={4} y2={8} />
+      <line x1={14} y1={8} x2={18} y2={8} />
+      <rect x={4} y={4.5} width={4.5} height={7} rx={1} fill="currentColor" fillOpacity={0.25} />
+      <rect x={9.5} y={4.5} width={4.5} height={7} rx={1} fill="currentColor" fillOpacity={0.25} />
+    </svg>
+  );
+}
+
+/** Conector/acoplador desenhado sobre a fibra: dois conectores encaixados num adaptador. */
+function ConnectorMark({ x, y, vertical, selected }: { x: number; y: number; vertical: boolean; selected: boolean }) {
+  return (
+    <g transform={`translate(${x},${y})${vertical ? ' rotate(90)' : ''}`} className="pointer-events-none">
+      <rect x={-8} y={-4.5} width={7} height={9} rx={1.2} fill={selected ? '#fde047' : '#3b82f6'} stroke="#1f2937" strokeWidth={1} />
+      <rect x={1} y={-4.5} width={7} height={9} rx={1.2} fill={selected ? '#fde047' : '#22c55e'} stroke="#1f2937" strokeWidth={1} />
+      <rect x={-2} y={-6} width={4} height={12} rx={1} fill="#e5e7eb" stroke="#1f2937" strokeWidth={0.9} />
+    </g>
+  );
+}
+
+/** Emenda desenhada sobre a fibra: protetor (tubete) cinza com as duas pontas fundidas. */
+function SpliceMark({ x, y, vertical, selected }: { x: number; y: number; vertical: boolean; selected: boolean }) {
+  return (
+    <g transform={`translate(${x},${y})${vertical ? ' rotate(90)' : ''}`} className="pointer-events-none">
+      <rect x={-8} y={-3.6} width={16} height={7.2} rx={3.6} fill={selected ? '#fde047' : '#9ca3af'} stroke="#1f2937" strokeWidth={1} />
+      <circle cx={-3.4} cy={0} r={1.9} fill="#ffffff" stroke="#1f2937" strokeWidth={0.8} />
+      <circle cx={3.4} cy={0} r={1.9} fill="#ffffff" stroke="#1f2937" strokeWidth={0.8} />
+    </g>
   );
 }
 
@@ -673,22 +1174,43 @@ function BlockView({ block: b, selected, onPointerDown }: { block: Block; select
 
   if (b.kind === 'splitter') {
     const m = splitterModel(b.model);
+    const g = splitterFrame(b);
+    // Desenho sem rotação (ponta = entrada à esquerda, base = saídas à direita), girado em torno do centro.
+    const n = m.outputs;
+    const top = b.y + (h - n * ROW) / 2;
+    const baseX = b.x + w;
+    const outX = baseX + (m.connectorized ? CONN_W : 0);
+    const labelW = (b.name || m.name).length * 5 + 12;
+    const vertical = g.rot === 90 || g.rot === 270;
+    // Rótulo abaixo do splitter; girado 90°/270°, fica ao lado (embaixo/em cima estão as portas).
+    const lx = vertical ? g.box.x + g.box.w + 10 + labelW / 2 : g.cx;
+    const ly = vertical ? g.cy - 6.5 : g.box.y + g.box.h + 4;
     return (
       <g onPointerDown={onPointerDown} className="cursor-move">
-        <path
-          d={`M${b.x},${b.y + h / 2} L${b.x + w},${b.y} L${b.x + w},${b.y + h} Z`}
-          fill="#64748b"
-          stroke={selected ? '#eab308' : '#334155'}
-          strokeWidth={sw + 0.5}
-        />
-        <text x={b.x + w / 2} y={b.y + h + 12} fontSize={9} textAnchor="middle" fill="#334155" fontWeight="bold">
+        {selected && <rect x={g.box.x - 8} y={g.box.y - 8} width={g.box.w + 16} height={g.box.h + 16} rx={6} fill="#fef9c3" stroke="#eab308" strokeDasharray="4 3" />}
+        <g transform={g.rot ? `rotate(${g.rot} ${g.cx} ${g.cy})` : undefined}>
+          {/* Splitter conectorizado: leque da base até os conectores das saídas. */}
+          {m.connectorized &&
+            Array.from({ length: n }, (_, i) => (
+              <line key={i} x1={baseX + 3} y1={b.y + h / 2} x2={outX} y2={top + (i + 0.5) * ROW} stroke="#1f2937" strokeWidth={1.1} />
+            ))}
+          <path
+            d={`M${b.x},${b.y + h / 2} L${baseX},${b.y} L${baseX},${b.y + h} Z`}
+            fill="#6b7280"
+            stroke={selected ? '#eab308' : '#1f2937'}
+            strokeWidth={sw + 0.5}
+            strokeLinejoin="round"
+          />
+        </g>
+        <rect x={lx - labelW / 2} y={ly} width={labelW} height={13} rx={3} fill="#ffffff" stroke="#cbd5e1" strokeWidth={0.6} />
+        <text x={lx} y={ly + 9.5} fontSize={8} textAnchor="middle" fill="#0f172a" fontWeight="bold">
           {b.name || m.name}
         </text>
       </g>
     );
   }
 
-  const title = b.kind === 'cable' ? b.cable.name : b.name;
+  const title = b.kind === 'cable' ? `${b.cable.name} (${b.letter})` : b.name;
   const subtitle =
     b.kind === 'cable'
       ? `${b.cable.fiber_count} fibras · ${b.label}`
