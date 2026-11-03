@@ -17,6 +17,7 @@ import {
   Trash2,
   Triangle,
   Undo2,
+  UserRound,
   Wand2,
   X,
   ZoomIn,
@@ -29,10 +30,13 @@ import { DIO_SIZES, OLT_MODELS, SPLITTER_MODELS, STATUSES, fiberColor, splitterM
 import { cableLetter, curvePath, laneSegment, polylinePath, routeOrthogonal, spliceAnchor, textOn, type Pt } from '../lib/splice';
 import { TRAY_CAPACITIES, cableRows, rowsHeight, trayPorts, type CableRow, pruneTrays, toggleTube, trayOfConnection, trayOfFiber, trayUsage, tubeCount, tubeFibers, tubeKey } from '../lib/tray';
 import type { Cable, Connection, Diagram, DiagramComponent, End, NetNode, Network, SpliceTray, Status } from '../lib/types';
+import { distance } from '../lib/geo';
 import { Field, Modal } from './ui';
 
 const ROW = 14;
 const HEADER = 34;
+const CLIENT_W = 150;
+const CLIENT_H = 46;
 const CABLE_W = 150;
 const BOX_W = 130;
 const SPLIT_W = 56;
@@ -85,6 +89,8 @@ function blockSize(b: Block): { w: number; h: number } {
     case 'dio':
     case 'active':
       return { w: BOX_W, h: HEADER + b.ports * ROW + 6 };
+    case 'client':
+      return { w: CLIENT_W, h: CLIENT_H };
   }
 }
 
@@ -151,6 +157,9 @@ function blockPorts(b: Block): Port[] {
     case 'active':
       // Equipamentos ativos só existem no editor de POP.
       return [];
+    case 'client':
+      // Uma porta só (a fibra que chega no cliente), na lateral esquerda; girado, na direita.
+      return [{ end: { c: b.key, p: 'in' }, x: b.flip ? b.x + w : b.x, y: b.y + h / 2, dir: (b.flip ? 1 : -1) as 1 | -1, color: '#0f766e', label: '' }];
   }
 }
 
@@ -205,8 +214,10 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const [view, setView] = useState({ x: 40, y: 40, k: 1 });
   const [pending, setPending] = useState<End | null>(null);
   const [selected, setSelected] = useState<{ kind: 'conn' | 'block' | 'tray'; key: string } | null>(null);
-  const [dialog, setDialog] = useState<'splitter' | 'olt' | 'dio' | 'auto' | 'trays' | 'trayEdit' | null>(null);
+  const [dialog, setDialog] = useState<'splitter' | 'olt' | 'dio' | 'auto' | 'trays' | 'trayEdit' | 'client' | null>(null);
   const [trayFocus, setTrayFocus] = useState<string | null>(null);
+  /** Cliente em edição na janela de cliente (null = novo cliente). */
+  const [clientEdit, setClientEdit] = useState<string | null>(null);
   const [showPower, setShowPower] = useState(true);
   const [tool, setTool] = useState<Tool>('fuse');
   const [route, setRoute] = useState<RouteStyle>(() => {
@@ -355,6 +366,13 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     return map;
   }, [diagram, liveNetwork, node.id, showPower]);
 
+  // Potência que chega em cada cliente do diagrama.
+  const clientPower = useMemo(() => {
+    const map = new Map<string, BudgetResult>();
+    diagram.components.filter((c) => c.kind === 'client').forEach((c) => map.set(c.id, traceUpstream(liveNetwork, node.id, { c: c.id, p: 'in' })));
+    return map;
+  }, [diagram, liveNetwork, node.id]);
+
   // ---------- Interação ----------
   const toWorld = (clientX: number, clientY: number) => {
     const r = svgRef.current!.getBoundingClientRect();
@@ -482,11 +500,13 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   function rotateSelected() {
     const b = selected?.kind === 'block' ? blocks.find((x) => x.key === selected.key) : undefined;
     if (!b) {
-      setError('Selecione um cabo ou splitter para girar.');
+      setError('Selecione um cabo, splitter ou cliente para girar.');
       return;
     }
     if (b.kind === 'cable') {
       update((d) => ({ ...d, cablePos: { ...d.cablePos, [b.key]: { x: b.x, y: b.y, side: b.side === 'left' ? 'right' : 'left' } } }));
+    } else if (b.kind === 'client') {
+      update((d) => ({ ...d, components: d.components.map((c) => (c.id === b.key && c.kind === 'client' ? { ...c, flip: !c.flip } : c)) }));
     } else if (b.kind === 'splitter') {
       // Gira 90° no sentido horário a cada clique.
       update((d) => ({ ...d, components: d.components.map((c) => (c.id === b.key && c.kind === 'splitter' ? { ...c, rot: (((c.rot ?? 0) + 90) % 360) } : c)) }));
@@ -535,6 +555,14 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       const h = blockSize({ ...c, key: c.id }).h;
       pos.set(c.id, { x: CABLE_W + 60 + i * (SPLIT_W + CONN_W + 90), y: -60 - maxH + (maxH - h) / 2 });
     });
+    // Clientes numa coluna à direita dos cabos da direita, com a porta virada para o diagrama.
+    let cy = -60 - maxH;
+    diagram.components
+      .filter((c) => c.kind === 'client')
+      .forEach((c) => {
+        pos.set(c.id, { x: CABLE_W * 2 + gapX + 90, y: cy });
+        cy += CLIENT_H + 16;
+      });
     // Bandejas empilhadas abaixo dos cabos, no meio: as linhas dos tubos chegam pelos dois lados sem cruzar cartões.
     let trayY = Math.max(ly, ry) + 20;
     const trayX = (CABLE_W + gapX + CABLE_W) / 2 - TRAY_W / 2;
@@ -550,7 +578,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       ...d,
       trays: d.trays?.map((t) => ({ ...t, ...trayPos.get(t.id) })),
       cablePos,
-      components: d.components.map((c) => (pos.has(c.id) ? { ...c, ...pos.get(c.id)! } : c)),
+      components: d.components.map((c) => (pos.has(c.id) ? { ...c, ...pos.get(c.id)!, ...(c.kind === 'client' ? { flip: false } : {}) } : c)),
       connections: d.connections.map(({ lane: _l, ...c }) => c),
     }));
     setTimeout(fit, 30);
@@ -642,6 +670,10 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       else if (e.key === 'c' || e.key === 'C') setTool('connector');
       else if (e.key === 's' || e.key === 'S') setDialog('splitter');
       else if (e.key === 'b' || e.key === 'B') setDialog('trays');
+      else if ((e.key === 'k' || e.key === 'K') && !isPop) {
+        setClientEdit(null);
+        setDialog('client');
+      }
       else if (e.key === '?') setShowHelp((v) => !v);
       if (e.key === 'Escape') {
         setPending(null);
@@ -705,6 +737,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       return `Cabo ${b.letter} · FO ${e.p.slice(1)} ${fiberColor(Number(e.p.slice(1)), b.cable.fibers_per_tube).name}${t ? ` · ${t.name}` : ''}`;
     }
     if (b.kind === 'splitter') return `${b.name || splitterModel(b.model).name} · ${e.p === 'in' ? 'entrada' : `saída ${e.p.slice(1)}`}`;
+    if (b.kind === 'client') return `Cliente ${b.name}`;
     return `${b.name} · ${e.p}`;
   };
 
@@ -824,6 +857,17 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         <IconTool icon={<ConnectorIcon />} label="Emenda por conector / acoplador (C): soma a perda de conector no orçamento" text="Conector" active={tool === 'connector'} onClick={() => setTool('connector')} />
         <IconTool icon={<MoveHorizontal size={16} />} label="Passagem sem fusão (P): a fibra atravessa a caixa sem emenda e sem perda" text="Passagem" active={tool === 'pass'} onClick={() => setTool('pass')} />
         <IconTool icon={<Triangle size={15} className="-rotate-90" />} label="Adicionar splitter (S)" text="Splitter" onClick={() => setDialog('splitter')} />
+        {!isPop && (
+          <IconTool
+            icon={<UserRound size={16} />}
+            label="Adicionar cliente (K): ligue uma saída de splitter (ou fibra) ao cliente"
+            text="Cliente"
+            onClick={() => {
+              setClientEdit(null);
+              setDialog('client');
+            }}
+          />
+        )}
         {isPop && <IconTool icon={<Server size={16} />} label="Adicionar OLT" text="OLT" onClick={() => setDialog('olt')} />}
         {isPop && <IconTool icon={<SquareStack size={16} />} label="Adicionar DIO" text="DIO" onClick={() => setDialog('dio')} />}
         <IconTool icon={<Wand2 size={16} />} label="Auto-fusão: funde as fibras em sequência entre dois cabos" onClick={() => setDialog('auto')} />
@@ -837,7 +881,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
           }}
         />
         <Sep />
-        <IconTool icon={<RotateCw size={16} />} label="Girar o selecionado (R): cabo troca de lado, splitter espelha" onClick={rotateSelected} disabled={!selBlock || (selBlock.kind !== 'cable' && selBlock.kind !== 'splitter')} />
+        <IconTool icon={<RotateCw size={16} />} label="Girar o selecionado (R): cabo e cliente trocam de lado, splitter gira 90°" onClick={rotateSelected} disabled={!selBlock || (selBlock.kind !== 'cable' && selBlock.kind !== 'splitter' && selBlock.kind !== 'client')} />
         <IconTool icon={<Copy size={16} />} label="Duplicar splitter (Ctrl+D)" onClick={duplicateSelected} disabled={selBlock?.kind !== 'splitter'} />
         <IconTool
           icon={<Trash2 size={16} />}
@@ -966,6 +1010,17 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   block={b}
                   selected={selected?.kind === 'block' && selected.key === b.key}
                   onPointerDown={(e) => onPointerDown(e, b.key)}
+                  power={b.kind === 'client' ? clientPower.get(b.key) : undefined}
+                  powerColor={b.kind === 'client' ? POWER_COLORS[powerLevel(clientPower.get(b.key)?.power ?? null, network.settings)] : undefined}
+                  linkedName={b.kind === 'client' && b.node_id ? network.nodes.find((n) => n.id === b.node_id)?.name : undefined}
+                  onDoubleClick={
+                    b.kind === 'client' && !readOnly
+                      ? () => {
+                          setClientEdit(b.key);
+                          setDialog('client');
+                        }
+                      : undefined
+                  }
                 />
               ))}
 
@@ -1206,6 +1261,52 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
             )}
           </div>
         )}
+        {selBlock?.kind === 'client' && !selConn && !pendingPort && (
+          <div className="absolute left-3 bottom-3 panel px-4 py-3 text-sm max-w-sm">
+            <div className="text-xs text-slate-400">Cliente</div>
+            <div className="font-semibold">{selBlock.name}</div>
+            {(() => {
+              const r = clientPower.get(selBlock.key);
+              const linked = selBlock.node_id ? network.nodes.find((n) => n.id === selBlock.node_id) : undefined;
+              return (
+                <>
+                  {linked && <div className="text-xs text-sky-300">Vinculado ao cliente do mapa: {linked.name}</div>}
+                  {r?.ok ? (
+                    <div className="text-xs mt-1">
+                      <span className="font-semibold" style={{ color: POWER_COLORS[powerLevel(r.power, network.settings)] }}>
+                        {r.power!.toFixed(2)} dBm
+                      </span>{' '}
+                      <span className="text-slate-400">
+                        · perda {r.totalLoss.toFixed(2)} dB · {r.source}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500 mt-1">{r?.error ?? 'Sem fibra ligada.'}</div>
+                  )}
+                </>
+              );
+            })()}
+            {!readOnly && (
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                <button
+                  className="text-emerald-400 hover:underline cursor-pointer"
+                  onClick={() => {
+                    setClientEdit(selBlock.key);
+                    setDialog('client');
+                  }}
+                >
+                  Editar
+                </button>
+                <button className="text-sky-400 hover:underline cursor-pointer" onClick={rotateSelected}>
+                  Trocar lado da porta
+                </button>
+                <button className="text-red-400 hover:underline cursor-pointer" onClick={removeSelected}>
+                  Apagar
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         {showHelp && (
           <div className="absolute right-14 top-3 panel px-4 py-3 text-xs w-80">
             <div className="flex items-center justify-between mb-2">
@@ -1222,6 +1323,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   ['P', 'Ferramenta Passagem (sem fusão)'],
                   ['S', 'Adicionar splitter'],
                   ['B', 'Bandejas e tubos loose'],
+                  ['K', 'Adicionar cliente'],
                   ['R', 'Girar o selecionado'],
                   ['Ctrl+D', 'Duplicar splitter'],
                   ['Delete', 'Apagar o selecionado'],
@@ -1304,6 +1406,39 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
           onCreate={(c) => addComponent(c)}
         />
       )}
+      {dialog === 'client' &&
+        (() => {
+          const editing = diagram.components.find((c): c is Extract<DiagramComponent, { kind: 'client' }> => c.id === clientEdit && c.kind === 'client');
+          // Clientes do mapa já vinculados a outro cliente de diagrama (nesta ou em outra caixa).
+          const used = new Set<number>();
+          liveNetwork.nodes.forEach((n) =>
+            n.diagram?.components.forEach((c) => {
+              if (c.kind === 'client' && c.node_id && c.id !== editing?.id) used.add(c.node_id);
+            }),
+          );
+          const options = network.nodes
+            .filter((n) => n.type === 'client')
+            .map((n) => ({ id: n.id, name: n.name, m: distance([node.lat, node.lng], [n.lat, n.lng]), used: used.has(n.id) }))
+            .sort((a, b) => a.m - b.m);
+          return (
+            <ClientDialog
+              initial={editing}
+              count={diagram.components.filter((c) => c.kind === 'client').length}
+              options={options}
+              onClose={() => setDialog(null)}
+              onSave={(name, nodeId) => {
+                if (editing) {
+                  update((d) => ({ ...d, components: d.components.map((c) => (c.id === editing.id && c.kind === 'client' ? { ...c, name, node_id: nodeId } : c)) }));
+                  setDialog(null);
+                } else {
+                  const id = uid();
+                  addComponent({ id, kind: 'client', name, node_id: nodeId, x: 0, y: 0 });
+                  setSelected({ kind: 'block', key: id });
+                }
+              }}
+            />
+          );
+        })()}
       {dialog === 'dio' && (
         <DioDialog count={diagram.components.filter((c) => c.kind === 'dio').length} onClose={() => setDialog(null)} onCreate={(c) => addComponent(c)} />
       )}
@@ -1485,15 +1620,52 @@ function BlockView({
   selected,
   showTubes,
   onPointerDown,
+  onDoubleClick,
+  power,
+  powerColor,
+  linkedName,
 }: {
   block: Block;
   selected: boolean;
   showTubes?: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
+  onDoubleClick?: () => void;
+  /** Cliente: potência que chega nele. */
+  power?: BudgetResult;
+  powerColor?: string;
+  /** Cliente: nome do cliente do mapa vinculado. */
+  linkedName?: string;
 }) {
   const { w, h } = blockSize(b);
   const stroke = selected ? '#eab308' : '#94a3b8';
   const sw = selected ? 2.5 : 1;
+
+  if (b.kind === 'client') {
+    const name = b.name.length > 20 ? `${b.name.slice(0, 19)}…` : b.name;
+    const ok = power?.ok && power.power !== null;
+    const sub = ok ? `${power!.power!.toFixed(2)} dBm` : power?.steps.length ? 'sem sinal da OLT' : 'sem fibra ligada';
+    // Ícone da casa do lado oposto ao da porta.
+    const ix = b.flip ? b.x + 8 : b.x + w - 30;
+    const tx = b.flip ? b.x + 36 : b.x + 10;
+    return (
+      <g onPointerDown={onPointerDown} onDoubleClick={onDoubleClick} className="cursor-move">
+        <rect x={b.x} y={b.y} width={w} height={h} rx={6} fill="#f0fdfa" stroke={selected ? '#eab308' : '#0f766e'} strokeWidth={sw} />
+        <g transform={`translate(${ix} ${b.y + 11})`}>
+          <path d="M2 11 L11 3 L20 11 L20 22 L2 22 Z" fill="#ccfbf1" stroke="#0f766e" strokeWidth={1.4} strokeLinejoin="round" />
+          <rect x={8.5} y={14} width={5} height={8} fill="#0f766e" />
+        </g>
+        <text x={tx} y={b.y + 16} fontSize={10.5} fontWeight="bold" fill="#0f172a">
+          {name}
+        </text>
+        <text x={tx} y={b.y + 29} fontSize={9} fill={ok ? (powerColor ?? '#0f172a') : '#64748b'} fontWeight={ok ? 'bold' : 'normal'}>
+          {sub}
+        </text>
+        <text x={tx} y={b.y + 40} fontSize={8} fill="#0369a1">
+          {linkedName ? `↔ mapa: ${linkedName.length > 18 ? `${linkedName.slice(0, 17)}…` : linkedName}` : 'Cliente'}
+        </text>
+      </g>
+    );
+  }
 
   if (b.kind === 'splitter') {
     const m = splitterModel(b.model);
@@ -1688,6 +1860,61 @@ function OltDialog({
           onClick={() => onCreate({ id: uid(), kind: 'olt', name, model, slots: Math.max(1, slots), ports: Math.max(1, ports), tx_dbm: tx, x: 0, y: 0 })}
         >
           Criar OLT
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/** Novo cliente no diagrama (ou edição): nome e, se quiser, o cliente do mapa ao qual ele corresponde. */
+function ClientDialog({
+  initial,
+  count,
+  options,
+  onClose,
+  onSave,
+}: {
+  initial?: Extract<DiagramComponent, { kind: 'client' }>;
+  count: number;
+  options: { id: number; name: string; m: number; used: boolean }[];
+  onClose: () => void;
+  onSave: (name: string, nodeId: number | null) => void;
+}) {
+  const [name, setName] = useState(initial?.name ?? `Cliente ${count + 1}`);
+  const [nodeId, setNodeId] = useState<number | null>(initial?.node_id ?? null);
+  const fmt = (m: number) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`);
+  return (
+    <Modal title={initial ? 'Editar cliente' : 'Adicionar cliente'} onClose={onClose} width="max-w-sm">
+      <div className="space-y-3">
+        <Field label="Cliente do mapa (opcional)">
+          <select
+            className="input"
+            value={nodeId ?? ''}
+            onChange={(e) => {
+              const id = e.target.value ? Number(e.target.value) : null;
+              setNodeId(id);
+              const o = options.find((x) => x.id === id);
+              if (o) setName(o.name);
+            }}
+          >
+            <option value="">— Nenhum (só no diagrama) —</option>
+            {options.map((o) => (
+              <option key={o.id} value={o.id} disabled={o.used}>
+                {o.name} · {fmt(o.m)}
+                {o.used ? ' · já ligado' : ''}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Nome">
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <p className="text-xs text-slate-400">
+          Depois, ligue uma saída de splitter (ou uma fibra) à porta do cliente com Emenda ou Conector. A potência que chega nele aparece no cartão
+          {nodeId ? ' e no cliente do mapa' : ''}.
+        </p>
+        <button className="btn-primary w-full" disabled={!name.trim()} onClick={() => onSave(name.trim(), nodeId)}>
+          {initial ? 'Salvar' : 'Adicionar cliente'}
         </button>
       </div>
     </Modal>

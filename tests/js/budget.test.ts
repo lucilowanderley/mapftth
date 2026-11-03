@@ -88,4 +88,20 @@ describe('orçamento óptico', () => {
     expect(powerLevel(-5, settings)).toBe('high');
     expect(powerLevel(null, settings)).toBe('none');
   });
+
+  it('cliente no diagrama da CTO: potência na porta dele e no cliente do mapa vinculado', () => {
+    const net = network();
+    // Cliente 4 do mapa, sem cabo drop, vinculado a um cliente desenhado na CTO, ligado na saída 2 por conector.
+    net.nodes.push(node(4, 'client'));
+    const d = net.nodes[1].diagram!;
+    d.components.push({ id: 'kc', kind: 'client', name: 'Casa 4', node_id: 4, x: 0, y: 0 });
+    d.connections.push({ id: 'k9', a: { c: 's1', p: 'o2' }, b: { c: 'kc', p: 'in' }, joint: 'connector' });
+    const r = traceUpstream(net, 2, { c: 'kc', p: 'in' });
+    expect(r.ok).toBe(true);
+    expect(r.power).toBeCloseTo(5 - 0.5 - 0.1 - 0.35 - 0.1 - 10.5 - 0.5, 2);
+    expect(clientBudget(net, net.nodes[3]).power).toBeCloseTo(r.power!, 2);
+    // Sem fibra ligada: avisa.
+    d.connections = d.connections.filter((c) => c.id !== 'k9');
+    expect(traceUpstream(net, 2, { c: 'kc', p: 'in' }).error).toContain('Casa 4');
+  });
 });
