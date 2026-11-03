@@ -72,6 +72,8 @@ import OtdrModal from '../components/OtdrModal';
 import ViabilityPanel from '../components/ViabilityPanel';
 import AreaPanel from '../components/AreaPanel';
 import { groupView, loadGroups, saveGroups } from '../lib/mapgroup';
+import { useFloatPanel } from '../lib/floatpanel';
+import PanelLock from '../components/PanelLock';
 
 type Tool = 'select' | NodeType | 'cable' | 'slack' | 'ruler' | 'area' | 'viability';
 
@@ -175,7 +177,11 @@ export default function MapPage() {
   const grouped = useMemo(() => groupView(groups, nodes, cables), [groups, nodes, cables]);
   const showNode = (n: NetNode) => visible[n.type] && !grouped.hiddenNodes.has(n.id);
   const showCable = (c: Cable) => visible[c.category] && !grouped.hiddenCables.has(c.id);
+  // Caixas flutuantes com cadeado: barra de ferramentas e painel de camadas.
+  const toolbarPanel = useFloatPanel('toolbar');
+  const layersPanel = useFloatPanel('layers');
   const [elementsOpen, setElementsOpen] = useState(false);
+  const [elementsUp, setElementsUp] = useState(false);
   const elementsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!elementsOpen) return;
@@ -939,7 +945,7 @@ export default function MapPage() {
       </aside>
 
       {/* Mapa */}
-      <div className="relative flex-1 min-w-0">
+      <div className="relative flex-1 min-w-0" data-float-area>
         <MapContainer
           center={initialView ? [initialView.lat, initialView.lng] : [project.center_lat, project.center_lng]}
           zoom={initialView?.zoom ?? project.zoom}
@@ -1382,8 +1388,15 @@ export default function MapPage() {
         </MapContainer>
 
         {/* Barra de ferramentas, com o aviso e o painel de coordenadas empilhados logo abaixo dela */}
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex flex-col items-center gap-1.5 pointer-events-none max-w-[calc(100%-1.5rem)]">
-          <div className="panel flex p-1 gap-0.5 pointer-events-auto">
+        <div
+          className={`absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex flex-col ${toolbarPanel.moved ? 'items-start' : 'items-center'} gap-1.5 pointer-events-none max-w-[calc(100%-1.5rem)]`}
+          style={toolbarPanel.style}
+        >
+          <div
+            ref={toolbarPanel.boxRef}
+            onPointerDown={toolbarPanel.onPointerDown}
+            className={`panel flex p-1 gap-0.5 pointer-events-auto ${toolbarPanel.locked ? '' : 'cursor-move !border-amber-500/60'} ${toolbarPanel.dragging ? 'select-none shadow-2xl' : ''}`}
+          >
             {TOOLS.filter((t) => !readOnly || READ_TOOLS.includes(t.id)).map((t) => (
               <button
                 key={t.id}
@@ -1406,6 +1419,9 @@ export default function MapPage() {
                 {t.label}
               </button>
             ))}
+            <div className="self-start pl-0.5">
+              <PanelLock panel={toolbarPanel} vertical />
+            </div>
           </div>
 
           {toast && !overlayOpen && <Toast inline message={toast.message} kind={toast.kind} onClose={() => setToast(null)} />}
@@ -1648,10 +1664,18 @@ export default function MapPage() {
         )}
 
         {/* Camadas */}
-        <div className="absolute top-3 right-3 z-[1000] panel w-48 p-3 text-sm space-y-3">
+        <div
+          ref={layersPanel.boxRef}
+          onPointerDown={layersPanel.onPointerDown}
+          style={layersPanel.style}
+          className={`absolute top-3 right-3 z-[1000] panel w-48 p-3 text-sm space-y-3 ${layersPanel.locked ? '' : 'cursor-move !border-amber-500/60'} ${layersPanel.dragging ? 'select-none shadow-2xl' : ''}`}
+        >
           <div>
             <div className="label flex items-center gap-1">
               <Layers size={12} /> Mapa base
+              <span className="ml-auto -mr-1 -mt-1 normal-case">
+                <PanelLock panel={layersPanel} />
+              </span>
             </div>
             <div className="flex gap-1">
               {(Object.keys(MAP_STYLES) as MapStyle[]).map((k) => (
@@ -1668,10 +1692,15 @@ export default function MapPage() {
               Motor: {MAP_ENGINES[engine].label}
             </div>
           </div>
-          <div ref={elementsRef} className="relative">
+          <div ref={elementsRef}>
             <button
               type="button"
-              onClick={() => setElementsOpen((o) => !o)}
+              onClick={() => {
+                // Se a caixa foi arrastada para a parte de baixo da tela, a lista abre para cima.
+                const r = layersPanel.boxRef.current?.getBoundingClientRect();
+                setElementsUp(!!r && r.top > window.innerHeight / 2);
+                setElementsOpen((o) => !o);
+              }}
               className="label !mb-0 w-full flex items-center justify-between cursor-pointer hover:text-slate-200"
               title={elementsOpen ? 'Recolher elementos' : 'Mostrar elementos'}
               aria-expanded={elementsOpen}
@@ -1680,7 +1709,7 @@ export default function MapPage() {
               <ChevronDown size={14} className={`transition-transform ${elementsOpen ? 'rotate-180' : ''}`} />
             </button>
             {elementsOpen && (
-              <div className="panel absolute -right-3 top-full mt-3 w-48 p-3 max-h-[70vh] overflow-y-auto">
+              <div data-no-drag className={`panel absolute right-0 ${elementsUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'} w-48 p-3 max-h-[70vh] overflow-y-auto cursor-auto`}>
                 {NODE_TYPE_LIST.map((t) => (
                   <Toggle key={t} label={NODE_TYPES[t].plural} color={NODE_TYPES[t].color} on={visible[t]} onChange={(v) => setVisible({ ...visible, [t]: v })} />
                 ))}

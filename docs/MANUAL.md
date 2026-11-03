@@ -96,6 +96,9 @@ A tela tem quatro partes:
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
 
+A barra de ferramentas e o painel de camadas podem ser arrastados para outro lugar destravando o **cadeado** (veja
+**Cadeado** mais abaixo).
+
 **Mapa base** (painel da direita): clique em **Satélite**, **Ruas** ou **Relevo**. Abaixo dos botões aparece o
 **motor** de mapas em uso. O motor é escolhido em **Configurações** ([seção 21](#21-configurações-do-projeto)) e o
 padrão é o **OpenStreetMap**. O sistema lembra o último estilo e o último motor escolhidos neste navegador, mesmo
@@ -127,6 +130,15 @@ para abri-la flutuando abaixo do painel (clique de novo, fora dela ou tecle Esc 
 desliga **Datacenters, POPs, Torres, CEOs, CTOs, Condomínios, Postes, Clientes**, **Cabos backbone, distribuição e
 drop**, **Áreas**, **Enlaces wireless**, **Rótulos** (nomes) e **Confirmar ao mover**. Os nomes das caixas aparecem a partir do zoom 17 (o POP
 aparece sempre).
+
+**Cadeado (mover as caixas)**: a barra de ferramentas e o painel da direita têm um **cadeado** no canto superior
+direito. Com o cadeado **fechado** (padrão) a caixa fica fixa. Clique nele para **abrir**: o cadeado fica amarelo, a
+borda da caixa também, e você pode **arrastar a caixa** para outro lugar do mapa (segure em qualquer ponto dela,
+até sobre um botão, e arraste). Clique de novo para fechar e fixar na nova posição. Ao lado do cadeado aparece
+a **seta circular** (Posição padrão), que devolve a caixa ao lugar original. A posição e o cadeado ficam salvos
+neste navegador (valem para todos os projetos), e a caixa nunca sai da área do mapa, mesmo ao diminuir a janela.
+Quando a barra de ferramentas é movida, os avisos e os campos que aparecem logo abaixo dela vão junto. Se o painel
+da direita for levado para a metade de baixo da tela, a lista de **Elementos** abre para cima.
 
 **Buscar** (barra lateral): digite parte do nome de uma caixa, cliente ou cabo e clique no resultado; o mapa vai
 até ele e já o seleciona. Também aceita coordenadas, como `-8.0476, -34.8770` (formato do Google Maps) ou
