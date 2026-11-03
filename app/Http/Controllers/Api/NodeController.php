@@ -136,6 +136,15 @@ class NodeController extends Controller
                     $next[$k] = $k === 'onu_serial' ? strtoupper(preg_replace('/\s+/', '', $v)) : $v;
                 }
             }
+            // Sinal medido na ONU/ONT (digitado no diagrama ou recebido pela integração).
+            if (isset($c['rx_dbm']) && is_numeric($c['rx_dbm']) && $c['rx_dbm'] >= -60 && $c['rx_dbm'] <= 10) {
+                $next['rx_dbm'] = round((float) $c['rx_dbm'], 2);
+                if (! empty($c['rx_at']) && is_string($c['rx_at'])) {
+                    $next['rx_at'] = mb_substr($c['rx_at'], 0, 40);
+                }
+            } else {
+                unset($next['rx_dbm'], $next['rx_at']);
+            }
             $seg = $c['segment'] ?? null;
             if (in_array($seg, NetworkNode::CLIENT_SEGMENTS, true)) {
                 $next['segment'] = $seg;
@@ -174,6 +183,8 @@ class NodeController extends Controller
                 'attributes.client_code' => ['nullable', 'string', 'max:64'],
                 'attributes.onu_serial' => ['nullable', 'string', 'max:64'],
                 'attributes.segment' => ['nullable', Rule::in(NetworkNode::CLIENT_SEGMENTS)],
+                'attributes.rx_dbm' => ['nullable', 'numeric', 'between:-60,10'],
+                'attributes.rx_at' => ['nullable', 'date'],
             ]);
         }
         // Mesma precisão da coluna (7 casas ≈ 1 cm) para pontas de cabo e objeto coincidirem.

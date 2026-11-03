@@ -381,7 +381,8 @@ KML;
 
         $diagram = ['components' => [
             ['id' => 'kc1', 'kind' => 'client', 'name' => 'Maria', 'node_id' => $client->id, 'x' => 0, 'y' => 0,
-                'client_code' => 'CLI-0042', 'onu_serial' => 'hwtc 1a2b3c4d', 'segment' => 'business'],
+                'client_code' => 'CLI-0042', 'onu_serial' => 'hwtc 1a2b3c4d', 'segment' => 'business',
+                'rx_dbm' => -21.456, 'rx_at' => '2026-11-03T10:00:00-03:00'],
             // Cliente de outro projeto: ignorado.
             ['id' => 'kc2', 'kind' => 'client', 'name' => 'X', 'node_id' => $other->id, 'x' => 0, 'y' => 0, 'client_code' => 'NAO'],
         ], 'cablePos' => [], 'connections' => []];
@@ -395,9 +396,13 @@ KML;
         $this->assertSame('CLI-0042', $client->attributes['client_code']);
         $this->assertSame('business', $client->attributes['segment']);
         $this->assertSame('Rua A, 10', $client->attributes['address']);
+        $this->assertSame(-21.46, $client->attributes['rx_dbm']);
+        $this->assertSame('2026-11-03T10:00:00-03:00', $client->attributes['rx_at']);
         $this->assertArrayNotHasKey('client_code', $other->fresh()->attributes ?? []);
 
         // Tipo inválido direto no cliente do mapa é recusado.
         $this->actingAs($user)->putJson("/api/nodes/{$client->id}", ['attributes' => ['segment' => 'vip']])->assertUnprocessable();
+        // Sinal fora da faixa de uma ONU: recusado.
+        $this->actingAs($user)->putJson("/api/nodes/{$client->id}", ['attributes' => ['rx_dbm' => 40]])->assertUnprocessable();
     }
 }

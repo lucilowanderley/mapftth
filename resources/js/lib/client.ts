@@ -17,6 +17,9 @@ export interface ClientData {
   /** Serial da ONU/ONT (ex.: HWTC1A2B3C4D). */
   onu_serial?: string | null;
   segment?: ClientSegment | null;
+  /** Sinal medido na ONU/ONT (dBm) e quando foi medido/recebido (ISO). */
+  rx_dbm?: number | null;
+  rx_at?: string | null;
 }
 
 export const isSegment = (v: unknown): v is ClientSegment => v === 'residential' || v === 'business' || v === 'corporate';
@@ -37,6 +40,8 @@ export function clientDataOf(attrs: Record<string, unknown> | null | undefined):
     client_code: typeof a.client_code === 'string' && a.client_code ? a.client_code : null,
     onu_serial: typeof a.onu_serial === 'string' && a.onu_serial ? a.onu_serial : null,
     segment: isSegment(a.segment) ? a.segment : null,
+    rx_dbm: typeof a.rx_dbm === 'number' ? a.rx_dbm : null,
+    rx_at: typeof a.rx_at === 'string' && a.rx_at ? a.rx_at : null,
   };
 }
 

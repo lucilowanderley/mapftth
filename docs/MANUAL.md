@@ -156,8 +156,9 @@ os dois campos são preenchidos.
   para reposicionar com precisão. O ícone de mira centraliza o mapa no elemento e o ícone de copiar copia
   `latitude, longitude` para colar em outro programa.
 - **Cliente**: campo **Endereço**, **Tipo de cliente** (residencial, empresarial ou corporativo, com ícone de casa,
-  loja ou prédio no mapa), **ID do cliente** e **Serial ONU/ONT** (para integração com outros sistemas), potência na
-  ONU e os botões de drop e OTDR ([seção 9](#9-ligar-o-cliente-e-ver-o-sinal)).
+  loja ou prédio no mapa), **ID do cliente**, **Serial ONU/ONT** e **Sinal medido** (para integração com outros
+  sistemas), potência estimada na ONU, a **saúde do sinal** (medido × estimado, com o trecho provável do problema;
+  veja a seção 8, *Cliente no diagrama*) e os botões de drop e OTDR ([seção 9](#9-ligar-o-cliente-e-ver-o-sinal)).
 - **Poste**: **Código / plaqueta**, **Material**, **Altura (m)**, **Esforço (daN)**, **Distribuidora / proprietário**
   e a lista de **cabos neste poste**.
 - **Condomínio**: **Tipo** (*Casas* ou *Prédios*), número de **Casas** ou **Apartamentos**, **Quadras** ou
@@ -685,7 +686,21 @@ remove só as emendas desse cabo nesta caixa (o cabo em si se exclui no mapa).
    for o usual e se o serial já estiver em outro cliente). O ícone do cartão muda conforme o tipo.
    Com o cliente vinculado ao mapa, esses dados são gravados também no cliente do mapa ao salvar o diagrama
    (o ícone dele no mapa também muda: casa, loja ou prédio). No mapa, os mesmos campos ficam no painel do cliente.
-6. Quando o cliente do mapa **não tem cabo drop**, a potência dele no mapa (painel do cliente, análise de rede)
+6. **Sinal medido e saúde do cliente:** em **Sinal medido na ONU/ONT (dBm)** informe o valor lido na ONU/ONT
+   (no futuro ele virá do FiberControl pelo serial). O sistema compara com o sinal **estimado** pelo orçamento
+   óptico e mostra a **saúde** no cartão e ao clicar no cliente:
+   - **Saudável**: dentro do estimado (até 2 dB abaixo) e dentro dos limites da ONU;
+   - **Atenção**: de 2 a 4 dB abaixo do estimado, sinal no limite de atenção, sinal alto demais para a ONU
+     ou mais de 3 dB **acima** do estimado (sinal de que o projeto não bate com o campo);
+   - **Problema**: mais de 4 dB abaixo do estimado ou abaixo da sensibilidade da ONU.
+
+   Quando o sinal está abaixo do esperado, o sistema indica o **trecho provável do problema**: ele compara com
+   os outros clientes que têm sinal medido. Os pontos por onde passam clientes com sinal bom estão funcionando,
+   então o problema fica **depois do último ponto em comum** com eles. A lista **Pontos a verificar** mostra, da
+   OLT para o cliente, as emendas, conectores, saídas de splitter e cabos desse trecho. Se outros clientes depois
+   desse ponto também estiverem abaixo, o aviso diz isso (sinal de um ponto comum, como uma emenda da CTO).
+   Quanto mais clientes com sinal medido, mais preciso fica o trecho. A data da medição aparece junto.
+7. Quando o cliente do mapa **não tem cabo drop**, a potência dele no mapa (painel do cliente, análise de rede)
    passa a ser calculada por este caminho do diagrama.
 
 **Bandejas de emenda e tubos loose**

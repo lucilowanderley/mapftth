@@ -34,6 +34,8 @@ import { cableLetter, curvePath, laneSegment, polylinePath, routeOrthogonal, spl
 import { TRAY_CAPACITIES, cableRows, rowsHeight, trayPorts, type CableRow, pruneTrays, toggleTube, trayOfConnection, trayOfFiber, trayUsage, tubeCount, tubeFibers, tubeKey } from '../lib/tray';
 import type { Cable, Connection, Diagram, DiagramComponent, End, NetNode, Network, SpliceTray, Status } from '../lib/types';
 import { distance } from '../lib/geo';
+import { HEALTH_COLORS, HEALTH_LABEL, analyzeSignal, measuredClients, type SignalAnalysis } from '../lib/signal';
+import SignalHealthBox from './SignalHealthBox';
 import { CLIENT_SEGMENTS, SEGMENT_GLYPH, clientDataOf, looksLikeGponSerial, normalizeSerial, type ClientData, type ClientSegment } from '../lib/client';
 import { Field, Modal } from './ui';
 
@@ -222,7 +224,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       if (!n) return c;
       const cd = clientDataOf(n.attributes);
       // O cliente do mapa é a referência (o diagrama grava nele ao salvar); o tipo sem valor continua residencial.
-      return { ...c, client_code: cd.client_code, onu_serial: cd.onu_serial, segment: cd.segment ?? c.segment };
+      return { ...c, client_code: cd.client_code, onu_serial: cd.onu_serial, segment: cd.segment ?? c.segment, rx_dbm: cd.rx_dbm, rx_at: cd.rx_at };
     });
     return d;
   });
@@ -389,6 +391,20 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     diagram.components.filter((c) => c.kind === 'client').forEach((c) => map.set(c.id, traceUpstream(liveNetwork, node.id, { c: c.id, p: 'in' })));
     return map;
   }, [diagram, liveNetwork, node.id]);
+
+  // Sinal medido × estimado de cada cliente do diagrama: saúde e trecho provável do problema.
+  const clientSignal = useMemo(() => {
+    const map = new Map<string, SignalAnalysis>();
+    const peers = measuredClients(liveNetwork);
+    diagram.components.forEach((c) => {
+      if (c.kind !== 'client') return;
+      const budget = clientPower.get(c.id);
+      if (!budget) return;
+      const key = c.node_id ? `n${c.node_id}` : `d${node.id}:${c.id}`;
+      map.set(c.id, analyzeSignal(liveNetwork, { key, measured: c.rx_dbm, measuredAt: c.rx_at, budget }, peers));
+    });
+    return map;
+  }, [diagram, liveNetwork, clientPower, node.id]);
 
   // ---------- Interação ----------
   const toWorld = (clientX: number, clientY: number) => {
@@ -1028,6 +1044,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   selected={selected?.kind === 'block' && selected.key === b.key}
                   onPointerDown={(e) => onPointerDown(e, b.key)}
                   power={b.kind === 'client' ? clientPower.get(b.key) : undefined}
+                  signal={b.kind === 'client' ? clientSignal.get(b.key) : undefined}
                   powerColor={b.kind === 'client' ? POWER_COLORS[powerLevel(clientPower.get(b.key)?.power ?? null, network.settings)] : undefined}
                   linkedName={b.kind === 'client' && b.node_id ? network.nodes.find((n) => n.id === b.node_id)?.name : undefined}
                   onDoubleClick={
@@ -1279,7 +1296,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
           </div>
         )}
         {selBlock?.kind === 'client' && !selConn && !pendingPort && (
-          <div className="absolute left-3 bottom-3 panel px-4 py-3 text-sm max-w-sm">
+          <div className="absolute left-3 bottom-3 panel px-4 py-3 text-sm max-w-md max-h-[70%] overflow-y-auto">
             <div className="text-xs text-slate-400">Cliente</div>
             <div className="font-semibold">{selBlock.name}</div>
             {(() => {
@@ -1304,6 +1321,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   ) : (
                     <div className="text-xs text-slate-500 mt-1">{r?.error ?? 'Sem fibra ligada.'}</div>
                   )}
+                  <SignalHealthBox analysis={clientSignal.get(selBlock.key)} />
                 </>
               );
             })()}
@@ -1652,6 +1670,7 @@ function BlockView({
   onDoubleClick,
   power,
   powerColor,
+  signal,
   linkedName,
 }: {
   block: Block;
@@ -1662,6 +1681,8 @@ function BlockView({
   /** Cliente: potência que chega nele. */
   power?: BudgetResult;
   powerColor?: string;
+  /** Cliente: sinal medido × estimado e saúde. */
+  signal?: SignalAnalysis;
   /** Cliente: nome do cliente do mapa vinculado. */
   linkedName?: string;
 }) {
@@ -1672,7 +1693,16 @@ function BlockView({
   if (b.kind === 'client') {
     const name = b.name.length > 20 ? `${b.name.slice(0, 19)}…` : b.name;
     const ok = power?.ok && power.power !== null;
-    const sub = ok ? `${power!.power!.toFixed(2)} dBm` : power?.steps.length ? 'sem sinal da OLT' : 'sem fibra ligada';
+    const measured = signal?.measured ?? null;
+    const sub =
+      measured !== null
+        ? `Med. ${measured.toFixed(2)}${ok ? ` · Est. ${power!.power!.toFixed(2)}` : ''} dBm`
+        : ok
+          ? `${power!.power!.toFixed(2)} dBm (estimado)`
+          : power?.steps.length
+            ? 'sem sinal da OLT'
+            : 'sem fibra ligada';
+    const subColor = measured !== null && signal ? HEALTH_COLORS[signal.health] : ok ? (powerColor ?? '#0f172a') : '#64748b';
     // Ícone do tipo (casa, loja ou prédio) do lado oposto ao da porta, com o nome do tipo embaixo.
     const seg = b.segment ?? 'residential';
     const ix = b.flip ? b.x + 8 : b.x + w - 34;
@@ -1687,11 +1717,19 @@ function BlockView({
           <g transform="translate(1 1)">
             <path d={SEGMENT_GLYPH[seg]} fill="none" stroke="#0f766e" strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round" />
           </g>
+          {signal && signal.health !== 'none' && (
+            <g>
+              <rect x={-6} y={33} width={38} height={12} rx={6} fill={HEALTH_COLORS[signal.health]} />
+              <text x={13} y={41.5} fontSize={7} textAnchor="middle" fill="#ffffff" fontWeight="bold">
+                {HEALTH_LABEL[signal.health]}
+              </text>
+            </g>
+          )}
         </g>
         <text x={tx} y={b.y + 16} fontSize={10.5} fontWeight="bold" fill="#0f172a">
           {name}
         </text>
-        <text x={tx} y={b.y + 29} fontSize={9} fill={ok ? (powerColor ?? '#0f172a') : '#64748b'} fontWeight={ok ? 'bold' : 'normal'}>
+        <text x={tx} y={b.y + 29} fontSize={9} fill={subColor} fontWeight={ok || measured !== null ? 'bold' : 'normal'}>
           {sub}
         </text>
         <text x={tx} y={b.y + 40} fontSize={8} fill="#0369a1">
@@ -1908,6 +1946,7 @@ function OltDialog({
 
 const SEGMENT_ICON: Record<ClientSegment, typeof Home> = { residential: Home, business: Store, corporate: Building2 };
 
+
 /**
  * Novo cliente no diagrama (ou edição): nome, cliente do mapa ao qual ele corresponde (opcional) e os dados para
  * integração com outros sistemas: ID, serial da ONU/ONT e tipo (residencial, empresarial ou corporativo).
@@ -1933,6 +1972,10 @@ function ClientDialog({
   const [code, setCode] = useState(initial?.client_code ?? '');
   const [serial, setSerial] = useState(initial?.onu_serial ?? '');
   const [segment, setSegment] = useState<ClientSegment | null>(initial?.segment ?? 'residential');
+  const [rx, setRx] = useState(initial?.rx_dbm != null ? String(initial.rx_dbm) : '');
+  const [rxAt, setRxAt] = useState<string | null>(initial?.rx_at ?? null);
+  const rxNum = rx.trim() === '' ? null : Number(rx.replace(',', '.'));
+  const rxBad = rxNum !== null && (Number.isNaN(rxNum) || rxNum < -60 || rxNum > 10);
   const fmt = (m: number) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`);
   const sn = normalizeSerial(serial);
   const dup = sn ? serialsInUse.get(sn) : undefined;
@@ -1953,6 +1996,10 @@ function ClientDialog({
                 if (o.data.client_code) setCode(o.data.client_code);
                 if (o.data.onu_serial) setSerial(o.data.onu_serial);
                 if (o.data.segment) setSegment(o.data.segment);
+                if (o.data.rx_dbm != null) {
+                  setRx(String(o.data.rx_dbm));
+                  setRxAt(o.data.rx_at ?? null);
+                }
               }
             }}
           >
@@ -2003,6 +2050,24 @@ function ClientDialog({
             />
           </Field>
         </div>
+        <Field label="Sinal medido na ONU/ONT (dBm)">
+          <input
+            className="input font-mono"
+            inputMode="decimal"
+            placeholder="ex.: -21,4"
+            value={rx}
+            onChange={(e) => {
+              setRx(e.target.value);
+              setRxAt(new Date().toISOString());
+            }}
+          />
+        </Field>
+        <p className="text-xs text-slate-400 -mt-2">
+          Valor lido na ONU/ONT (no futuro, coletado do FiberControl pelo serial). O sistema compara com o sinal estimado e indica a saúde e o trecho
+          provável de problema.
+          {rxAt && rxNum !== null && !rxBad ? ` Medido em ${new Date(rxAt).toLocaleString('pt-BR')}.` : ''}
+        </p>
+        {rxBad && <p className="text-xs text-red-400">Informe um valor entre -60 e 10 dBm.</p>}
         {dup && <p className="text-xs text-amber-400">Este serial já está no cliente {dup}.</p>}
         {sn && !dup && !looksLikeGponSerial(sn) && (
           <p className="text-xs text-slate-400">Formato diferente do usual (4 letras do fabricante + 8 dígitos hexadecimais, ex.: HWTC1A2B3C4D).</p>
@@ -2013,8 +2078,16 @@ function ClientDialog({
         </p>
         <button
           className="btn-primary w-full"
-          disabled={!name.trim()}
-          onClick={() => onSave(name.trim(), nodeId, { client_code: code.trim() || null, onu_serial: sn || null, segment })}
+          disabled={!name.trim() || rxBad}
+          onClick={() =>
+            onSave(name.trim(), nodeId, {
+              client_code: code.trim() || null,
+              onu_serial: sn || null,
+              segment,
+              rx_dbm: rxNum === null ? null : Math.round(rxNum * 100) / 100,
+              rx_at: rxNum === null ? null : (rxAt ?? new Date().toISOString()),
+            })
+          }
         >
           {initial ? 'Salvar' : 'Adicionar cliente'}
         </button>

@@ -187,8 +187,9 @@ export type DiagramComponent =
    * node_id = cliente do mapa vinculado (o orçamento dele no mapa usa este caminho quando não há cabo drop).
    * flip = porta do lado direito do cartão. client_code / onu_serial / segment: dados para integração
    * (ID do cliente, serial da ONU/ONT e tipo), copiados para o cliente do mapa vinculado ao salvar.
+   * rx_dbm / rx_at: sinal medido na ONU/ONT (digitado ou recebido da integração pelo serial) e quando.
    */
-  | { id: string; kind: 'client'; name: string; node_id?: number | null; flip?: boolean; x: number; y: number; client_code?: string | null; onu_serial?: string | null; segment?: 'residential' | 'business' | 'corporate' | null }
+  | { id: string; kind: 'client'; name: string; node_id?: number | null; flip?: boolean; x: number; y: number; client_code?: string | null; onu_serial?: string | null; segment?: 'residential' | 'business' | 'corporate' | null; rx_dbm?: number | null; rx_at?: string | null }
   /** Rack do POP: de piso ou suspenso (parede), com altura em U (ex.: 44U, 48U). */
   | { id: string; kind: 'rack'; name: string; mount: RackMountType; units: number; loc?: RackLocation; x: number; y: number };
 

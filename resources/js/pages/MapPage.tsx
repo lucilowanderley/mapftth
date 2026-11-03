@@ -42,6 +42,7 @@ import { Link, useParams } from 'react-router-dom';
 import L from 'leaflet';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, clientBudget, powerLevel, type BudgetResult } from '../lib/budget';
+import { analyzeSignal, measuredClients, type SignalAnalysis } from '../lib/signal';
 import { BOX_TYPES, CABLE_CATEGORIES, CABLE_MODELS, CONDO_KINDS, NODE_TYPES, NODE_TYPE_LIST, RACK_HOST_TYPES, SLACK_KINDS, effectiveLineStyle, lineDash } from '../lib/catalog';
 import { distance, pathLength } from '../lib/geo';
 import { LINK_STYLE, RADIO_HOST_TYPES, RADIO_KINDS, linkColor, linkMidpoint, radioBeam, radioLinks, radiosOf, sectorPolygon } from '../lib/tower';
@@ -324,6 +325,20 @@ export default function MapPage() {
     nodes.filter((n) => n.type === 'client').forEach((n) => map.set(n.id, clientBudget(network, n)));
     return map;
   }, [network, nodes]);
+
+  // Sinal medido × estimado dos clientes (saúde e trecho provável de problema).
+  const clientSignal = useMemo(() => {
+    const map = new Map<number, SignalAnalysis>();
+    if (!network) return map;
+    const peers = measuredClients(network);
+    nodes
+      .filter((n) => n.type === 'client')
+      .forEach((n) => {
+        const budget = clientPower.get(n.id);
+        if (budget) map.set(n.id, analyzeSignal(network, { key: `n${n.id}`, measured: n.attributes?.rx_dbm as number | undefined, measuredAt: n.attributes?.rx_at as string | undefined, budget }, peers));
+      });
+    return map;
+  }, [network, nodes, clientPower]);
 
   const notify = (message: string, kind: 'ok' | 'error' = 'ok') => setToast({ message, kind });
   const readOnly = role === 'viewer';
@@ -1697,6 +1712,7 @@ export default function MapPage() {
             cable={selectedCable}
             nodes={nodes}
             budget={selectedNode?.type === 'client' ? clientPower.get(selectedNode.id) : undefined}
+            signal={selectedNode?.type === 'client' ? clientSignal.get(selectedNode.id) : undefined}
             settings={settings}
             onClose={() => setSelection(null)}
             onNodeSaved={(n, cs) => {
