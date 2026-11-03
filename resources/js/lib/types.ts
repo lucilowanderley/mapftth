@@ -71,6 +71,8 @@ export interface EquipmentModel {
   replaces?: string | null;
   /** Padrão excluído pelo usuário. */
   hidden?: boolean;
+  /** Foto de referência do equipamento. */
+  image_url?: string | null;
 }
 
 /** Grupo de portas de um ativo: tipo (RJ45, SFP+...), quantidade e capacidade de cada porta (Gbps). */

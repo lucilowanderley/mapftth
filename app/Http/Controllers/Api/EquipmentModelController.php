@@ -7,7 +7,9 @@ use App\Models\EquipmentModel;
 use App\Models\Project;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class EquipmentModelController extends Controller
 {
@@ -63,9 +65,54 @@ class EquipmentModelController extends Controller
     public function destroy(Request $request, EquipmentModel $equipmentModel): JsonResponse
     {
         abort_unless($equipmentModel->user_id === $request->user()->id, 403, 'Só quem cadastrou pode excluir este modelo.');
+        if ($equipmentModel->image_path) {
+            Storage::disk('local')->delete($equipmentModel->image_path);
+        }
         $equipmentModel->delete();
 
         return response()->json(null, 204);
+    }
+
+    /** Envia (ou troca) a foto de referência do modelo: JPG, PNG ou WebP até 5 MB. */
+    public function storeImage(Request $request, EquipmentModel $equipmentModel): JsonResponse
+    {
+        abort_unless($equipmentModel->user_id === $request->user()->id, 403, 'Só quem cadastrou pode alterar este modelo.');
+        $request->validate(['image' => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:5120']], [
+            'image.mimes' => 'Envie uma imagem JPG, PNG ou WebP.',
+            'image.max' => 'A imagem pode ter até 5 MB.',
+        ]);
+        $old = $equipmentModel->image_path;
+        $equipmentModel->image_path = $request->file('image')->store('equipment', 'local');
+        $equipmentModel->save();
+        if ($old) {
+            Storage::disk('local')->delete($old);
+        }
+
+        return response()->json([...$equipmentModel->toArray(), 'own' => true]);
+    }
+
+    public function destroyImage(Request $request, EquipmentModel $equipmentModel): JsonResponse
+    {
+        abort_unless($equipmentModel->user_id === $request->user()->id, 403, 'Só quem cadastrou pode alterar este modelo.');
+        if ($equipmentModel->image_path) {
+            Storage::disk('local')->delete($equipmentModel->image_path);
+            $equipmentModel->image_path = null;
+            $equipmentModel->save();
+        }
+
+        return response()->json([...$equipmentModel->toArray(), 'own' => true]);
+    }
+
+    /** Foto do modelo (para quem cadastrou e para as equipes dos projetos do dono). */
+    public function image(Request $request, EquipmentModel $equipmentModel): StreamedResponse
+    {
+        $user = $request->user();
+        $allowed = $equipmentModel->user_id === $user->id
+            || Project::where('user_id', $equipmentModel->user_id)->get()->contains(fn ($p) => $p->roleOf($user) !== null);
+        abort_unless($allowed, 404);
+        abort_unless($equipmentModel->image_path && Storage::disk('local')->exists($equipmentModel->image_path), 404);
+
+        return Storage::disk('local')->response($equipmentModel->image_path, null, ['Cache-Control' => 'private, max-age=86400']);
     }
 
     private function validated(Request $request): array

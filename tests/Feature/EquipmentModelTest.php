@@ -77,4 +77,32 @@ class EquipmentModelTest extends TestCase
         $this->deleteJson("/api/equipment-models/{$a['id']}")->assertNoContent();
         $this->getJson('/api/equipment-models')->assertOk()->assertJsonCount(0);
     }
+
+    public function test_model_photo_upload_view_and_remove(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('local');
+        $owner = User::factory()->create();
+        $m = $this->actingAs($owner)->postJson('/api/equipment-models', ['kind' => 'dio', 'model' => 'DIO 48', 'ports' => 48, 'height_u' => 2])->json();
+        $this->assertNull($m['image_url']);
+
+        $file = \Illuminate\Http\UploadedFile::fake()->image('dio.png', 400, 200);
+        $res = $this->postJson("/api/equipment-models/{$m['id']}/image", ['image' => $file])->assertOk()->json();
+        $this->assertStringStartsWith("/api/equipment-models/{$m['id']}/image?v=", $res['image_url']);
+        $this->assertArrayNotHasKey('image_path', $res);
+        $this->get("/api/equipment-models/{$m['id']}/image")->assertOk();
+
+        // Outro usuário (fora da equipe) não vê nem troca a foto; arquivo que não é imagem é recusado.
+        $other = User::factory()->create();
+        $this->actingAs($other)->get("/api/equipment-models/{$m['id']}/image")->assertNotFound();
+        $this->postJson("/api/equipment-models/{$m['id']}/image", ['image' => $file])->assertForbidden();
+        $this->actingAs($owner)->postJson("/api/equipment-models/{$m['id']}/image", ['image' => \Illuminate\Http\UploadedFile::fake()->create('x.pdf', 10, 'application/pdf')])->assertUnprocessable();
+
+        // A equipe do projeto do dono vê a foto.
+        $project = $owner->projects()->create(['name' => 'Rede', 'center_lat' => 0, 'center_lng' => 0]);
+        $project->members()->create(['user_id' => $other->id, 'role' => 'viewer']);
+        $this->actingAs($other)->get("/api/equipment-models/{$m['id']}/image")->assertOk();
+
+        $this->actingAs($owner)->deleteJson("/api/equipment-models/{$m['id']}/image")->assertOk()->assertJsonPath('image_url', null);
+        $this->get("/api/equipment-models/{$m['id']}/image")->assertNotFound();
+    }
 }

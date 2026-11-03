@@ -461,6 +461,12 @@ preenchidos sozinhos (e ainda podem ser ajustados). O fabricante e o modelo apar
 Seus modelos valem para todos os seus projetos; quem é da equipe de um projeto vê também os modelos do dono do
 projeto, mas só pode editar os próprios.
 
+**Foto do equipamento.** No formulário do modelo, clique em **Adicionar foto** e escolha uma foto real do
+equipamento (JPG, PNG ou WebP, até 5 MB). A foto aparece em miniatura na lista do cadastro, na busca de modelos e,
+ao escolher o modelo na janela de OLT, DIO ou Ativo, logo abaixo do campo **Modelo**. Clique na foto para abrir em
+tamanho real. Use **Trocar foto** ou **Remover foto** para mudar. Para pôr foto num modelo **padrão**, edite o
+modelo (isso cria a sua versão dele) e adicione a foto. A equipe do projeto vê as fotos dos modelos do dono.
+
 **Editar e excluir modelos.** Todo modelo da lista tem os botões **Editar** (lápis) e **Excluir** (lixeira),
 inclusive os **padrão** do sistema:
 

@@ -26,6 +26,12 @@ export const api = {
   createEquipmentModel: (data: Partial<EquipmentModel>) => http.post<EquipmentModel>('/api/equipment-models', data).then((r) => r.data),
   updateEquipmentModel: (id: number, data: Partial<EquipmentModel>) => http.put<EquipmentModel>(`/api/equipment-models/${id}`, data).then((r) => r.data),
   deleteEquipmentModel: (id: number) => http.delete(`/api/equipment-models/${id}`),
+  uploadEquipmentImage: (id: number, file: File) => {
+    const fd = new FormData();
+    fd.append('image', file);
+    return http.post<EquipmentModel>(`/api/equipment-models/${id}/image`, fd).then((r) => r.data);
+  },
+  deleteEquipmentImage: (id: number) => http.delete<EquipmentModel>(`/api/equipment-models/${id}/image`).then((r) => r.data),
   projects: () => http.get<Project[]>('/api/projects').then((r) => r.data),
   createProject: (data: Partial<Project>) => http.post<Project>('/api/projects', data).then((r) => r.data),
   updateProject: (id: number, data: Partial<Project> & { settings?: Partial<Settings> }) =>

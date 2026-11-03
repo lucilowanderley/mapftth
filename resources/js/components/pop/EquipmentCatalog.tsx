@@ -1,5 +1,5 @@
-import { BookOpen, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { BookOpen, ImagePlus, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, errorMessage } from '../../lib/api';
 import { ACTIVE_TYPES, BUILTIN_EQUIPMENT, EQUIPMENT_KINDS, equipmentLabel } from '../../lib/catalog';
 import type { EquipmentModel } from '../../lib/types';
@@ -72,6 +72,15 @@ export default function EquipmentCatalog({
   const [form, setForm] = useState<Partial<EquipmentModel> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Foto escolhida (enviada ao salvar) ou foto atual marcada para remover.
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [dropPhoto, setDropPhoto] = useState(false);
+  const photoUrl = useMemo(() => (photo ? URL.createObjectURL(photo) : null), [photo]);
+  useEffect(() => () => void (photoUrl && URL.revokeObjectURL(photoUrl)), [photoUrl]);
+  useEffect(() => {
+    setPhoto(null);
+    setDropPhoto(false);
+  }, [form?.id, form?.replaces, !!form]);
   const list = models.filter((m) => m.kind === kind);
   const set = (patch: Partial<EquipmentModel>) => setForm((f) => (f ? { ...f, ...patch } : f));
   const int = (v: string, min = 0) => Math.max(min, Math.round(Number(v)) || min);
@@ -81,8 +90,11 @@ export default function EquipmentCatalog({
     setBusy(true);
     setError(null);
     try {
-      if (typeof form.id === 'number') await api.updateEquipmentModel(form.id, payload(form));
-      else await api.createEquipmentModel(payload(form));
+      const saved = typeof form.id === 'number' ? await api.updateEquipmentModel(form.id, payload(form)) : await api.createEquipmentModel(payload(form));
+      if (typeof saved.id === 'number') {
+        if (photo) await api.uploadEquipmentImage(saved.id, photo);
+        else if (dropPhoto && saved.image_url) await api.deleteEquipmentImage(saved.id);
+      }
       setForm(null);
       onChanged();
     } catch (e) {
@@ -157,8 +169,13 @@ export default function EquipmentCatalog({
             {list.map((m) => (
               <tr key={String(m.id)} className="border-t border-slate-800">
                 <td className="px-3 py-1.5">
-                  <div className="font-medium">{m.model}</div>
-                  <div className="text-[11px] text-slate-500">{m.vendor || '—'}</div>
+                  <div className="flex items-center gap-2.5">
+                    <ModelPhoto model={m} size={40} />
+                    <div className="min-w-0">
+                      <div className="font-medium">{m.model}</div>
+                      <div className="text-[11px] text-slate-500">{m.vendor || '—'}</div>
+                    </div>
+                  </div>
                 </td>
                 <td className="text-xs text-slate-400">{detail(m)}</td>
                 <td className="text-center font-mono">{m.height_u}U</td>
@@ -247,6 +264,47 @@ export default function EquipmentCatalog({
               </Field>
             )}
           </div>
+          <div className="flex items-center gap-3">
+            {photoUrl || (form.image_url && !dropPhoto) ? (
+              <a href={photoUrl ?? form.image_url ?? undefined} target="_blank" rel="noreferrer" title="Abrir a foto">
+                <img src={photoUrl ?? form.image_url ?? undefined} alt="Foto do equipamento" className="h-20 w-32 rounded-md border border-slate-700 bg-white object-contain" />
+              </a>
+            ) : (
+              <div className="h-20 w-32 rounded-md border border-dashed border-slate-700 flex items-center justify-center text-[11px] text-slate-500 text-center px-2">Sem foto</div>
+            )}
+            <div className="space-y-1.5">
+              <label className="btn-ghost cursor-pointer !py-1.5 text-xs w-fit">
+                <ImagePlus size={14} /> {photoUrl || (form.image_url && !dropPhoto) ? 'Trocar foto' : 'Adicionar foto'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!f) return;
+                    if (f.size > 5 * 1024 * 1024) return setError('A imagem pode ter até 5 MB.');
+                    setError(null);
+                    setPhoto(f);
+                    setDropPhoto(false);
+                  }}
+                />
+              </label>
+              {(photoUrl || (form.image_url && !dropPhoto)) && (
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-xs text-slate-400 hover:text-red-400 cursor-pointer"
+                  onClick={() => {
+                    setPhoto(null);
+                    setDropPhoto(true);
+                  }}
+                >
+                  <X size={13} /> Remover foto
+                </button>
+              )}
+              <div className="text-[11px] text-slate-500">Foto real do equipamento, para referência. JPG, PNG ou WebP até 5 MB.</div>
+            </div>
+          </div>
           {kind === 'active' && (
             <PortGroupsEditor
               groups={form.port_groups ?? []}
@@ -285,5 +343,16 @@ export default function EquipmentCatalog({
         Os modelos cadastrados aparecem para escolher ao criar OLT, DIO ou Ativo no editor do POP, e valem para todos os seus projetos (a equipe vê os modelos do dono do projeto).
       </p>
     </PopDialog>
+  );
+}
+
+/** Miniatura da foto de referência do modelo (abre a foto ao clicar). */
+export function ModelPhoto({ model, size = 40 }: { model?: EquipmentModel; size?: number }) {
+  if (!model?.image_url)
+    return <div className="rounded border border-dashed border-slate-800 shrink-0" style={{ width: size, height: size }} title="Sem foto" />;
+  return (
+    <a href={model.image_url} target="_blank" rel="noreferrer" title="Abrir a foto" className="shrink-0" onClick={(e) => e.stopPropagation()}>
+      <img src={model.image_url} alt={model.model} loading="lazy" className="rounded border border-slate-700 bg-white object-contain" style={{ width: size, height: size }} />
+    </a>
   );
 }

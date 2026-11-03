@@ -13,13 +13,15 @@ return new class extends Migration
         Schema::table('equipment_models', function (Blueprint $table) {
             $table->string('replaces', 60)->nullable()->after('notes');
             $table->boolean('hidden')->default(false)->after('replaces');
+            // Foto de referência do equipamento (arquivo em storage/app/private/equipment).
+            $table->string('image_path')->nullable()->after('hidden');
         });
     }
 
     public function down(): void
     {
         Schema::table('equipment_models', function (Blueprint $table) {
-            $table->dropColumn(['replaces', 'hidden']);
+            $table->dropColumn(['replaces', 'hidden', 'image_path']);
         });
     }
 };

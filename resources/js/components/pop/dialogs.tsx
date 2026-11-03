@@ -95,6 +95,11 @@ function ModelPicker({
         <span className="font-medium truncate">{current ? equipmentLabel(current) : customLabel}</span>
         <span className="text-xs text-slate-400 shrink-0 ml-2">{current ? `${detail(current)} · ${current.height_u}U` : ''}</span>
       </button>
+      {current?.image_url && !open && (
+        <a href={current.image_url} target="_blank" rel="noreferrer" title="Abrir a foto" className="block mt-2">
+          <img src={current.image_url} alt={current.model} className="h-24 w-full rounded-md border border-slate-700 bg-white object-contain" />
+        </a>
+      )}
       {open && (
         <div className="mt-1 rounded-md border border-slate-700 bg-slate-950 p-2">
           <div className="relative mb-2">
@@ -113,7 +118,8 @@ function ModelPicker({
                   onClick={() => pick(m)}
                   className={`w-full flex items-center justify-between rounded px-2 py-1.5 text-left cursor-pointer hover:bg-slate-800 ${modelKey(m) === value ? 'text-emerald-400' : ''}`}
                 >
-                  <span>
+                  {m.image_url && <img src={m.image_url} alt="" loading="lazy" className="w-9 h-9 mr-2 shrink-0 rounded border border-slate-700 bg-white object-contain" />}
+                  <span className="flex-1 min-w-0">
                     <span className="block text-sm font-medium">{equipmentLabel(m)}</span>
                     <span className="block text-[11px] text-slate-500">
                       {detail(m)} · {m.height_u}U{m.builtin ? ' · padrão' : ''}
