@@ -35,6 +35,7 @@ import {
   Houses,
   Warehouse,
   RadioTower,
+  ChevronDown,
 } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Circle, CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
@@ -163,6 +164,21 @@ export default function MapPage() {
     areas: true,
   });
   const [labels, setLabels] = useState(true);
+  const [elementsOpen, setElementsOpen] = useState(false);
+  const elementsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!elementsOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (elementsRef.current && !elementsRef.current.contains(e.target as Node)) setElementsOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setElementsOpen(false);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [elementsOpen]);
   const [zoom, setZoom] = useState(16);
   const [diagramNodeId, setDiagramNodeId] = useState<number | null>(null);
   const [budget, setBudget] = useState<{
@@ -1627,24 +1643,37 @@ export default function MapPage() {
               Motor: {MAP_ENGINES[engine].label}
             </div>
           </div>
-          <div>
-            <div className="label">Elementos</div>
-            {NODE_TYPE_LIST.map((t) => (
-              <Toggle key={t} label={NODE_TYPES[t].plural} color={NODE_TYPES[t].color} on={visible[t]} onChange={(v) => setVisible({ ...visible, [t]: v })} />
-            ))}
-            {(Object.keys(CABLE_CATEGORIES) as CableCategory[]).map((c) => (
-              <Toggle
-                key={c}
-                label={`Cabos ${CABLE_CATEGORIES[c].label.toLowerCase()}`}
-                color={CABLE_CATEGORIES[c].color}
-                on={visible[c]}
-                onChange={(v) => setVisible({ ...visible, [c]: v })}
-              />
-            ))}
-            <Toggle label="Áreas" color="#a855f7" on={visible.areas ?? true} onChange={(v) => setVisible({ ...visible, areas: v })} />
-            <Toggle label="Cobertura e enlaces wireless" color="#f43f5e" on={visible.wireless ?? true} onChange={(v) => setVisible({ ...visible, wireless: v })} />
-            <Toggle label="Rótulos" on={labels} onChange={setLabels} />
-            {!readOnly && <Toggle label="Confirmar ao mover" on={confirmMoves} onChange={setConfirmMoves} />}
+          <div ref={elementsRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setElementsOpen((o) => !o)}
+              className="label !mb-0 w-full flex items-center justify-between cursor-pointer hover:text-slate-200"
+              title={elementsOpen ? 'Recolher elementos' : 'Mostrar elementos'}
+              aria-expanded={elementsOpen}
+            >
+              <span>Elementos</span>
+              <ChevronDown size={14} className={`transition-transform ${elementsOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {elementsOpen && (
+              <div className="panel absolute -right-3 top-full mt-3 w-48 p-3 max-h-[70vh] overflow-y-auto">
+                {NODE_TYPE_LIST.map((t) => (
+                  <Toggle key={t} label={NODE_TYPES[t].plural} color={NODE_TYPES[t].color} on={visible[t]} onChange={(v) => setVisible({ ...visible, [t]: v })} />
+                ))}
+                {(Object.keys(CABLE_CATEGORIES) as CableCategory[]).map((c) => (
+                  <Toggle
+                    key={c}
+                    label={`Cabos ${CABLE_CATEGORIES[c].label.toLowerCase()}`}
+                    color={CABLE_CATEGORIES[c].color}
+                    on={visible[c]}
+                    onChange={(v) => setVisible({ ...visible, [c]: v })}
+                  />
+                ))}
+                <Toggle label="Áreas" color="#a855f7" on={visible.areas ?? true} onChange={(v) => setVisible({ ...visible, areas: v })} />
+                <Toggle label="Enlaces wireless" color="#f43f5e" on={visible.wireless ?? true} onChange={(v) => setVisible({ ...visible, wireless: v })} />
+                <Toggle label="Rótulos" on={labels} onChange={setLabels} />
+                {!readOnly && <Toggle label="Confirmar ao mover" on={confirmMoves} onChange={setConfirmMoves} />}
+              </div>
+            )}
           </div>
         </div>
 
