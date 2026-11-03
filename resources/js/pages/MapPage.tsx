@@ -1787,6 +1787,10 @@ export default function MapPage() {
           }}
           onShowBudget={(title, result) => setBudget({ title, result })}
           onDeleteCable={readOnly ? undefined : (c) => deleteCable(c, true)}
+          onNodeSaved={(n) => {
+            mergeNodes([n]);
+            notify('Cliente salvo');
+          }}
         />
       )}
       {budget && <BudgetModal title={budget.title} result={budget.result} settings={settings} onClose={() => setBudget(null)} />}

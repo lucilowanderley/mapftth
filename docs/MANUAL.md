@@ -691,9 +691,14 @@ perda na hora. Passe o mouse sobre uma emenda para ver o tipo e a perda. Tudo po
 
 Para remover um splitter, selecione o bloco e clique em **Apagar** (lixeira). Num bloco de cabo, **Apagar**
 (ou **Delete**) pergunta o que apagar: **Só as emendas deste cabo nesta caixa** (o cabo continua no mapa) ou
-**Excluir o cabo do projeto** (some do mapa e de todas as caixas; não dá para desfazer com Ctrl+Z). O cartão
-**"Drop Cliente-1"** é o cabo drop do cliente vindo do mapa: se o cliente agora está desenhado como objeto
-**Cliente** no diagrama, exclua o drop por aqui.
+**Excluir o cabo do projeto** (some do mapa e de todas as caixas; não dá para desfazer com Ctrl+Z). 
+
+**Cliente ligado por drop**: quando um cabo drop do mapa liga a caixa a um cliente, o diagrama não mostra o
+cabo como cartão. Ele mostra o **próprio cliente do mapa** (cartão de cliente com ícone, sinal, ID e ONU), e o
+drop é a **linha** que liga a saída do splitter (ou a fibra) até ele, com um rótulo com o nome e o comprimento
+do drop. **Duplo clique** no cliente edita os dados dele (nome, tipo, ID, serial, sinal medido), que são salvos
+direto no cliente do mapa. **Apagar** oferece tirar só a ligação nesta caixa ou excluir o drop do projeto (o
+cliente continua no mapa). Um cliente que já tem drop não pode ser vinculado de novo a um objeto Cliente.
 
 **Cliente no diagrama**
 
