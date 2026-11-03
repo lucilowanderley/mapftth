@@ -11,6 +11,7 @@ import { RADIO_HOST_TYPES, TOWER_KINDS, radiosOf } from '../lib/tower';
 import RadiosEditor from './RadiosEditor';
 import { POLE_MATERIALS } from './PolesModal';
 import { cablesNear } from '../lib/analysis';
+import CableLossField, { lossRateText, parseLossRate } from './CableLossField';
 import { Field, formatLength } from './ui';
 import { formatCoord, parseLatLng, parsePair } from '../lib/coords';
 
@@ -490,7 +491,7 @@ function NodeForm({
   );
 }
 
-function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, onError, onHistory, focusKey, onSlacksChange, onPlaceSlack, onLocate }: Props & { cable: Cable }) {
+function CableForm({ cable, nodes, settings, readOnly, onClose, onCableSaved, onDeleted, onError, onHistory, focusKey, onSlacksChange, onPlaceSlack, onLocate }: Props & { cable: Cable }) {
   const nameRef = useFocusOn(focusKey);
   const [form, setForm] = useState({
     name: cable.name,
@@ -504,6 +505,7 @@ function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, o
     line_style: cable.line_style,
     notes: cable.notes ?? '',
   });
+  const [lossText, setLossText] = useState(lossRateText(cable.loss_db_km));
   const [saving, setSaving] = useState(false);
   const from = nodes.find((n) => n.id === cable.from_node_id);
   const to = nodes.find((n) => n.id === cable.to_node_id);
@@ -523,6 +525,7 @@ function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, o
   }
 
   async function save() {
+    if (lossText.trim() && parseLossRate(lossText) === null) return onError('Atenuação do cabo: informe um valor entre 0 e 10 dB/km.');
     if (form.fiber_count < cable.fiber_count && !confirm('Reduzir o número de fibras remove as fusões das fibras excedentes. Continuar?')) return;
     setSaving(true);
     try {
@@ -530,6 +533,7 @@ function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, o
         ...form,
         model: form.model || null,
         notes: form.notes || null,
+        loss_db_km: parseLossRate(lossText),
       });
       onCableSaved(r.cable, r.nodes);
     } catch (e) {
@@ -619,6 +623,7 @@ function CableForm({ cable, nodes, readOnly, onClose, onCableSaved, onDeleted, o
               <StatusSelect value={form.status} onChange={(status) => set({ status })} />
             </Field>
           </div>
+          <CableLossField value={lossText} onChange={setLossText} projectRate={settings.fiber_loss_db_km} meters={cable.length_m + cable.slack_m} disabled={readOnly} />
           <div className="rounded-md bg-slate-950 p-3 text-xs space-y-1">
             <div className="flex justify-between text-slate-400">
               <span>Padrão de cores</span>

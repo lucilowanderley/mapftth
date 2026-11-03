@@ -29,10 +29,11 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, clientBudget, powerLevel, traceUpstream, type BudgetResult } from '../lib/budget';
-import { DIO_SIZES, OLT_MODELS, SPLITTER_MODELS, STATUSES, fiberColor, splitterModel, tubeColor } from '../lib/catalog';
+import { CABLE_CATEGORIES, DIO_SIZES, OLT_MODELS, SPLITTER_MODELS, STATUSES, fiberColor, splitterModel, tubeColor } from '../lib/catalog';
+import CableLossField, { lossRateText, parseLossRate } from './CableLossField';
 import { cableLetter, curvePath, laneSegment, polylinePath, routeOrthogonal, spliceAnchor, textOn, type Pt } from '../lib/splice';
 import { TRAY_CAPACITIES, cableRows, rowsHeight, trayPorts, type CableRow, pruneTrays, toggleTube, trayOfConnection, trayOfFiber, trayUsage, tubeCount, tubeFibers, tubeKey } from '../lib/tray';
-import type { Cable, Connection, Diagram, DiagramComponent, End, NetNode, Network, Settings, SpliceTray, Status } from '../lib/types';
+import type { Cable, CableCategory, Connection, Diagram, DiagramComponent, End, NetNode, Network, Settings, SpliceTray, Status } from '../lib/types';
 import { distance } from '../lib/geo';
 import { HEALTH_COLORS, HEALTH_LABEL, analyzeSignal, measuredClients, type SignalAnalysis } from '../lib/signal';
 import SignalHealthBox from './SignalHealthBox';
@@ -251,9 +252,11 @@ interface Props {
   onDeleteCable?: (cable: Cable) => Promise<boolean>;
   /** Cliente do mapa alterado direto pelo diagrama (cliente ligado por drop). */
   onNodeSaved?: (n: NetNode) => void;
+  /** Cabo alterado direto pelo diagrama (duplo clique no cabo ou no drop). */
+  onCableSaved?: (c: Cable, nodes: NetNode[]) => void;
 }
 
-export default function DiagramEditor({ node, network, onClose, onSaved, onShowBudget, readOnly, onDeleteCable, onNodeSaved }: Props) {
+export default function DiagramEditor({ node, network, onClose, onSaved, onShowBudget, readOnly, onDeleteCable, onNodeSaved, onCableSaved }: Props) {
   const [diagram, setDiagram] = useState<Diagram>(() => {
     const d = structuredClone(node.diagram ?? emptyDiagram());
     // Clientes vinculados ao mapa: ID, serial e tipo vêm do cliente do mapa (podem ter sido editados lá).
@@ -284,6 +287,8 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const [cableDelete, setCableDelete] = useState<string | null>(null);
   /** Drop de cliente aberto para editar os dados do cliente do mapa. */
   const [dropClientEdit, setDropClientEdit] = useState<string | null>(null);
+  /** Cabo (ou drop) aberto no editor do cabo. */
+  const [cableEdit, setCableEdit] = useState<number | null>(null);
   const [showPower, setShowPower] = useState(true);
   const [tool, setTool] = useState<Tool>('fuse');
   const [route, setRoute] = useState<RouteStyle>(() => {
@@ -1074,7 +1079,15 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                       const text = `${drop.cable.name} · ${Math.round(drop.cable.length_m ?? 0)} m`;
                       const tw = text.length * 4.6 + 10;
                       return (
-                        <g pointerEvents="none">
+                        <g
+                          className="cursor-pointer"
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            setCableEdit(drop.cable.id);
+                          }}
+                        >
+                          <title>Drop {drop.cable.name}: duplo clique para editar (atenuação, status...)</title>
                           <rect x={best.x - tw / 2} y={best.y - 22} width={tw} height={12} rx={6} fill="#ffffff" stroke={color} strokeWidth={0.8} />
                           <text x={best.x} y={best.y - 13.5} fontSize={7.5} textAnchor="middle" fill="#0f172a" fontWeight="bold">
                             {text}
@@ -1154,7 +1167,9 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                         ? () => setSplitterEdit(b.key)
                         : b.kind === 'cable' && b.client && !readOnly
                           ? () => setDropClientEdit(b.key)
-                          : undefined
+                          : b.kind === 'cable'
+                            ? () => setCableEdit(b.cable.id)
+                            : undefined
                   }
                 />
               ))}
@@ -1671,6 +1686,29 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
             />
           );
         })()}
+      {cableEdit !== null &&
+        (() => {
+          const cb = network.cables.find((c) => c.id === cableEdit);
+          if (!cb) return null;
+          return (
+            <CableEditDialog
+              cable={cb}
+              ends={`${nodeName(cb.from_node_id)} → ${nodeName(cb.to_node_id)}`}
+              projectRate={network.settings.fiber_loss_db_km}
+              readOnly={readOnly || !onCableSaved}
+              onClose={() => setCableEdit(null)}
+              onSave={async (data) => {
+                try {
+                  const r = await api.updateCable(cb.id, data);
+                  onCableSaved?.(r.cable, r.nodes);
+                  setCableEdit(null);
+                } catch (err) {
+                  setError(errorMessage(err));
+                }
+              }}
+            />
+          );
+        })()}
       {dropClientEdit &&
         (() => {
           const blk = blocks.find((b): b is Extract<Block, { kind: 'cable' }> => b.key === dropClientEdit && b.kind === 'cable');
@@ -2100,7 +2138,8 @@ function BlockView({
   const fill = b.kind === 'olt' ? '#ede9fe' : b.kind === 'dio' ? '#e0f2fe' : '#ffffff';
 
   return (
-    <g onPointerDown={onPointerDown} className="cursor-move">
+    <g onPointerDown={onPointerDown} onDoubleClick={onDoubleClick} className="cursor-move">
+      {b.kind === 'cable' && <title>{`${b.cable.name} · duplo clique para editar o cabo (atenuação, status...)`}</title>}
       <rect x={b.x} y={b.y} width={w} height={h} rx={4} fill={fill} stroke={stroke} strokeWidth={sw} />
       <text x={b.x + 8} y={b.y + 14} fontSize={11} fontWeight="bold" fill="#0f172a">
         {title.length > 22 ? `${title.slice(0, 21)}…` : title}
@@ -2182,6 +2221,74 @@ export function SplitterDialog({ onClose, onPick }: { onClose: () => void; onPic
           </li>
         ))}
       </ul>
+    </Modal>
+  );
+}
+
+/** Editar o cabo (ou drop) pelo diagrama: nome, tipo, status e atenuação em dB/km. */
+function CableEditDialog({
+  cable,
+  ends,
+  projectRate,
+  readOnly,
+  onClose,
+  onSave,
+}: {
+  cable: Cable;
+  ends: string;
+  projectRate: number;
+  readOnly?: boolean;
+  onClose: () => void;
+  onSave: (data: Partial<Cable>) => void;
+}) {
+  const [name, setName] = useState(cable.name);
+  const [category, setCategory] = useState<CableCategory>(cable.category);
+  const [status, setStatus] = useState<Status>(cable.status);
+  const [loss, setLoss] = useState(lossRateText(cable.loss_db_km));
+  const bad = loss.trim() !== '' && parseLossRate(loss) === null;
+  const meters = cable.length_m + (cable.slack_m ?? 0);
+  return (
+    <Modal title={cable.category === 'drop' ? 'Editar drop' : 'Editar cabo'} onClose={onClose}>
+      <div className="space-y-3">
+        <div className="text-xs text-slate-400">
+          {ends} · {cable.fiber_count} fibras · {Math.round(cable.length_m)} m{cable.slack_m ? ` + ${cable.slack_m} m de reserva` : ''}
+        </div>
+        <Field label="Nome">
+          <input className="input" value={name} disabled={readOnly} onChange={(e) => setName(e.target.value)} aria-label="Nome do cabo" />
+        </Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Tipo">
+            <select className="input" value={category} disabled={readOnly} onChange={(e) => setCategory(e.target.value as CableCategory)}>
+              {(Object.keys(CABLE_CATEGORIES) as CableCategory[]).map((c) => (
+                <option key={c} value={c}>
+                  {CABLE_CATEGORIES[c].label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Status">
+            <select className="input" value={status} disabled={readOnly} onChange={(e) => setStatus(e.target.value as Status)}>
+              {(Object.keys(STATUSES) as Status[]).map((st) => (
+                <option key={st} value={st}>
+                  {STATUSES[st].label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <CableLossField value={loss} onChange={setLoss} projectRate={projectRate} meters={meters} disabled={readOnly} />
+        <p className="text-xs text-slate-500">Traçado, cor, reservas e o restante dos dados ficam no painel do cabo, no mapa.</p>
+        {!readOnly && (
+          <div className="flex justify-end gap-2">
+            <button className="btn-ghost" onClick={onClose}>
+              Cancelar
+            </button>
+            <button className="btn-primary" disabled={bad || !name.trim()} onClick={() => onSave({ name: name.trim(), category, status, loss_db_km: parseLossRate(loss) })}>
+              Salvar
+            </button>
+          </div>
+        )}
+      </div>
     </Modal>
   );
 }

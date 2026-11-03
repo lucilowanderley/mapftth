@@ -3,6 +3,11 @@ import { isPatchEnd } from './pop';
 import { jointLoss, jointSpec } from './joints';
 import type { Cable, Connection, DiagramComponent, End, NetNode, Network, Settings } from './types';
 
+/** Atenuação do cabo em dB/km: a própria do cabo ou a padrão do projeto. */
+export function cableLossDbKm(cable: Pick<Cable, 'loss_db_km'>, s: Pick<Settings, 'fiber_loss_db_km'>): number {
+  return cable.loss_db_km != null && Number.isFinite(cable.loss_db_km) ? cable.loss_db_km : s.fiber_loss_db_km;
+}
+
 export interface BudgetStep {
   label: string;
   detail: string;
@@ -128,11 +133,12 @@ export function traceUpstream(net: Network, nodeId: number, start: End): BudgetR
       const otherId = cable.from_node_id === node.id ? cable.to_node_id : cable.from_node_id;
       if (!otherId || !idx.nodes.has(otherId)) return fail(`${cable.name} não está ligado a outra caixa.`);
       const km = (cable.length_m + (cable.slack_m ?? 0)) / 1000;
+      const rate = cableLossDbKm(cable, s);
       steps.push({
         kind: 'cable',
         label: cable.name,
-        detail: `Fibra ${end.p.slice(1)} · ${Math.round(cable.length_m + (cable.slack_m ?? 0))} m`,
-        loss: round(km * s.fiber_loss_db_km),
+        detail: `Fibra ${end.p.slice(1)} · ${Math.round(cable.length_m + (cable.slack_m ?? 0))} m${cable.loss_db_km != null ? ` · ${String(rate).replace('.', ',')} dB/km` : ''}`,
+        loss: round(km * rate),
         cableId: cable.id,
         nodeId: otherId,
         downNodeId: node.id,

@@ -1791,6 +1791,15 @@ export default function MapPage() {
             mergeNodes([n]);
             notify('Cliente salvo');
           }}
+          onCableSaved={
+            readOnly
+              ? undefined
+              : (c, ns) => {
+                  mergeCables([c]);
+                  mergeNodes(ns);
+                  notify('Cabo salvo');
+                }
+          }
         />
       )}
       {budget && <BudgetModal title={budget.title} result={budget.result} settings={settings} onClose={() => setBudget(null)} />}

@@ -264,6 +264,19 @@ class NetworkApiTest extends TestCase
             ->assertOk()->assertJsonPath('cable.line_style', null);
     }
 
+    public function test_cable_loss_per_km_is_saved_and_validated(): void
+    {
+        $user = User::factory()->create();
+        $project = $this->project($user);
+        $cable = $project->cables()->create(['name' => 'C', 'path' => [[0, 0], [0, 0.001]]]);
+
+        $this->actingAs($user)->putJson("/api/cables/{$cable->id}", ['loss_db_km' => 0.22])
+            ->assertOk()->assertJsonPath('cable.loss_db_km', 0.22);
+        $this->actingAs($user)->putJson("/api/cables/{$cable->id}", ['loss_db_km' => 12])->assertUnprocessable();
+        $this->actingAs($user)->putJson("/api/cables/{$cable->id}", ['loss_db_km' => null])
+            ->assertOk()->assertJsonPath('cable.loss_db_km', null);
+    }
+
     public function test_slacks_are_saved_summed_and_split_with_the_cable(): void
     {
         $user = User::factory()->create();

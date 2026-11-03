@@ -256,6 +256,8 @@ export interface Cable {
   model: string | null;
   fiber_count: number;
   fibers_per_tube: number;
+  /** Atenuação própria do cabo (dB/km). null = padrão do projeto. */
+  loss_db_km?: number | null;
   status: Status;
   color: string;
   width: number;

@@ -330,6 +330,9 @@ dentro dela).
   violeta, marrom, rosa, preto, cinza, laranja, água-marinha). Acima de 12 fibras o diagrama mostra também a cor
   do tubo.
 - **Tipo** (Backbone, Distribuição, Drop) e **Status**.
+- **Atenuação (dB/km)**: a atenuação deste cabo no orçamento óptico. Vazio usa a do projeto
+  ([seção 21](#21-configurações-do-projeto)). Embaixo aparece a perda total da fibra (comprimento + reservas ×
+  dB/km). Valores típicos: 0,35 dB/km em 1310 nm e 0,22 dB/km em 1550 nm.
 - **Reserva técnica**: o painel mostra a soma das reservas do cabo, que entra no **Total**, no orçamento óptico e
   nos relatórios. Cada reserva tem local no mapa (veja [Reserva técnica no mapa](#reserva-técnica-no-mapa)).
 - **Cor no mapa** e **Espessura**.
@@ -692,6 +695,10 @@ perda na hora. Passe o mouse sobre uma emenda para ver o tipo e a perda. Tudo po
 Para remover um splitter, selecione o bloco e clique em **Apagar** (lixeira). Num bloco de cabo, **Apagar**
 (ou **Delete**) pergunta o que apagar: **Só as emendas deste cabo nesta caixa** (o cabo continua no mapa) ou
 **Excluir o cabo do projeto** (some do mapa e de todas as caixas; não dá para desfazer com Ctrl+Z). 
+
+**Editar o cabo pelo diagrama**: **duplo clique** no cartão de um cabo, ou no **rótulo do drop** (a etiqueta
+na linha até o cliente), abre **Editar cabo / Editar drop** com nome, tipo, status e **atenuação (dB/km)**. O
+traçado, a cor e as reservas continuam no painel do cabo, no mapa.
 
 **Cliente ligado por drop**: quando um cabo drop do mapa liga a caixa a um cliente, o diagrama não mostra o
 cabo como cartão. Ele mostra o **próprio cliente do mapa** (cartão de cliente com ícone, sinal, ID e ONU), e o

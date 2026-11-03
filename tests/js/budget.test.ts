@@ -82,6 +82,15 @@ describe('orçamento óptico', () => {
     expect(r.steps.some((st) => st.kind === 'connector' && st.detail.includes('CTO-2'))).toBe(true);
   });
 
+  it('usa a atenuação própria do cabo quando informada', () => {
+    const net = network();
+    net.cables[0].loss_db_km = 0.22;
+    const r = clientBudget(net, net.nodes[2]);
+    // cabo de 1000 m: 0,35 → 0,22 dB
+    expect(r.totalLoss).toBeCloseTo(11.68 - 0.35 + 0.22, 2);
+    expect(r.steps.find((st) => st.cableId === 10)?.detail).toContain('0,22 dB/km');
+  });
+
   it('classifica níveis de potência', () => {
     expect(powerLevel(-26, settings)).toBe('warn');
     expect(powerLevel(-28, settings)).toBe('critical');
