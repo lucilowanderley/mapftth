@@ -137,7 +137,8 @@ borda da caixa também, e você pode **arrastar a caixa** para outro lugar do ma
 até sobre um botão, e arraste). Clique de novo para fechar e fixar na nova posição. Ao lado do cadeado aparece
 a **seta circular** (Posição padrão), que devolve a caixa ao lugar original. A posição e o cadeado ficam salvos
 neste navegador (valem para todos os projetos), e a caixa nunca sai da área do mapa, mesmo ao diminuir a janela.
-Quando a barra de ferramentas é movida, os avisos e os campos que aparecem logo abaixo dela vão junto.
+Quando a barra de ferramentas é movida, os avisos e os campos que aparecem logo abaixo dela vão junto. Se o painel
+da direita for levado para a metade de baixo da tela, a lista de **Elementos** abre para cima.
 
 **Buscar** (barra lateral): digite parte do nome de uma caixa, cliente ou cabo e clique no resultado; o mapa vai
 até ele e já o seleciona. Também aceita coordenadas, como `-8.0476, -34.8770` (formato do Google Maps) ou

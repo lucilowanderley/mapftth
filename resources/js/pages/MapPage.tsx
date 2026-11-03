@@ -181,6 +181,7 @@ export default function MapPage() {
   const toolbarPanel = useFloatPanel('toolbar');
   const layersPanel = useFloatPanel('layers');
   const [elementsOpen, setElementsOpen] = useState(false);
+  const [elementsUp, setElementsUp] = useState(false);
   const elementsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!elementsOpen) return;
@@ -1691,10 +1692,15 @@ export default function MapPage() {
               Motor: {MAP_ENGINES[engine].label}
             </div>
           </div>
-          <div ref={elementsRef} className="relative">
+          <div ref={elementsRef}>
             <button
               type="button"
-              onClick={() => setElementsOpen((o) => !o)}
+              onClick={() => {
+                // Se a caixa foi arrastada para a parte de baixo da tela, a lista abre para cima.
+                const r = layersPanel.boxRef.current?.getBoundingClientRect();
+                setElementsUp(!!r && r.top > window.innerHeight / 2);
+                setElementsOpen((o) => !o);
+              }}
               className="label !mb-0 w-full flex items-center justify-between cursor-pointer hover:text-slate-200"
               title={elementsOpen ? 'Recolher elementos' : 'Mostrar elementos'}
               aria-expanded={elementsOpen}
@@ -1703,7 +1709,7 @@ export default function MapPage() {
               <ChevronDown size={14} className={`transition-transform ${elementsOpen ? 'rotate-180' : ''}`} />
             </button>
             {elementsOpen && (
-              <div data-no-drag className="panel absolute -right-3 top-full mt-3 w-48 p-3 max-h-[70vh] overflow-y-auto cursor-auto">
+              <div data-no-drag className={`panel absolute right-0 ${elementsUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'} w-48 p-3 max-h-[70vh] overflow-y-auto cursor-auto`}>
                 {NODE_TYPE_LIST.map((t) => (
                   <Toggle key={t} label={NODE_TYPES[t].plural} color={NODE_TYPES[t].color} on={visible[t]} onChange={(v) => setVisible({ ...visible, [t]: v })} />
                 ))}
