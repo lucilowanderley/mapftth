@@ -97,18 +97,33 @@ export function cableRows(cableKey: string, cable: Pick<Cable, 'fiber_count' | '
 
 export const rowsHeight = (rows: CableRow[]) => rows.reduce((a, r) => a + r.h, 0);
 
-/** Portas da bandeja: fibras dos tubos vinculados, à esquerda as dos cabos do lado esquerdo, à direita as demais. */
+/**
+ * Portas da bandeja: fibras dos tubos vinculados. Cada cabo fica do lado da bandeja em que ele está no desenho
+ * (centro do cabo à esquerda ou à direita do centro da bandeja); sem posição, vale o lado do cabo no diagrama.
+ * Se todos os cabos caírem do mesmo lado, os mais à esquerda passam para a esquerda, para a bandeja ter as
+ * duas laterais ocupadas (ex.: 12 FO de cada lado).
+ */
 export function trayPorts(
   tray: SpliceTray,
-  cables: { key: string; side: 'left' | 'right'; cable: Pick<Cable, 'fiber_count' | 'fibers_per_tube'> }[],
+  cables: { key: string; side: 'left' | 'right'; cx?: number; cable: Pick<Cable, 'fiber_count' | 'fibers_per_tube'> }[],
+  trayCx?: number,
 ): { left: { c: string; p: string }[]; right: { c: string; p: string }[] } {
+  const linked = cables.filter((cb) => Array.from({ length: tubeCount(cb.cable) }, (_, i) => tubeKey(cb.key, i + 1)).some((k) => tray.tubes.includes(k)));
+  const sideOf = new Map<string, 'left' | 'right'>();
+  for (const cb of linked) sideOf.set(cb.key, cb.cx !== undefined && trayCx !== undefined ? (cb.cx < trayCx ? 'left' : 'right') : cb.side);
+  const sides = new Set(sideOf.values());
+  if (linked.length > 1 && sides.size === 1) {
+    const order = [...linked].sort((a, b) => (a.cx ?? 0) - (b.cx ?? 0) || (a.key < b.key ? -1 : 1));
+    const half = Math.ceil(order.length / 2);
+    order.forEach((cb, i) => sideOf.set(cb.key, i < half ? 'left' : 'right'));
+  }
   const left: { c: string; p: string }[] = [];
   const right: { c: string; p: string }[] = [];
-  for (const cb of cables) {
+  for (const cb of linked) {
     for (let t = 1; t <= tubeCount(cb.cable); t++) {
       if (!tray.tubes.includes(tubeKey(cb.key, t))) continue;
       const [f1, f2] = tubeFibers(t, cb.cable);
-      for (let f = f1; f <= f2; f++) (cb.side === 'left' ? left : right).push({ c: cb.key, p: `f${f}` });
+      for (let f = f1; f <= f2; f++) (sideOf.get(cb.key) === 'left' ? left : right).push({ c: cb.key, p: `f${f}` });
     }
   }
   return { left, right };
