@@ -191,7 +191,8 @@ export type DiagramComponent =
    */
   | { id: string; kind: 'client'; name: string; node_id?: number | null; flip?: boolean; x: number; y: number; client_code?: string | null; onu_serial?: string | null; segment?: 'residential' | 'business' | 'corporate' | null; rx_dbm?: number | null; rx_at?: string | null }
   /** Rack do POP: de piso ou suspenso (parede), com altura em U (ex.: 44U, 48U). */
-  | { id: string; kind: 'rack'; name: string; mount: RackMountType; units: number; loc?: RackLocation; x: number; y: number }
+  /** space = fileira (ou outro espaço do datacenter) onde o rack está; o endereço (loc) vem dela. Sem space = rack solto no canvas. */
+  | { id: string; kind: 'rack'; name: string; mount: RackMountType; units: number; loc?: RackLocation; space?: string; x: number; y: number }
   /**
    * Rota do diagrama da CTO/CEO: agrupa os objetos à frente do cabo (cable = "c12") ou de uma fibra dele (fiber = "f3").
    * Recolhida (open false) vira um cartão em x/y; expandida, os objetos aparecem com uma moldura em volta.
@@ -228,6 +229,28 @@ export interface Diagram {
   popLayout?: boolean;
   /** Bandejas de emenda da CEO/CTO, com os tubos loose vinculados a cada uma. */
   trays?: SpliceTray[];
+  /** Estrutura do datacenter no editor de POP: prédio → andar → sala → fileira (racks ficam na fileira). */
+  spaces?: DcSpace[];
+}
+
+export type DcSpaceKind = 'site' | 'floor' | 'room' | 'row';
+
+/**
+ * Espaço do datacenter (ANSI/TIA-606): prédio/site (com a empresa), andar, sala ou fileira.
+ * parent = espaço de cima (vazio = solto no canvas, em x/y). open = expandido (mostra o que tem dentro).
+ * level: ordem do andar (subsolo negativo, térreo 0, pisos 1, 2...).
+ */
+export interface DcSpace {
+  id: string;
+  kind: DcSpaceKind;
+  parent?: string | null;
+  code: string;
+  name?: string;
+  company?: string;
+  level?: number;
+  open?: boolean;
+  x: number;
+  y: number;
 }
 
 /** Bandeja de emenda: capacidade em fusões e tubos loose vinculados ("c12:t2" = cabo 12, tubo 2). */
