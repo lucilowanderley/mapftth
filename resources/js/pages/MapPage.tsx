@@ -22,7 +22,8 @@ import {
   SquareStack,
   Upload,
   User,
-  Zap,
+  Archive,
+  BrickWall,
   Undo2,
   X,
   Check,
@@ -49,10 +50,11 @@ import { analyzeSignal, measuredClients, type SignalAnalysis } from '../lib/sign
 import { BOX_TYPES, CABLE_CATEGORIES, CABLE_MODELS, CONDO_KINDS, NODE_TYPES, NODE_TYPE_LIST, RACK_HOST_TYPES, SLACK_KINDS, effectiveLineStyle, lineDash } from '../lib/catalog';
 import { distance, pathLength } from '../lib/geo';
 import { LINK_STYLE, RADIO_HOST_TYPES, RADIO_KINDS, linkColor, linkMidpoint, radioBeam, radioLinks, radiosOf, sectorPolygon } from '../lib/tower';
-import type { Activity as ActivityItem, Area, CameraKind, Cable, CableCategory, CondoKind, LatLng, NetNode, NodeType, Project, Role, Settings, Slack, SlackKind } from '../lib/types';
+import type { Activity as ActivityItem, Area, BoxKind, BoxPlace, CameraKind, Cable, CableCategory, CondoKind, LatLng, NetNode, NodeType, Project, Role, Settings, Slack, SlackKind } from '../lib/types';
 import { viability } from '../lib/analysis';
 import { CAMERA_COLOR, CAMERA_KINDS, CAMERA_MOUNT_TYPES, HEALTH_COLORS, cameraHealth, cameraLinks, cameraOf, fovPolygon } from '../lib/camera';
 import { destination } from '../lib/tower';
+import { BOX_KINDS, BOX_PLACES, FIXABLE_TYPES, FIX_OFFSET_M, fixLinks, fixTo, fixationIssue, fixedOn, nearestHost } from '../lib/fixation';
 import { LAYERS, MAP_ENGINES, MAP_STYLES, availableEngines, googleTileUrl, loadEngine, loadStyle, saveEngine, saveStyle, type MapEngine, type MapStyle } from '../lib/basemaps';
 import { appConfig } from '../lib/user';
 import { AutoResize, RememberView, TILE_OPTIONS, loadView } from '../lib/mapview';
@@ -85,10 +87,11 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'select', label: 'Selecionar', icon: <MousePointer2 size={18} /> },
   { id: 'cto', label: 'CTO', icon: <SquareStack size={18} /> },
   { id: 'ceo', label: 'CEO', icon: <Hexagon size={18} /> },
+  { id: 'box', label: 'Caixa', icon: <Archive size={18} /> },
   { id: 'pop', label: 'POP', icon: <Server size={18} /> },
   { id: 'dc', label: 'Datacenter', icon: <Warehouse size={18} /> },
   { id: 'tower', label: 'Torre', icon: <RadioTower size={18} /> },
-  { id: 'pole', label: 'Poste', icon: <Zap size={18} /> },
+  { id: 'pole', label: 'Poste', icon: <UtilityPole size={20} strokeWidth={2.2} /> },
   { id: 'client', label: 'Cliente', icon: <User size={18} /> },
   { id: 'condo', label: 'Condomínio', icon: <Building2 size={18} /> },
   { id: 'camera', label: 'Câmera', icon: <Cctv size={18} /> },
@@ -138,6 +141,8 @@ export default function MapPage() {
   const [tool, setTool] = useState<Tool>('select');
   const [condoKind, setCondoKind] = useState<CondoKind>('buildings');
   const [cameraKind, setCameraKind] = useState<CameraKind>('ip');
+  const [boxKindTool, setBoxKindTool] = useState<BoxKind>('underground');
+  const [boxPlaceTool, setBoxPlaceTool] = useState<BoxPlace>('external');
   const [selection, setSelection] = useState<Selection>(null);
   const [draft, setDraft] = useState<{
     path: LatLng[];
@@ -160,6 +165,7 @@ export default function MapPage() {
   const [visible, setVisible] = useState<Record<string, boolean>>({
     cto: true,
     ceo: true,
+    box: true,
     pop: true,
     dc: true,
     tower: true,
@@ -182,6 +188,8 @@ export default function MapPage() {
   };
   useEffect(() => setGroupsState(loadGroups(projectId)), [projectId]);
   const grouped = useMemo(() => groupView(groups, nodes, cables), [groups, nodes, cables]);
+  /** CTO/CEO com fixação faltando ou incompleta (ponto âmbar no ícone). */
+  const unfixed = useMemo(() => new Set(nodes.filter((n) => fixationIssue(n, nodes)).map((n) => n.id)), [nodes]);
   const showNode = (n: NetNode) => visible[n.type] && !grouped.hiddenNodes.has(n.id);
   const showCable = (c: Cable) => visible[c.category] && !grouped.hiddenCables.has(c.id);
   // Caixas flutuantes com cadeado: barra de ferramentas e painel de camadas.
@@ -414,14 +422,25 @@ export default function MapPage() {
 
   async function addNode(type: NodeType, at: LatLng, mount?: NetNode) {
     try {
+      // CTO/CEO precisa estar fixada num poste, parede ou caixa: lançada sobre (ou bem perto de) um poste/caixa, fica presa nele.
+      const fixable = FIXABLE_TYPES.includes(type);
+      const host = fixable ? (mount ?? nearestHost(at, nodes)) : undefined;
       // Câmera lançada sobre um poste/cliente/DC/POP fica "instalada" nele, um pouco ao lado para não cobrir o ícone.
-      const pos: LatLng = mount ? roundLatLng(destination([mount.lat, mount.lng], 45, 12)) : at;
+      const pos: LatLng = fixable
+        ? host
+          ? roundLatLng(destination([host.lat, host.lng], 45, FIX_OFFSET_M * (1 + fixedOn(host, nodes).length)))
+          : at
+        : mount
+          ? roundLatLng(destination([mount.lat, mount.lng], 45, 12))
+          : at;
       const dvrCount = nodes.filter((n) => n.type === 'camera' && cameraOf(n).cam_kind === 'dvr').length;
       const node = await api.createNode(projectId, {
         type,
         lat: pos[0],
         lng: pos[1],
         ...(type === 'condo' ? { attributes: { condo_kind: condoKind } } : {}),
+        ...(type === 'box' ? { attributes: { box_kind: boxKindTool, box_place: boxPlaceTool } } : {}),
+        ...(host ? { attributes: fixTo(host) } : {}),
         ...(type === 'camera'
           ? {
               ...(cameraKind === 'dvr' ? { name: `DVR-${dvrCount + 1}` } : {}),
@@ -431,7 +450,13 @@ export default function MapPage() {
       });
       setNodes((list) => [...list, node]);
       setSelection({ kind: 'node', id: node.id });
-      notify(`${NODE_TYPES[type].label} adicionado`);
+      notify(
+        host
+          ? `${NODE_TYPES[type].label} ${node.name} fixada em ${NODE_TYPES[host.type].label.toLowerCase()} ${host.name}`
+          : fixable
+            ? `${NODE_TYPES[type].label} adicionada. Informe no painel onde ela está fixada (poste, parede ou caixa).`
+            : `${NODE_TYPES[type].label} adicionado`,
+      );
     } catch (e) {
       notify(errorMessage(e), 'error');
     }
@@ -458,6 +483,12 @@ export default function MapPage() {
       const r = await api.updateNode(node.id, { lat: at[0], lng: at[1] });
       mergeNodes([r.node]);
       mergeCables(r.cables);
+      // A caixa leva junto as CTO/CEO instaladas dentro dela (mesmo deslocamento).
+      if (node.type === 'box') {
+        const dLat = at[0] - from[0];
+        const dLng = at[1] - from[1];
+        for (const child of fixedOn(node, nodes)) await moveNode(child, [child.lat + dLat, child.lng + dLng], false);
+      }
       if (record) {
         setLastMove({ id: node.id, from, name: node.name });
         notify(`${node.name} movido para ${formatCoord(at[0])}, ${formatCoord(at[1])}. Ctrl+Z desfaz.`);
@@ -715,6 +746,10 @@ export default function MapPage() {
       placeSlack([node.lat, node.lng], node);
       return;
     }
+    if ((tool === 'cto' || tool === 'ceo') && !readOnly && (node.type === 'pole' || node.type === 'box')) {
+      addNode(tool, [node.lat, node.lng], node);
+      return;
+    }
     if (tool === 'camera' && !readOnly && CAMERA_MOUNT_TYPES.includes(node.type)) {
       addNode('camera', [node.lat, node.lng], node);
       return;
@@ -953,7 +988,7 @@ export default function MapPage() {
           }}
         />
         <div className="mt-auto p-3 text-xs text-slate-500 grid grid-cols-2 gap-1">
-          {(['dc', 'pop', 'tower', 'ceo', 'cto', 'condo', 'client', 'camera'] as NodeType[]).map((t) => (
+          {(['dc', 'pop', 'tower', 'ceo', 'cto', 'box', 'condo', 'client', 'camera'] as NodeType[]).map((t) => (
             <span key={t}>
               {NODE_TYPES[t].plural}: <b className="text-slate-300">{nodes.filter((n) => n.type === t).length}</b>
             </span>
@@ -1165,6 +1200,21 @@ export default function MapPage() {
               </Polyline>
             ))}
 
+          {/* CTO/CEO: ligação tracejada curta com o poste ou a caixa onde está fixada. */}
+          {zoom >= 16 &&
+            fixLinks(nodes.filter((n) => showNode(n))).map((l) => (
+              <Polyline
+                key={`fx${l.key}`}
+                positions={[
+                  [l.from.lat, l.from.lng],
+                  [l.to.lat, l.to.lng],
+                ]}
+                pathOptions={{ color: '#e2e8f0', weight: 1.5, dashArray: '2 4', opacity: 0.75 }}
+              >
+                <Tooltip sticky>{`${l.from.name} ${l.to.type === 'box' ? 'dentro da caixa' : 'fixada no poste'} ${l.to.name}`}</Tooltip>
+              </Polyline>
+            ))}
+
           {nodes
             .filter((n) => showNode(n))
             .map((n) => {
@@ -1177,7 +1227,12 @@ export default function MapPage() {
                     selected: selection?.kind === 'node' && selection.id === n.id,
                     fill: level ? POWER_COLORS[level] : undefined,
                     group: grouped.counts.get(n.id),
-                    dot: n.type === 'camera' && cameraOf(n).cam_status ? HEALTH_COLORS[cameraHealth(cameraOf(n).cam_status)] : undefined,
+                    dot:
+                      n.type === 'camera' && cameraOf(n).cam_status
+                        ? HEALTH_COLORS[cameraHealth(cameraOf(n).cam_status)]
+                        : FIXABLE_TYPES.includes(n.type) && unfixed.has(n.id)
+                          ? '#f59e0b'
+                          : undefined,
                   })}
                   draggable={tool === 'select' && !readOnly}
                   eventHandlers={{
@@ -1524,6 +1579,47 @@ export default function MapPage() {
             </div>
           )}
 
+          {/* CTO/CEO: como fixar */}
+          {!readOnly && (tool === 'cto' || tool === 'ceo') && (
+            <div className="panel flex items-center gap-2 p-2 text-xs pointer-events-auto">
+              <span className="text-slate-300 flex items-center gap-1">
+                <UtilityPole size={14} /> {NODE_TYPES[tool].label}
+              </span>
+              <span className="text-slate-400">Clique num poste ou numa caixa para fixar nele. Na parede: clique no mapa e informe o endereço.</span>
+            </div>
+          )}
+
+          {/* Tipo da caixa lançada pela ferramenta Caixa */}
+          {!readOnly && tool === 'box' && (
+            <div className="panel flex flex-wrap items-center gap-2 p-2 text-xs pointer-events-auto">
+              <span className="text-slate-300 flex items-center gap-1">
+                <Archive size={14} /> Caixa
+              </span>
+              {(Object.keys(BOX_KINDS) as BoxKind[]).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setBoxKindTool(k)}
+                  title={BOX_KINDS[k].hint}
+                  className={`flex items-center gap-1 rounded px-2 py-1 cursor-pointer ${boxKindTool === k ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  {k === 'wall' ? <BrickWall size={13} /> : <Archive size={13} />} {BOX_KINDS[k].label}
+                </button>
+              ))}
+              <span className="text-slate-600">|</span>
+              {(Object.keys(BOX_PLACES) as BoxPlace[]).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setBoxPlaceTool(k)}
+                  title={BOX_PLACES[k].hint}
+                  className={`rounded px-2 py-1 cursor-pointer ${boxPlaceTool === k ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  {BOX_PLACES[k].label}
+                </button>
+              ))}
+              <span className="text-slate-500 hidden lg:inline">Clique no mapa para posicionar.</span>
+            </div>
+          )}
+
           {/* Tipo do condomínio lançado pela ferramenta Condomínio */}
           {!readOnly && tool === 'condo' && (
             <div className="panel flex items-center gap-2 p-2 text-xs pointer-events-auto">
@@ -1867,6 +1963,7 @@ export default function MapPage() {
             cable={selectedCable}
             nodes={nodes}
             onSelectNode={(n) => focusNode(n)}
+            onAddInBox={(box, type) => addNode(type, [box.lat, box.lng], box)}
             budget={selectedNode?.type === 'client' ? clientPower.get(selectedNode.id) : undefined}
             signal={selectedNode?.type === 'client' ? clientSignal.get(selectedNode.id) : undefined}
             settings={settings}

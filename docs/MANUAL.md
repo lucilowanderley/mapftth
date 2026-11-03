@@ -10,7 +10,7 @@ seções como consulta.
 2. [Conta e login](#2-conta-e-login)
 3. [Meus projetos](#3-meus-projetos)
 4. [A tela do mapa](#4-a-tela-do-mapa)
-5. [Adicionar POP, datacenter, torre, CEO, CTO, poste, cliente e condomínio](#5-adicionar-pop-datacenter-torre-ceo-cto-poste-cliente-e-condomínio) (inclui a [Câmera: IP, analógica e DVR/NVR](#câmera-ip-analógica-e-dvrnvr))
+5. [Adicionar POP, datacenter, torre, CEO, CTO, caixa, poste, cliente e condomínio](#5-adicionar-pop-datacenter-torre-ceo-cto-caixa-poste-cliente-e-condomínio) (inclui a [Caixa de parede ou subterrânea](#caixa-de-parede-ou-subterrânea), a [Fixação da CTO/CEO](#fixação-da-ctoceo-poste-parede-ou-caixa) e a [Câmera: IP, analógica e DVR/NVR](#câmera-ip-analógica-e-dvrnvr))
 6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos) (inclui as [3 formas de ligar a CTO no cabo](#ligar-a-cto-no-cabo-3-formas))
 7. [Editor do POP: rack, OLT e DIO](#7-editor-do-pop-rack-olt-e-dio)
 8. [Diagrama de fusão da CEO e da CTO (splitters)](#8-diagrama-de-fusão-da-ceo-e-da-cto)
@@ -92,7 +92,7 @@ A tela tem quatro partes:
 | Onde | O que tem |
 | --- | --- |
 | **Barra lateral (esquerda)** | Nome do projeto, % implantado, seu papel, busca, menu (Meus projetos, Dashboard, Análise de rede, Relatório da rede, Tabela de postes, Equipe, Histórico, Importar KMZ/KML, Exportar KMZ, Configurações) e os totais de POPs, CEOs, CTOs, clientes e metros de cabo. |
-| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, POP, Datacenter, Torre, Poste, Cliente, Condomínio, Cabo, Área, Reserva, Régua, Viabilidade. |
+| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, Caixa, POP, Datacenter, Torre, Poste, Cliente, Condomínio, Câmera, Cabo, Área, Reserva, Régua, Viabilidade. |
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
 
@@ -172,9 +172,9 @@ ocultos). O ícone volta ao normal e os objetos voltam a ser desenhados.
 
 ---
 
-## 5. Adicionar POP, datacenter, torre, CEO, CTO, poste, cliente e condomínio
+## 5. Adicionar POP, datacenter, torre, CEO, CTO, caixa, poste, cliente e condomínio
 
-1. Na barra de ferramentas, escolha **POP**, **Datacenter**, **Torre**, **CEO**, **CTO**, **Poste**, **Cliente**, **Condomínio** ou **Câmera**.
+1. Na barra de ferramentas, escolha **POP**, **Datacenter**, **Torre**, **CEO**, **CTO**, **Caixa**, **Poste**, **Cliente**, **Condomínio** ou **Câmera**.
 2. Clique no mapa onde o elemento fica. Ele é criado na hora com um nome automático e o painel de edição abre
    à esquerda. Você pode continuar clicando para colocar vários do mesmo tipo.
 3. Volte para **Selecionar** (ou aperte **Esc**) quando terminar.
@@ -196,8 +196,13 @@ os dois campos são preenchidos.
   loja ou prédio no mapa), **ID do cliente**, **Serial ONU/ONT** e **Sinal medido** (para integração com outros
   sistemas), potência estimada na ONU, a **saúde do sinal** (medido × estimado, com o trecho provável do problema;
   veja a seção 8, *Cliente no diagrama*) e os botões de drop e OTDR ([seção 9](#9-ligar-o-cliente-e-ver-o-sinal)).
-- **Poste**: **Código / plaqueta**, **Material**, **Altura (m)**, **Esforço (daN)**, **Distribuidora / proprietário**
-  e a lista de **cabos neste poste**.
+- **Poste**: **Código / plaqueta**, **Material**, **Altura (m)**, **Esforço (daN)**, **Distribuidora / proprietário**,
+  a lista de **cabos neste poste** e as CTO/CEO **fixadas neste poste**. No mapa o poste é um círculo cinza com a
+  haste, a cruzeta e os isoladores desenhados (na barra de ferramentas, o botão **Poste** tem o mesmo desenho).
+- **CTO e CEO**: campo **Fixada em** (*Poste*, *Parede* ou *Caixa*); veja
+  [Fixação da CTO/CEO](#fixação-da-ctoceo-poste-parede-ou-caixa).
+- **Caixa**: **Tipo** (*Parede* ou *Subterrânea*), **Local** (*Externa* ou *Interna*), **Modelo / tamanho**,
+  **Endereço** e a lista de **CTO / CEO dentro da caixa** ([veja abaixo](#caixa-de-parede-ou-subterrânea)).
 - **Condomínio**: **Tipo** (*Casas* ou *Prédios*), número de **Casas** ou **Apartamentos**, **Quadras** ou
   **Prédios / torres**, **Andares** (só prédios), **Endereço**, **Síndico / contato** e **Telefone**.
 - **Torre**: **Tipo de torre** (autoportante, estaiada, monopolo, mastro ou rooftop), **Altura (m)**, **Código do site**,
@@ -219,6 +224,43 @@ O condomínio funciona como uma caixa: o cabo pode terminar nele, passar por ele
 **Conectar caixas no traçado**) e ele tem **Diagrama de fusão** próprio para os splitters e as fusões da rede
 interna. Os drops dos moradores saem dele como saem de uma CTO. Nos **relatórios** aparece o total de condomínios e
 de unidades (útil para contar casas cobertas), e no **KMZ** eles vão para a pasta *Condomínios*.
+
+### Caixa de parede ou subterrânea
+
+1. Escolha **Caixa** na barra de ferramentas. Abaixo dela aparece **Caixa: Parede | Subterrânea** e
+   **Externa | Interna**; escolha antes de clicar no mapa.
+2. Clique no mapa. A caixa é criada como *CX-1*, *CX-2*... com ícone roxo-azulado: a subterrânea mostra a tampa com
+   grelha e a de parede mostra a caixa presa numa parede hachurada.
+3. No painel, confira o tipo e o local, preencha **Modelo / tamanho** (sugestões R1, R2, R3, quadro de parede...) e o
+   **Endereço**. Caixa **de parede** ou **interna** fica num imóvel: o endereço é obrigatório para salvar.
+
+A caixa tem tudo o que a CTO/CEO tem: o cabo pode terminar nela ou passar por ela em **sangria** (e pela opção
+**Conectar caixas no traçado**), ela tem **Diagrama de fusão** próprio (emendas, splitters, bandejas, clientes,
+grupos) e entra no orçamento óptico como qualquer caixa. Além disso ela **recebe CTO e CEO dentro dela**:
+
+- Com a ferramenta **CTO** ou **CEO**, clique sobre a caixa; ou, no painel da caixa, use **+ CTO na caixa** /
+  **+ CEO na caixa**. A CTO/CEO nasce ao lado da caixa, já com *Fixada em: Caixa*.
+- O painel da caixa lista as CTO/CEO que estão dentro; clique numa para ir até ela.
+- Ao **mover a caixa** no mapa, as CTO/CEO de dentro vão junto (Ctrl+Z desfaz tudo).
+- Nos relatórios a caixa aparece como *Caixa de parede / subterrânea* e no KMZ vai para a pasta *Caixas*.
+
+### Fixação da CTO/CEO: poste, parede ou caixa
+
+Toda CTO e CEO precisa estar fixada em algum lugar. No painel dela, **Fixada em** tem três opções:
+
+- **Poste**: escolha o poste na lista (os mais perto primeiro).
+- **Parede**: presa na parede de um imóvel; informe o **Endereço do imóvel** (obrigatório).
+- **Caixa**: escolha a caixa na lista. Se a caixa for de parede ou interna (num imóvel), o endereço é obrigatório:
+  vale o endereço da caixa, ou digite outro no campo **Endereço do imóvel** da CTO/CEO.
+
+O jeito mais rápido: com a ferramenta **CTO** ou **CEO**, **clique sobre o poste ou a caixa**; ela já nasce fixada
+nele, um pouco ao lado para os ícones não ficarem um sobre o outro. Clicando no mapa a até 8 m de um poste ou caixa,
+ela também é fixada sozinha no mais próximo. No mapa (zoom alto) uma linha tracejada curta liga a CTO/CEO ao poste ou à
+caixa.
+
+CTO/CEO antigas, sem fixação, continuam funcionando normalmente, mas ganham um **ponto âmbar** no canto do ícone, um
+aviso no painel e aparecem em **Análise de rede → CTO/CEO com fixação pendente**. O botão **Salvar alterações** da
+CTO/CEO só grava depois que a fixação (e o endereço, quando pedido) estiver preenchida.
 
 **Datacenter**
 
@@ -1004,6 +1046,8 @@ Barra lateral → **Análise de rede**.
 - Filtre os clientes por situação (**OK**, **Atenção**, **Crítico**, **Sinal alto**, **Sem sinal**).
 - A tabela mostra **Cliente**, **Potência**, **Perda** e **Situação**. Clique numa linha para ir até o cliente no
   mapa.
+- Em **CTO/CEO com fixação pendente** aparecem as que ainda não dizem se estão no poste, na parede ou numa caixa
+  (ou estão sem o endereço do imóvel). Clique para ir até ela e completar.
 - Em **Ocupação das CTOs**, cada CTO mostra portas usadas/total. Clique para ir até ela.
 
 ---
@@ -1104,7 +1148,7 @@ Use para comparar com a medição do OTDR de campo e achar onde está um problem
 
 1. Escolha um arquivo `.kmz` ou `.kml` (por exemplo, do Google Earth).
 2. Os pontos viram caixas conforme o **nome do ponto ou da pasta**: *CTO* ou *caixa de atendimento* → CTO; *CEO* ou
-   *emenda* → CEO; *POP* ou *OLT* → POP; *datacenter* → Datacenter; *torre*, *tower*, *ERB* ou *RBS* → Torre; *condomínio*, *edifício* ou *residencial* → Condomínio; *poste* → Poste; *cliente*, *ONU* ou *assinante* → Cliente.
+   *emenda* → CEO; *POP* ou *OLT* → POP; *datacenter* → Datacenter; *torre*, *tower*, *ERB* ou *RBS* → Torre; *caixa de passagem*, *caixa subterrânea*, *caixa de parede* ou *CX* → Caixa; *condomínio*, *edifício* ou *residencial* → Condomínio; *poste* → Poste; *cliente*, *ONU* ou *assinante* → Cliente.
 3. As linhas viram cabos. Se o nome tiver a quantidade de fibras (ex.: *12FO*, *24 fibras*) ela é usada; *backbone*
    ou *tronco* define o tipo. As pontas dos cabos se ligam às caixas que estiverem a até **15 m**.
 4. Ao final aparece quantos pontos e cabos foram importados.

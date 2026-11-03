@@ -137,9 +137,9 @@ export default function ReportModal({ network, projectName, title, polygon, onCl
                   <td className="text-right">{v} un</td>
                 </tr>
               ))}
-              {(['cto', 'ceo'] as NodeType[]).map((t) => (
+              {(['cto', 'ceo', 'box'] as NodeType[]).map((t) => (
                 <tr key={t} className="border-t border-slate-800">
-                  <td className="py-1">Caixa {NODE_TYPES[t].label}</td>
+                  <td className="py-1">{t === 'box' ? 'Caixa de parede / subterrânea' : `Caixa ${NODE_TYPES[t].label}`}</td>
                   <td className="text-right">{r.nodes[t]} un</td>
                 </tr>
               ))}
