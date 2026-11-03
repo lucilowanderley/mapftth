@@ -28,6 +28,13 @@ import {
   ChevronsUpDown,
   Minimize2,
   MoveVertical,
+  Building2,
+  ChevronDown,
+  ChevronRight,
+  Plus,
+  Layers,
+  DoorOpen,
+  Columns3,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage } from '../../lib/api';
@@ -66,8 +73,9 @@ import {
   type Rack,
   type Rackable,
 } from '../../lib/pop';
-import type { Cable, Diagram, DiagramComponent, End, NetNode, Network, Status } from '../../lib/types';
-import { ActiveDialog, DioDialog, LinkDialog, MountDialog, OltDialog, RackDialog, useCableItems } from './dialogs';
+import type { Cable, DcSpace, DcSpaceKind, Diagram, DiagramComponent, End, NetNode, Network, Status } from '../../lib/types';
+import { SP, SPACE_KINDS, dcLayout, descendants, rackLocIn, spaceCode, spacePath, spaceStats, spaceTitle, spacesFromLoc, syncRackLocs, type Box as XY } from '../../lib/dcspace';
+import { ActiveDialog, DioDialog, LinkDialog, MountDialog, OltDialog, RackDialog, SpaceDialog, useCableItems } from './dialogs';
 import FusionMatrix from './FusionMatrix';
 import { G, RACK, anySize, cardPorts, cardSize, labelW, portBox, rackSize, rackStrip, rackUTop, rowLabels, textOn, type PopComp } from './geometry';
 import EquipmentCatalog, { useEquipmentModels } from './EquipmentCatalog';
@@ -83,7 +91,8 @@ type Dialog =
   | { t: 'olt'; edit?: Olt }
   | { t: 'dio'; edit?: Dio }
   | { t: 'active'; edit?: Active }
-  | { t: 'rack'; edit?: Rack }
+  | { t: 'rack'; edit?: Rack; space?: string }
+  | { t: 'space'; edit?: DcSpace; kind?: DcSpaceKind; parent?: string | null }
   | { t: 'mount'; rack: string; item?: string; u?: number }
   | { t: 'catalog'; kind?: 'olt' | 'dio' | 'active'; back?: Dialog }
   | { t: 'linkDio'; dio: string }
@@ -149,7 +158,9 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   const cableItems = useCableItems(cables, node.id, nodeName);
 
   const [diagram, setDiagram] = useState<Diagram>(() => {
-    const d = structuredClone(node.diagram ?? { components: [], cablePos: {}, connections: [] });
+    const raw = structuredClone(node.diagram ?? { components: [], cablePos: {}, connections: [] });
+    // Racks com endereço digitado (antes da estrutura) entram nas fileiras do prédio/andar/sala.
+    const d = syncRackLocs(spacesFromLoc(raw));
     return d.popLayout ? d : autoLayout(d, cables);
   });
   const [status, setStatus] = useState<Status>(node.status);
@@ -213,10 +224,21 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   const compById = useMemo(() => new Map(diagram.components.map((c) => [c.id, c])), [diagram.components]);
   const dios = comps.filter((c): c is Dio => c.kind === 'dio');
   const olts = comps.filter((c): c is Olt => c.kind === 'olt');
-  const racks = diagram.components.filter(isRack);
+  /** Todos os racks (inclusive os que estão dentro de espaços recolhidos). */
+  const allRacks = diagram.components.filter(isRack);
+  const spaces = diagram.spaces ?? [];
+  /** Estrutura do datacenter: caixas dos espaços, posição dos racks nas fileiras e racks escondidos. */
+  const layout = useMemo(() => dcLayout(diagram, rackSize), [diagram]);
+  /** Racks desenhados: soltos (x/y próprios) e os das fileiras expandidas (posição calculada). */
+  const racks = allRacks.filter((r) => !layout.hiddenIn.has(r.id)).map((r) => (layout.rackPos.has(r.id) ? { ...r, ...layout.rackPos.get(r.id)! } : r));
   const rackById = new Map(racks.map((r) => [r.id, r]));
+  /** Cartão recolhido onde o equipamento está (o rack dele está dentro de um espaço fechado). */
+  const hiddenBox = (c: PopComp): XY | undefined => {
+    const sid = c.rack ? layout.hiddenIn.get(c.rack) : undefined;
+    return sid ? layout.boxes.get(sid) : undefined;
+  };
   const conflicts = useMemo(() => rackConflicts(diagram), [diagram]);
-  const dupCodes = useMemo(() => duplicateRackCodes(racks), [racks]);
+  const dupCodes = useMemo(() => duplicateRackCodes(allRacks), [allRacks]);
   /** Busca de rack por código/nome: centraliza o rack achado e destaca por alguns segundos. */
   const [rackQuery, setRackQuery] = useState('');
   const [found, setFound] = useState<string | null>(null);
@@ -226,10 +248,19 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     return () => clearTimeout(t);
   }, [found]);
   function locateRack(q: string) {
-    const hit = searchRacks(racks, q)[0];
-    if (!hit) {
+    const found0 = searchRacks(allRacks, q)[0];
+    if (!found0) {
       notify(`Nenhum rack com "${q}".`, true);
       return;
+    }
+    let hit = found0;
+    if (found0.space) {
+      // Rack numa fileira: abre o caminho até ela (prédio, andar, sala, fileira) e acha a posição calculada.
+      const path = new Set(spacePath(spaces, found0.space).map((s) => s.id));
+      const next: Diagram = { ...diagram, spaces: spaces.map((s) => (path.has(s.id) ? { ...s, open: true } : s)) };
+      if (spaces.some((s) => path.has(s.id) && !s.open)) setDiagram(next);
+      const pos = dcLayout(next, rackSize).rackPos.get(found0.id);
+      if (pos) hit = { ...found0, ...pos };
     }
     const el = canvasRef.current;
     if (mode !== 'canvas') setMode('canvas');
@@ -242,16 +273,26 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   }
   /** Rack onde o equipamento está instalado (só quando a posição é válida o bastante para desenhar). */
   const mountedIn = (c: PopComp) => (c.rack && typeof c.u === 'number' ? rackById.get(c.rack) : undefined);
-  /** Faixa do equipamento no rack, no sistema do canvas. */
+  /** Faixa do equipamento no rack, no sistema do canvas. Rack escondido: meio do cartão recolhido do espaço. */
   const stripOf = (c: PopComp) => {
+    const hb = hiddenBox(c);
+    if (hb) return { x: hb.x, y: hb.y + hb.h / 2, w: hb.w, h: 0 };
     const r = mountedIn(c);
     return r ? rackStrip(r, c.u!, rackHeight(c)) : null;
+  };
+  /** Caixa por onde o cabo entra até o equipamento: o rack ou o cartão recolhido que o contém. */
+  const rackBoxOf = (c: PopComp): XY | undefined => {
+    const hb = hiddenBox(c);
+    if (hb) return hb;
+    const r = mountedIn(c);
+    return r ? { x: r.x, y: r.y, ...rackSize(r) } : undefined;
   };
   /**
    * Onde o card do equipamento aparece: fora do rack, na posição dele; no rack, só quando expandido:
    * onde o usuário arrastou (ex/ey) ou, sem isso, ao lado direito do rack na altura da faixa. Recolhido = null.
    */
   const shownPos = (c: PopComp): { x: number; y: number } | null => {
+    if (hiddenBox(c)) return null;
     const r = mountedIn(c);
     if (!r) return { x: c.x, y: c.y };
     if (!expanded.includes(c.id)) return null;
@@ -266,6 +307,12 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   });
   /** Cards do canvas (equipamentos visíveis e racks), para enquadrar e exportar. */
   const cards = [...shownComps, ...racks];
+  /** Caixas de tudo no canvas (cabos, cards e espaços do datacenter). */
+  const allBoxes = (): XY[] => [
+    ...cables.map((c) => ({ ...cablePos(`c${c.id}`), w: G.CABLE_W, h: G.CABLE_H })),
+    ...cards.map((c) => ({ x: c.x, y: c.y, ...anySize(c) })),
+    ...layout.boxes.values(),
+  ];
   const usedEnds = useMemo(() => new Map(diagram.connections.flatMap((c) => [[endKey(c.a), c] as const, [endKey(c.b), c] as const])), [diagram.connections]);
 
   const dioPorts = dios.reduce((a, d) => a + d.ports, 0);
@@ -324,7 +371,12 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     e.stopPropagation();
     let ox = view.x;
     let oy = view.y;
-    if (key) {
+    if (key?.startsWith('space:')) {
+      if (readOnly) return;
+      const sp = spaces.find((x) => x.id === key.slice(6));
+      ox = sp?.x ?? 0;
+      oy = sp?.y ?? 0;
+    } else if (key) {
       if (readOnly) return;
       const c = compById.get(key);
       // Card expandido de equipamento no rack: arrasta a posição de expansão (ex/ey), não a do card solto.
@@ -354,6 +406,12 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     const nx = Math.round((d.ox + dx / view.k) / 4) * 4;
     const ny = Math.round((d.oy + dy / view.k) / 4) * 4;
     const key = d.key;
+    if (key.startsWith('space:')) {
+      const sid = key.slice(6);
+      setDiagram((dg) => ({ ...dg, spaces: (dg.spaces ?? []).map((x) => (x.id === sid ? { ...x, x: nx, y: ny } : x)) }));
+      setDirty(true);
+      return;
+    }
     setDiagram((dg) =>
       compById.has(key)
         ? {
@@ -369,6 +427,18 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     const d = drag.current;
     drag.current = null;
     setPanning(false);
+    // Rack solto arrastado para cima de uma fileira: entra nela, na próxima posição livre.
+    const dropped = d?.moved && d.key ? diagram.components.find((c): c is Rack => c.id === d.key && isRack(c) && !c.space) : undefined;
+    if (dropped) {
+      const { w, h } = rackSize(dropped);
+      const cx = dropped.x + w / 2;
+      const cy = dropped.y + Math.min(h / 2, 120);
+      const row = [...layout.order].reverse().map((id) => spaces.find((x) => x.id === id)!).find((sp) => {
+        const b = sp?.kind === 'row' ? layout.boxes.get(sp.id) : undefined;
+        return b && cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h;
+      });
+      if (row) moveRackToSpace(dropped, row.id);
+    }
     if (d && !d.moved && !d.key) {
       setPending(null);
       setSelectedConn(null);
@@ -386,10 +456,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   function fit() {
     const el = canvasRef.current;
     if (!el) return;
-    const boxes = [
-      ...cables.map((c) => ({ ...cablePos(`c${c.id}`), w: G.CABLE_W, h: G.CABLE_H })),
-      ...cards.map((c) => ({ x: c.x, y: c.y, ...anySize(c) })),
-    ];
+    const boxes = allBoxes();
     if (!boxes.length) return;
     const x0 = Math.min(...boxes.map((b) => b.x));
     const y0 = Math.min(...boxes.map((b) => b.y));
@@ -464,18 +531,77 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   }
 
   // ---------- Componentes ----------
+  /** Abre o espaço e os de cima, para mostrar o que acabou de entrar nele. */
+  const openPath = (d: Diagram, id?: string | null): Diagram => {
+    if (!id) return d;
+    const path = new Set(spacePath(d.spaces ?? [], id).map((x) => x.id));
+    return { ...d, spaces: (d.spaces ?? []).map((x) => (path.has(x.id) ? { ...x, open: true } : x)) };
+  };
+
+  /** Coloca um rack solto numa fileira (arrastado para cima dela). */
+  function moveRackToSpace(r: Rack, sid: string) {
+    const loc = rackLocIn(diagram, sid);
+    const oldCode = rackCode(r.loc);
+    update((d) =>
+      openPath(
+        { ...d, components: d.components.map((c) => (c.id === r.id && isRack(c) ? { ...c, space: sid, loc, name: !oldCode || c.name === oldCode ? rackCode(loc) || c.name : c.name } : c)) },
+        sid,
+      ),
+    );
+    notify(`${r.name} entrou na ${spaceTitle(spaces.find((x) => x.id === sid)!)} como ${rackCode(loc)}.`);
+  }
+
+  // ---------- Estrutura do datacenter (prédio, andar, sala, fileira) ----------
+  function saveSpaces(list: DcSpace[], edit?: DcSpace) {
+    const right = Math.max(0, ...allBoxes().map((b) => b.x + b.w));
+    const top = Math.min(0, ...allBoxes().map((b) => b.y));
+    update((d) => {
+      const cur = d.spaces ?? [];
+      let next: DcSpace[];
+      if (edit) next = cur.map((x) => (x.id === edit.id ? { ...list[0], ...(list[0].parent ? {} : { x: edit.parent ? right + 90 : edit.x, y: edit.parent ? top : edit.y }) } : x));
+      else next = [...cur, ...list.map((x, i) => ({ ...x, x: right + 90 + i * (SP.CW + 40), y: top }))];
+      return openPath(syncRackLocs({ ...d, spaces: next }), list[0].parent);
+    });
+    setDialog(null);
+    setFitReq((n) => n + 1);
+  }
+
+  function toggleSpace(id: string) {
+    // Abrir/fechar não conta como alteração do projeto (fica salvo junto na próxima vez).
+    setDiagram((d) => ({ ...d, spaces: (d.spaces ?? []).map((x) => (x.id === id ? { ...x, open: !x.open } : x)) }));
+  }
+
+  function deleteSpace(sp: DcSpace) {
+    const ids = descendants(spaces, sp.id);
+    const inside = allRacks.filter((r) => r.space && ids.has(r.space));
+    const subs = ids.size - 1;
+    if (!confirm(`Excluir ${spaceTitle(sp)}${subs ? ` e ${subs} espaço(s) dentro` : ''}?${inside.length ? ` Os ${inside.length} rack(s) continuam em ${node.name}, soltos no canvas, com o mesmo endereço.` : ''}`)) return;
+    const box = layout.boxes.get(sp.id);
+    update((d) => ({
+      ...d,
+      spaces: (d.spaces ?? []).filter((x) => !ids.has(x.id)),
+      components: d.components.map((c, i) => {
+        if (!isRack(c) || !c.space || !ids.has(c.space)) return c;
+        const { space: _s, ...rest } = c;
+        const p = layout.rackPos.get(c.id) ?? { x: (box?.x ?? 0) + i * 20, y: (box?.y ?? 0) + i * 20 };
+        return { ...rest, ...p };
+      }),
+    }));
+  }
+
   /** Novo card entra na coluna do seu tipo (DIOs ao lado dos cabos, OLT/ativos à direita), abaixo dos existentes. */
-  /** Novos racks entram à direita de tudo, lado a lado (como numa fileira do datacenter). */
+  /** Novos racks entram à direita de tudo, lado a lado (como numa fileira do datacenter); na fileira, a posição é calculada. */
   function addRacks(list: Rack[]) {
-    const right = Math.max(0, ...cables.map((k) => cablePos(`c${k.id}`).x + G.CABLE_W), ...cards.map((k) => k.x + anySize(k).w));
-    const top = Math.min(0, ...cards.map((k) => k.y));
+    const right = Math.max(0, ...allBoxes().map((b) => b.x + b.w));
+    const top = Math.min(0, ...allBoxes().map((b) => b.y));
     let x = right + 90;
     const placed = list.map((raw) => {
+      if (raw.space) return raw;
       const r = { ...raw, x, y: top };
       x += rackSize(r).w + 40;
       return r;
     });
-    update((d) => ({ ...d, components: [...d.components, ...placed] }));
+    update((d) => openPath({ ...d, components: [...d.components, ...placed] }, placed[0]?.space));
     setDialog(null);
     if (placed.length > 1) notify(`${placed.length} racks criados (${rackCode(placed[0].loc)} a ${rackCode(placed[placed.length - 1].loc)}).`);
     setFitReq((n) => n + 1);
@@ -515,7 +641,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
 
   function editComponent(raw: PopComp | Rack) {
     if (isRack(raw)) {
-      update((d) => ({ ...d, components: d.components.map((x) => (x.id === raw.id ? raw : x)) }));
+      update((d) => openPath({ ...d, components: d.components.map((x) => (x.id === raw.id ? raw : x)) }, raw.space));
       const bad = rackConflicts({ ...diagram, components: diagram.components.map((x) => (x.id === raw.id ? raw : x)) });
       if (bad.size) notify(`${bad.size} equipamento(s) ficaram fora do ${raw.name}. Clique neles no rack para reposicionar.`, true);
       setDialog(null);
@@ -609,10 +735,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   /** Exporta o canvas (cabos, equipamentos em vista frontal, vínculos e cordões) como PNG. */
   function exportPng() {
     const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-    const boxes = [
-      ...cables.map((c) => ({ ...cablePos(`c${c.id}`), w: G.CABLE_W, h: G.CABLE_H })),
-      ...cards.map((c) => ({ x: c.x, y: c.y, ...anySize(c) })),
-    ];
+    const boxes = allBoxes();
     if (!boxes.length) return notify('Nada para exportar.', true);
     const pad = 40;
     const titleH = 60;
@@ -629,7 +752,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         const sx = p.x + G.CABLE_W;
         const sy = p.y + G.HEADER / 2;
         // No rack: o cabo chega na borda do rack e segue até a faixa do DIO.
-        const rack = mountedIn(dio);
+        const rack = rackBoxOf(dio);
         const st = stripOf(dio);
         const tx = rack && st ? rack.x : dio.x;
         const by = rack && st ? st.y + st.h / 2 : dio.y + G.HEADER + G.CHIPS / 2;
@@ -648,7 +771,20 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         `<text x="${p.x + 12}" y="${p.y + 74}" font-size="10" fill="#475569">${esc((incoming ? `de ${nodeName(c.from_node_id)}` : `para ${nodeName(c.to_node_id)}`).slice(0, 30))}</text>`,
       );
     });
-    comps.filter((c) => !mountedIn(c)).forEach((c) => {
+    // Espaços do datacenter: molduras (expandidos) e cartões (recolhidos).
+    layout.order.forEach((id) => {
+      const sp = spaces.find((x) => x.id === id);
+      const b = layout.boxes.get(id);
+      if (!sp || !b) return;
+      const col = SPACE_KINDS[sp.kind].color;
+      const st = spaceStats(diagram, sp.id);
+      parts.push(
+        `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="10" fill="${b.open ? 'none' : '#ffffff'}" stroke="${col}" stroke-width="2"${b.open ? ' stroke-dasharray="6 4"' : ''}/>`,
+        `<text x="${b.x + 12}" y="${b.y + 27}" font-size="13" font-weight="bold" fill="#0f172a">${esc(`${SPACE_KINDS[sp.kind].label} · ${spaceTitle(sp)}`)} <tspan font-size="10" fill="#475569">${esc(spaceCode(spaces, sp.id))}${sp.company ? esc(` · ${sp.company}`) : ''}</tspan></text>`,
+      );
+      if (!b.open) parts.push(`<text x="${b.x + 12}" y="${b.y + 60}" font-size="10" fill="#475569">${esc(statsText(st))}</text>`);
+    });
+    comps.filter((c) => !mountedIn(c) && !hiddenBox(c)).forEach((c) => {
       const { w: cw, h: ch } = cardSize(c);
       const tag = c.kind === 'olt' ? `${c.slots}×${c.ports}` : c.kind === 'dio' ? `${c.ports}P` : c.type;
       parts.push(
@@ -712,7 +848,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
       <text x="${pad}" y="32" font-size="18" font-weight="bold" fill="#ffffff">${esc(node.name)} · ${place}</text>
       <text x="${w - pad}" y="32" font-size="11" fill="#94a3b8" text-anchor="end">${new Date().toLocaleString('pt-BR')} · ${node.lat.toFixed(6)}, ${node.lng.toFixed(6)} · ${STATUSES[status].label}</text>
       <g transform="translate(${-x0},${titleH - y0})">${parts.join('')}</g>
-      <text x="${pad}" y="${h + titleH - 16}" font-size="10" fill="#475569">Racks: ${racks.length} · OLT: ${olts.length} · DIO: ${dios.length} · Portas do DIO com cordão: ${dioPatched}/${dioPorts} · PON em uso: ${ponUsed}/${ponTotal}</text>
+      <text x="${pad}" y="${h + titleH - 16}" font-size="10" fill="#475569">Racks: ${allRacks.length} · OLT: ${olts.length} · DIO: ${dios.length} · Portas do DIO com cordão: ${dioPatched}/${dioPorts} · PON em uso: ${ponUsed}/${ponTotal}</text>
     </svg>`;
     const img = new window.Image();
     img.onload = () => {
@@ -825,17 +961,24 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
           <Tool icon={<Server size={14} />} label="OLT" onClick={() => setDialog({ t: 'olt' })} disabled={readOnly} />
           <Tool icon={<Box size={14} />} label="DIO" onClick={() => setDialog({ t: 'dio' })} disabled={readOnly} />
           <Tool icon={<NetIcon size={14} />} label="Ativo" onClick={() => setDialog({ t: 'active' })} disabled={readOnly} />
+          <Tool
+            icon={<Building2 size={14} />}
+            label="Prédio"
+            title="Estrutura do datacenter (TIA-606): prédio com a empresa, andar, sala e fileira. Os racks entram na fileira."
+            onClick={() => setDialog({ t: 'space', kind: spaces.length ? undefined : 'site' })}
+            disabled={readOnly}
+          />
           <Tool icon={<Rows4 size={14} />} label="Rack" title="Rack de piso ou suspenso (ex.: 44U, 48U)" onClick={() => setDialog({ t: 'rack' })} disabled={readOnly} />
           <Tool icon={<BookOpen size={14} />} label="Cadastro" title="Cadastro de equipamentos: fabricante, modelo, portas e altura em U" onClick={() => setDialog({ t: 'catalog' })} />
         </div>
         <div className="hidden md:flex items-center gap-3 pl-3 ml-1 border-l border-slate-700 text-[11px] font-medium uppercase tracking-wide text-slate-400">
-          {racks.length > 0 && <span>Rack: {racks.length}</span>}
+          {allRacks.length > 0 && <span>Rack: {allRacks.length}</span>}
           <span>OLT: {olts.length}</span>
           <span>DIO: {dios.length}</span>
           <span title="Portas do DIO com cordão / total">Portas: {dioPatched}/{dioPorts}</span>
           <span title="Portas PON em uso / total">PON: {ponUsed}/{ponTotal}</span>
         </div>
-        {racks.length > 1 && (
+        {allRacks.length > 1 && (
           <form
             className="relative flex items-center"
             onSubmit={(e) => {
@@ -853,12 +996,12 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
               onChange={(e) => {
                 setRackQuery(e.target.value);
                 // Escolher uma opção da lista já localiza.
-                const exact = racks.find((r) => rackCode(r.loc) === e.target.value || r.name === e.target.value);
+                const exact = allRacks.find((r) => rackCode(r.loc) === e.target.value || r.name === e.target.value);
                 if (exact) locateRack(e.target.value);
               }}
             />
             <datalist id="pop-rack-codes">
-              {searchRacks(racks, '').map((r) => (
+              {searchRacks(allRacks, '').map((r) => (
                 <option key={r.id} value={rackCode(r.loc) || r.name}>
                   {rackCode(r.loc) && rackCode(r.loc) !== r.name ? r.name : ''}
                 </option>
@@ -960,7 +1103,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                       const dx = Math.max(40, Math.abs(bx - sx) / 2);
                       return `M${sx},${sy} C${sx + (right ? dx : -dx)},${sy} ${bx + (right ? -dx : dx)},${by} ${bx},${by}`;
                     };
-                    const rack = mountedIn(dio);
+                    const rack = rackBoxOf(dio);
                     const st = stripOf(dio);
                     const segs: string[] = [];
                     const dots: { x: number; y: number }[] = [];
@@ -968,7 +1111,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                       // Cabo → borda do rack → faixa do DIO; expandido, segue da faixa até o card.
                       const right = rack.x >= p.x + G.CABLE_W / 2;
                       const sx = right ? p.x + G.CABLE_W : p.x;
-                      const ex = right ? rack.x : rack.x + rackSize(rack).w;
+                      const ex = right ? rack.x : rack.x + rack.w;
                       const sy = st.y + st.h / 2;
                       segs.push(curve(sx, ay, ex, sy, right), `M${ex},${sy} L${right ? st.x : st.x + st.w},${sy}`);
                       dots.push({ x: sx, y: ay }, { x: ex, y: sy });
@@ -1048,6 +1191,30 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                 );
               })}
 
+              {/* Estrutura do datacenter: molduras dos espaços abertos e cartões dos recolhidos (atrás dos racks) */}
+              {layout.order.map((id) => {
+                const sp = spaces.find((x) => x.id === id);
+                const b = layout.boxes.get(id);
+                if (!sp || !b) return null;
+                return (
+                  <SpaceCard
+                    key={id}
+                    space={sp}
+                    box={b}
+                    code={spaceCode(spaces, id)}
+                    stats={spaceStats(diagram, id)}
+                    loose={!sp.parent || !spaces.some((p) => p.id === sp.parent)}
+                    highlight={!!found && allRacks.some((r) => r.id === found && r.space && descendants(spaces, id).has(r.space)) && !b.open}
+                    readOnly={readOnly}
+                    onDrag={(e) => startDrag(e, `space:${id}`)}
+                    onToggle={() => toggleSpace(id)}
+                    onAdd={(k) => (k === 'rack' ? setDialog({ t: 'rack', space: id }) : setDialog({ t: 'space', kind: k, parent: id }))}
+                    onEdit={() => setDialog({ t: 'space', edit: sp })}
+                    onDelete={() => deleteSpace(sp)}
+                  />
+                );
+              })}
+
               {/* Racks (atrás dos equipamentos) */}
               {racks.map((r) => (
                 <RackCard
@@ -1058,7 +1225,8 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                   duplicate={dupCodes.has(rackCode(r.loc))}
                   highlight={found === r.id}
                   readOnly={readOnly}
-                  onDrag={(e) => startDrag(e, r.id)}
+                  onDrag={(e) => (r.space ? e.stopPropagation() : startDrag(e, r.id))}
+                  locked={!!r.space}
                   onAdd={(u) => setDialog({ t: 'mount', rack: r.id, u })}
                   onEdit={() => setDialog({ t: 'rack', edit: r })}
                   onDelete={() => deleteComponent(r)}
@@ -1256,7 +1424,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
           initial={dialog.edit}
           defaultTx={network.settings.olt_tx_dbm}
           count={olts.length}
-          racks={racks}
+          racks={allRacks}
           models={catalog.models}
           onCatalog={() => setDialog({ t: 'catalog', kind: 'olt', back: dialog })}
           onClose={() => setDialog(null)}
@@ -1267,7 +1435,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         <DioDialog
           initial={dialog.edit}
           count={dios.length}
-          racks={racks}
+          racks={allRacks}
           models={catalog.models}
           onCatalog={() => setDialog({ t: 'catalog', kind: 'dio', back: dialog })}
           onClose={() => setDialog(null)}
@@ -1278,7 +1446,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         <ActiveDialog
           initial={dialog.edit}
           count={comps.filter((c) => c.kind === 'active').length}
-          racks={racks}
+          racks={allRacks}
           models={catalog.models}
           onCatalog={() => setDialog({ t: 'catalog', kind: 'active', back: dialog })}
           onClose={() => setDialog(null)}
@@ -1296,7 +1464,24 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         />
       )}
       {dialog?.t === 'rack' && (
-        <RackDialog initial={dialog.edit} racks={racks} onClose={() => setDialog(null)} onSubmit={(rs) => (dialog.edit ? editComponent(rs[0]) : addRacks(rs))} />
+        <RackDialog
+          initial={dialog.edit}
+          racks={allRacks}
+          spaces={spaces}
+          preset={dialog.space}
+          onClose={() => setDialog(null)}
+          onSubmit={(rs) => (dialog.edit ? editComponent(rs[0]) : addRacks(rs))}
+        />
+      )}
+      {dialog?.t === 'space' && (
+        <SpaceDialog
+          initial={dialog.edit}
+          kind={dialog.kind}
+          parent={dialog.parent}
+          spaces={spaces}
+          onClose={() => setDialog(null)}
+          onSubmit={(list) => saveSpaces(list, dialog.edit)}
+        />
       )}
       {dialog?.t === 'mount' &&
         (() => {
@@ -1659,12 +1844,14 @@ interface RackCardProps {
   expanded: string[];
   hot: (id: string) => boolean;
   inUse: (id: string) => boolean;
+  /** Rack dentro de uma fileira: a posição vem da fileira (não arrasta). */
+  locked?: boolean;
   /** Ações da faixa de cada equipamento instalado. */
   item: Record<'toggle' | 'move' | 'matrix' | 'link' | 'patch' | 'edit' | 'remove', (id: string) => void>;
 }
 
 /** Rack em vista frontal: U numeradas (U1 embaixo) e os equipamentos instalados ocupando suas U. */
-function RackCard({ rack: r, diagram, conflicts, duplicate, highlight, readOnly, onDrag, onAdd, onEdit, onDelete, expanded, hot, inUse, item }: RackCardProps) {
+function RackCard({ rack: r, diagram, conflicts, duplicate, highlight, readOnly, onDrag, onAdd, onEdit, onDelete, expanded, hot, inUse, item, locked }: RackCardProps) {
   const code = rackCode(r.loc);
   const { w, h } = rackSize(r);
   const items = rackItems(diagram, r.id);
@@ -1683,7 +1870,12 @@ function RackCard({ rack: r, diagram, conflicts, duplicate, highlight, readOnly,
       style={{ left: r.x, top: r.y, width: w, height: h }}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <div className="absolute inset-x-0 top-0 flex items-center gap-2 px-2.5 border-b border-slate-800 cursor-move" style={{ height: RACK.HEADER }} onPointerDown={onDrag}>
+      <div
+        className={`absolute inset-x-0 top-0 flex items-center gap-2 px-2.5 border-b border-slate-800 ${locked ? '' : 'cursor-move'}`}
+        style={{ height: RACK.HEADER }}
+        title={locked ? 'Na fileira: a posição vem do endereço. Para mudar, edite o rack.' : undefined}
+        onPointerDown={onDrag}
+      >
         <Rows4 size={15} className="text-amber-400" />
         <span className="text-sm font-semibold truncate">{r.name}</span>
         {code && code !== r.name && <span className="font-mono text-[11px] font-semibold text-emerald-300 shrink-0">{code}</span>}
@@ -1837,5 +2029,120 @@ function StripBtn({ title, onClick, children }: { title: string; onClick: () => 
     >
       {children}
     </button>
+  );
+}
+
+/** Resumo do que tem dentro do espaço: "2 andares · 3 salas · 12 fileiras · 140 racks". */
+function statsText(st: ReturnType<typeof spaceStats>): string {
+  const parts = (['floor', 'room', 'row'] as const).filter((k) => st[k] > 0).map((k) => `${st[k]} ${st[k] === 1 ? SPACE_KINDS[k].label.toLowerCase() : SPACE_KINDS[k].plural}`);
+  parts.push(`${st.racks} rack${st.racks === 1 ? '' : 's'}`);
+  return parts.join(' · ');
+}
+
+const SPACE_ICON: Record<DcSpaceKind, React.ReactNode> = {
+  site: <Building2 size={15} />,
+  floor: <Layers size={15} />,
+  room: <DoorOpen size={15} />,
+  row: <Columns3 size={15} />,
+};
+
+/** O que dá para criar dentro de cada espaço. */
+const SPACE_ADD: Record<DcSpaceKind, (DcSpaceKind | 'rack')[]> = { site: ['floor'], floor: ['room', 'row'], room: ['row'], row: ['rack'] };
+
+interface SpaceCardProps {
+  space: DcSpace;
+  box: XY & { open: boolean };
+  code: string;
+  stats: ReturnType<typeof spaceStats>;
+  /** Solto no canvas (sem espaço em volta): arrasta pelo cabeçalho. */
+  loose: boolean;
+  /** O rack achado na busca está aqui dentro. */
+  highlight?: boolean;
+  readOnly?: boolean;
+  onDrag: (e: React.PointerEvent) => void;
+  onToggle: () => void;
+  onAdd: (k: DcSpaceKind | 'rack') => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+/**
+ * Espaço do datacenter (prédio, andar, sala ou fileira). Expandido: moldura tracejada com o conteúdo arrumado dentro.
+ * Recolhido: cartão com o resumo (andares, salas, fileiras, racks e U); clique abre.
+ */
+function SpaceCard({ space: sp, box: b, code, stats, loose, highlight, readOnly, onDrag, onToggle, onAdd, onEdit, onDelete }: SpaceCardProps) {
+  const meta = SPACE_KINDS[sp.kind];
+  const col = meta.color;
+  const empty = stats.racks === 0 && stats.floor + stats.room + stats.row === 0;
+  return (
+    <div
+      className={`absolute rounded-xl ${b.open ? 'border-2 border-dashed' : 'border-2 shadow-xl bg-slate-900'} ${highlight ? 'ring-4 ring-amber-400/50' : ''}`}
+      style={{ left: b.x, top: b.y, width: b.w, height: b.h, borderColor: `${col}${b.open ? '88' : 'cc'}`, background: b.open ? `${col}0d` : undefined }}
+    >
+      <div
+        className={`absolute inset-x-0 top-0 flex items-center gap-1.5 px-2 rounded-t-xl ${loose && !readOnly ? 'cursor-move' : ''}`}
+        style={{ height: SP.HEAD, background: `${col}1f`, borderBottom: `1px solid ${col}55` }}
+        onPointerDown={(e) => (loose ? onDrag(e) : e.stopPropagation())}
+        onDoubleClick={onToggle}
+      >
+        <CardBtn title={b.open ? 'Recolher' : 'Expandir'} onClick={onToggle}>
+          {b.open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+        </CardBtn>
+        <span style={{ color: col }} className="shrink-0">
+          {SPACE_ICON[sp.kind]}
+        </span>
+        <span className="text-[10px] font-semibold uppercase tracking-wide shrink-0" style={{ color: col }}>
+          {meta.label}
+        </span>
+        <span className="text-sm font-semibold truncate" title={spaceTitle(sp)}>
+          {spaceTitle(sp)}
+        </span>
+        {code && <span className="font-mono text-[11px] font-semibold text-emerald-300 shrink-0">{code}</span>}
+        {sp.company && b.open && <span className="text-[11px] text-slate-400 truncate">· {sp.company}</span>}
+        <div className="ml-auto flex items-center gap-0.5 shrink-0">
+          {!readOnly &&
+            b.open &&
+            SPACE_ADD[sp.kind].map((k) => (
+              <button
+                key={k}
+                title={k === 'rack' ? 'Adicionar rack nesta fileira' : `Adicionar ${SPACE_KINDS[k].label.toLowerCase()}`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => onAdd(k)}
+                className="flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-200 hover:bg-white/10 cursor-pointer"
+              >
+                <Plus size={12} /> {k === 'rack' ? 'Rack' : SPACE_KINDS[k].label}
+              </button>
+            ))}
+          {!readOnly && (
+            <CardBtn title="Editar" onClick={onEdit}>
+              <Pencil size={13} />
+            </CardBtn>
+          )}
+          {!readOnly && (
+            <CardBtn title="Excluir" onClick={onDelete} danger>
+              <Trash2 size={13} />
+            </CardBtn>
+          )}
+        </div>
+      </div>
+      {b.open && empty && (
+        <div className="absolute inset-x-0 flex items-center justify-center text-xs text-slate-500 px-4 text-center" style={{ top: SP.HEAD, bottom: 0 }}>
+          {sp.kind === 'row' ? 'Fileira vazia. Use + Rack ou arraste um rack solto para cá.' : `Vazio. Use ${SPACE_ADD[sp.kind].map((k) => `+ ${SPACE_KINDS[k as DcSpaceKind].label}`).join(' ou ')}.`}
+        </div>
+      )}
+      {!b.open && (
+        <button
+          className="absolute inset-x-0 bottom-0 text-left px-3 py-2 cursor-pointer hover:bg-white/5 rounded-b-xl"
+          style={{ top: SP.HEAD }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={onToggle}
+          title="Clique para expandir"
+        >
+          {sp.company && <div className="text-[11px] text-slate-300 truncate">{sp.company}</div>}
+          <div className="text-[11px] text-slate-400">{statsText(stats)}</div>
+          {stats.racks > 0 && <div className="text-[10px] font-mono text-slate-500 mt-0.5">{stats.units}U em racks</div>}
+        </button>
+      )}
+    </div>
   );
 }
