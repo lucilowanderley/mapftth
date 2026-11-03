@@ -10,7 +10,7 @@ class EquipmentModel extends Model
 {
     public const KINDS = ['olt', 'dio', 'active'];
 
-    protected $fillable = ['kind', 'vendor', 'model', 'type', 'ports', 'slots', 'uplinks', 'tx_dbm', 'height_u', 'notes'];
+    protected $fillable = ['kind', 'vendor', 'model', 'type', 'ports', 'slots', 'uplinks', 'tx_dbm', 'height_u', 'port_groups', 'notes'];
 
     protected function casts(): array
     {
@@ -20,6 +20,7 @@ class EquipmentModel extends Model
             'uplinks' => 'integer',
             'tx_dbm' => 'float',
             'height_u' => 'integer',
+            'port_groups' => 'array',
         ];
     }
 

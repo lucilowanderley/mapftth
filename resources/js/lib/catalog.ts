@@ -1,4 +1,4 @@
-import type { Cable, CableCategory, CondoKind, EquipmentModel, LineStyle, NodeType, RackMountType, SlackKind, Status } from './types';
+import type { Cable, CableCategory, CondoKind, EquipmentModel, LineStyle, MgmtProto, NodeType, RackMountType, SlackKind, Status } from './types';
 
 /** Cores de fibras e tubos conforme padrão ABNT (NBR 14160). */
 export const ABNT_COLORS = [
@@ -121,6 +121,34 @@ export const BUILTIN_EQUIPMENT: EquipmentModel[] = [
   { id: 'ccr2004', kind: 'active', vendor: 'MikroTik', model: 'CCR2004-16G-2S+', type: 'Roteador', ports: 18, height_u: 1, builtin: true },
   { id: 'pp-24', kind: 'active', vendor: null, model: 'Patch panel 24 portas', type: 'Patch panel UTP', ports: 24, height_u: 1, builtin: true },
   { id: 'ups-2u', kind: 'active', vendor: null, model: 'Nobreak rack 2U', type: 'Nobreak / UPS', ports: 1, height_u: 2, builtin: true },
+  {
+    id: 'sw-48-4sfp', kind: 'active', vendor: null, model: 'Switch 48×1G + 4×SFP+', type: 'Switch', ports: 52, height_u: 1, builtin: true,
+    port_groups: [{ type: 'RJ45', count: 48, speed: 1 }, { type: 'SFP+', count: 4, speed: 10 }],
+  },
+  {
+    id: 'ccr2116', kind: 'active', vendor: 'MikroTik', model: 'CCR2116-12G-4S+', type: 'Roteador', ports: 17, height_u: 1, builtin: true,
+    port_groups: [{ type: 'RJ45', count: 13, speed: 1 }, { type: 'SFP+', count: 4, speed: 10 }],
+  },
+  {
+    id: 'srv-1u', kind: 'active', vendor: null, model: 'Servidor rack 1U', type: 'Servidor', ports: 5, height_u: 1, builtin: true,
+    port_groups: [{ type: 'RJ45', count: 2, speed: 1 }, { type: 'SFP28', count: 2, speed: 25 }, { type: 'Gerência (MGMT)', count: 1, speed: 1 }],
+  },
+  {
+    id: 'srv-2u', kind: 'active', vendor: null, model: 'Servidor rack 2U', type: 'Servidor', ports: 7, height_u: 2, builtin: true,
+    port_groups: [{ type: 'RJ45', count: 4, speed: 1 }, { type: 'SFP+', count: 2, speed: 10 }, { type: 'Gerência (MGMT)', count: 1, speed: 1 }],
+  },
+  {
+    id: 'dwdm-40', kind: 'active', vendor: null, model: 'Mux/Demux DWDM 40 canais', type: 'Multiplex DWDM', ports: 42, height_u: 1, builtin: true,
+    port_groups: [{ type: 'Canal DWDM', count: 40, speed: 10 }, { type: 'Linha / COM', count: 1, speed: null }, { type: 'Monitor', count: 1, speed: null }],
+  },
+  {
+    id: 'dwdm-8', kind: 'active', vendor: null, model: 'Mux/Demux DWDM 8 canais', type: 'Multiplex DWDM', ports: 10, height_u: 1, builtin: true,
+    port_groups: [{ type: 'Canal DWDM', count: 8, speed: 10 }, { type: 'Linha / COM', count: 1, speed: null }, { type: 'Monitor', count: 1, speed: null }],
+  },
+  {
+    id: 'cwdm-18', kind: 'active', vendor: null, model: 'Mux/Demux CWDM 18 canais', type: 'Multiplex CWDM', ports: 19, height_u: 1, builtin: true,
+    port_groups: [{ type: 'Canal CWDM', count: 18, speed: 10 }, { type: 'Linha / COM', count: 1, speed: null }],
+  },
 ];
 
 export const EQUIPMENT_KINDS: Record<EquipmentModel['kind'], string> = { olt: 'OLT', dio: 'DIO', active: 'Ativos' };
@@ -134,7 +162,21 @@ export const DIO_SIZES = [12, 24, 36, 48, 72, 144];
 /** Portas por bandeja do DIO. */
 export const DIO_TRAY = 12;
 
-export const ACTIVE_TYPES = ['Switch', 'Roteador', 'BNG / Concentrador', 'Servidor', 'Firewall', 'Nobreak / UPS', 'Patch panel UTP', 'Outro'];
+export const ACTIVE_TYPES = ['Switch', 'Roteador', 'BNG / Concentrador', 'Servidor', 'Multiplex DWDM', 'Multiplex CWDM', 'Firewall', 'Nobreak / UPS', 'Patch panel UTP', 'Outro'];
+
+/** Tipos de porta de ativos (grupos de portas). */
+export const PORT_TYPES = ['RJ45', 'SFP', 'SFP+', 'SFP28', 'QSFP+', 'QSFP28', 'QSFP-DD', 'XFP', 'Canal DWDM', 'Canal CWDM', 'Linha / COM', 'Monitor', 'Console', 'Gerência (MGMT)', 'E1 / TDM', 'Outro'];
+
+/** Capacidades comuns por porta (Gbps). */
+export const PORT_SPEEDS = [0.1, 1, 2.5, 10, 25, 40, 100, 200, 400];
+
+/** Capacidade típica por tipo de porta (Gbps), sugerida ao escolher o tipo. */
+export const PORT_TYPE_SPEED: Record<string, number> = {
+  RJ45: 1, SFP: 1, 'SFP+': 10, SFP28: 25, 'QSFP+': 40, QSFP28: 100, 'QSFP-DD': 400, XFP: 10, 'Canal DWDM': 100, 'Canal CWDM': 10, 'Gerência (MGMT)': 1,
+};
+
+/** Protocolos de gerência e a porta padrão de cada um. */
+export const MGMT_PROTOS: Record<MgmtProto, number> = { SSH: 22, HTTPS: 443, HTTP: 80, Telnet: 23, SNMP: 161, Winbox: 8291, API: 8728 };
 
 export const NODE_TYPES: Record<NodeType, { label: string; plural: string; color: string }> = {
   pop: { label: 'POP', plural: 'POPs', color: '#7c3aed' },

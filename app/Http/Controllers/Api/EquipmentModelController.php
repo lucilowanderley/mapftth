@@ -66,12 +66,27 @@ class EquipmentModelController extends Controller
             'tx_dbm' => ['nullable', 'numeric', 'between:-10,15'],
             'height_u' => ['required', 'integer', 'min:1', 'max:60'],
             'notes' => ['nullable', 'string'],
+            'port_groups' => ['nullable', 'array', 'max:16'],
+            'port_groups.*.type' => ['required', 'string', 'max:40'],
+            'port_groups.*.count' => ['required', 'integer', 'min:1', 'max:576'],
+            'port_groups.*.speed' => ['nullable', 'numeric', 'min:0', 'max:1600'],
         ]);
         if ($data['kind'] !== 'olt') {
             $data['slots'] = $data['uplinks'] = $data['tx_dbm'] = null;
         }
         if ($data['kind'] !== 'active') {
             $data['type'] = null;
+            $data['port_groups'] = null;
+        } elseif (! empty($data['port_groups'])) {
+            // Com grupos, o total de portas é a soma deles.
+            $data['port_groups'] = array_values(array_map(fn ($g) => [
+                'type' => trim($g['type']),
+                'count' => (int) $g['count'],
+                'speed' => isset($g['speed']) ? (float) $g['speed'] : null,
+            ], $data['port_groups']));
+            $data['ports'] = min(576, array_sum(array_column($data['port_groups'], 'count')));
+        } else {
+            $data['port_groups'] = null;
         }
 
         return $data;

@@ -1,5 +1,5 @@
 import { DIO_TRAY, splitterModel } from './catalog';
-import type { Connection, Diagram, DiagramComponent, End, RackLocation } from './types';
+import type { Connection, Diagram, DiagramComponent, End, PortGroup, PortLag, RackLocation } from './types';
 
 /** Funções puras do editor de POP (sem React), usadas também nos testes. */
 
@@ -361,4 +361,94 @@ export function searchRacks(racks: Rack[], q: string): Rack[] {
   const k = norm(q);
   if (!k) return [...racks].sort(compareRacks);
   return racks.filter((r) => norm(rackCode(r.loc)).includes(k) || norm(r.name).includes(k)).sort(compareRacks);
+}
+
+// ---------- Grupos de portas, agregação (LAG) e gerência dos ativos ----------
+
+type Active = Extract<DiagramComponent, { kind: 'active' }>;
+
+/** Grupos de portas do ativo; sem grupos cadastrados, todas as portas formam um grupo "ETH". */
+export function activeGroups(c: Pick<Active, 'ports' | 'groups'>): PortGroup[] {
+  const g = (c.groups ?? []).filter((x) => x.count > 0);
+  return g.length ? g : [{ type: 'ETH', count: c.ports, speed: null }];
+}
+
+/** Total de portas dos grupos. */
+export const groupsTotal = (groups: PortGroup[]) => groups.reduce((a, g) => a + Math.max(0, Math.round(g.count) || 0), 0);
+
+/** Grupo da porta "eN" e a posição dela dentro do grupo (1..count). */
+export function portGroupOf(c: Pick<Active, 'ports' | 'groups'>, port: string): { group: PortGroup; gi: number; index: number } | null {
+  const n = Number(port.slice(1));
+  if (!Number.isInteger(n) || n < 1) return null;
+  let start = 0;
+  const groups = activeGroups(c);
+  for (let gi = 0; gi < groups.length; gi++) {
+    if (n <= start + groups[gi].count) return { group: groups[gi], gi, index: n - start };
+    start += groups[gi].count;
+  }
+  return null;
+}
+
+/** Capacidade em texto: 0.1 → "100M", 1 → "1G", 2.5 → "2,5G", 100 → "100G". */
+export function speedLabel(gbps?: number | null): string {
+  if (!gbps) return '';
+  if (gbps < 1) return `${Math.round(gbps * 1000)}M`;
+  return `${String(gbps).replace('.', ',')}G`;
+}
+
+/** Nome legível da porta: "SFP+ 3 (10G)" ou "porta 5" quando não há grupos. */
+export function activePortLabel(c: Pick<Active, 'ports' | 'groups'>, port: string): string {
+  const pg = portGroupOf(c, port);
+  if (!pg || !c.groups?.length) return `porta ${port.slice(1)}`;
+  const sp = speedLabel(pg.group.speed);
+  return `${pg.group.type} ${pg.index}${sp ? ` (${sp})` : ''}`;
+}
+
+/** Capacidade total (Gbps) das portas informadas. */
+export function portsCapacity(c: Pick<Active, 'ports' | 'groups'>, ports: string[]): number {
+  return ports.reduce((a, p) => a + (portGroupOf(c, p)?.group.speed ?? 0), 0);
+}
+
+/** Capacidade total do ativo por soma das portas (Gbps). */
+export const activeCapacity = (c: Pick<Active, 'ports' | 'groups'>) => activeGroups(c).reduce((a, g) => a + g.count * (g.speed ?? 0), 0);
+
+/** LAG de que a porta faz parte (se houver). */
+export const lagOf = (c: Pick<Active, 'lags'>, port: string): PortLag | undefined => c.lags?.find((l) => l.ports.includes(port));
+
+/**
+ * Problemas de uma agregação: portas de capacidades diferentes ou de outro LAG.
+ * Agregação de portas com velocidades diferentes não sobe na maioria dos equipamentos.
+ */
+export function lagIssues(c: Pick<Active, 'ports' | 'groups' | 'lags'>, lag: PortLag): string[] {
+  const out: string[] = [];
+  if (lag.ports.length < 2) out.push('Escolha ao menos 2 portas.');
+  const speeds = new Set(lag.ports.map((p) => portGroupOf(c, p)?.group.speed ?? null));
+  if (speeds.size > 1) out.push('As portas têm capacidades diferentes.');
+  const taken = lag.ports.filter((p) => c.lags?.some((o) => o.id !== lag.id && o.ports.includes(p)));
+  if (taken.length) out.push(`Porta(s) já em outra agregação: ${taken.map((p) => p.slice(1)).join(', ')}.`);
+  return out;
+}
+
+/** Remove das agregações portas que não existem mais e agregações que ficaram vazias. */
+export function pruneLags(lags: PortLag[] | undefined, ports: number): PortLag[] | undefined {
+  if (!lags?.length) return undefined;
+  const kept = lags.map((l) => ({ ...l, ports: l.ports.filter((p) => Number(p.slice(1)) <= ports) })).filter((l) => l.ports.length > 0);
+  return kept.length ? kept : undefined;
+}
+
+/** IPv4 (com ou sem /máscara) ou IPv6 simples, ou nome de host. */
+export function validMgmtHost(v: string): boolean {
+  const s = v.trim();
+  if (!s) return true;
+  const v4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}(\/([0-9]|[12]\d|3[0-2]))?$/;
+  const v6 = /^[0-9a-fA-F:]+(\/\d{1,3})?$/;
+  const host = /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/;
+  return v4.test(s) || (s.includes(':') && v6.test(s)) || (!/^[\d.]+$/.test(s) && host.test(s));
+}
+
+/** Endereço de gerência em texto: "SSH 10.0.0.1:22". */
+export function mgmtLabel(m?: { ip?: string; port?: number; proto?: string }): string {
+  if (!m?.ip) return '';
+  const host = m.ip.includes(':') && m.port ? `[${m.ip}]` : m.ip;
+  return `${m.proto ? `${m.proto} ` : ''}${host}${m.port ? `:${m.port}` : ''}`;
 }

@@ -1,8 +1,9 @@
 import { Box, Check, LogOut, Link2, Network as NetIcon, PackagePlus, Rows4, Search, Server, Spline, X, Zap } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { ACTIVE_TYPES, DIO_SIZES, DIO_TRAY, RACK_MOUNTS, RACK_SIZES, equipmentLabel } from '../../lib/catalog';
-import { MAX_RACK_BATCH, canMount, compareRacks, defaultRackHeight, firstFreeU, nextRackPos, normalizeRow, rackCode, rackGroup, rackHeight, rackLabel, rackUsed, uid, type Rack, type Rackable } from '../../lib/pop';
-import type { Cable, Diagram, DiagramComponent, EquipmentModel, RackLocation, RackMountType } from '../../lib/types';
+import { MAX_RACK_BATCH, groupsTotal, pruneLags, speedLabel, validMgmtHost, canMount, compareRacks, defaultRackHeight, firstFreeU, nextRackPos, normalizeRow, rackCode, rackGroup, rackHeight, rackLabel, rackUsed, uid, type Rack, type Rackable } from '../../lib/pop';
+import type { Cable, Diagram, DiagramComponent, EquipmentModel, MgmtAccess, PortGroup, PortLag, RackLocation, RackMountType } from '../../lib/types';
+import { LagEditor, MgmtFields, PortGroupsEditor } from './ActiveFields';
 import { Field } from '../ui';
 
 type Olt = Extract<DiagramComponent, { kind: 'olt' }>;
@@ -128,7 +129,8 @@ function ModelPicker({
 
 const oltDetail = (m: EquipmentModel) => `${m.slots ?? 1}×${m.ports} PON · ${m.uplinks ?? 0} uplinks`;
 const dioDetail = (m: EquipmentModel) => `${m.ports} portas`;
-const activeDetail = (m: EquipmentModel) => `${m.type ?? 'Ativo'} · ${m.ports} portas`;
+const activeDetail = (m: EquipmentModel) =>
+  `${m.type ?? 'Ativo'} · ${m.port_groups?.length ? m.port_groups.map((g) => `${g.count}×${g.type}${g.speed ? ` ${speedLabel(g.speed)}` : ''}`).join(' + ') : `${m.ports} portas`}`;
 
 /** Campo "Altura (U)": quantas unidades de rack o equipamento ocupa. */
 function HeightField({ value, onChange }: { value: number; onChange: (v: number) => void }) {
@@ -172,6 +174,8 @@ export function OltDialog({
   const [tx, setTx] = useState(initial?.tx_dbm ?? defaultTx);
   const [h, setH] = useState(initial ? rackHeight(initial) : 1);
   const [name, setName] = useState(initial?.name ?? `OLT ${count + 1}`);
+  const [mgmt, setMgmt] = useState<MgmtAccess>(initial?.mgmt ?? {});
+  const mgmtBad = !!mgmt.ip && !validMgmtHost(mgmt.ip);
   const current = options.find((m) => modelKey(m) === model);
 
   function pick(m: EquipmentModel | null) {
@@ -212,14 +216,16 @@ export function OltDialog({
         <p className="text-xs text-slate-400">
           Total: {slots * ports} portas PON{uplinks ? ` + ${uplinks} uplinks` : ''} · ocupa {h}U no rack
         </p>
+        <MgmtFields value={mgmt} onChange={setMgmt} />
         <RackSelect racks={racks} value={rack} onChange={setRack} />
         <button
           className="btn-primary w-full"
-          disabled={!name.trim()}
+          disabled={!name.trim() || mgmtBad}
           onClick={() =>
             onSubmit({
               ...(initial ?? { id: uid(), kind: 'olt' as const, x: 0, y: 0 }),
               kind: 'olt',
+              mgmt: mgmt.ip || mgmt.port || mgmt.proto ? mgmt : undefined,
               name: name.trim(),
               ...modelFields(current),
               model: current ? modelKey(current) : 'custom',
@@ -686,11 +692,23 @@ export function ActiveDialog({
   const [type, setType] = useState(initial?.type ?? ACTIVE_TYPES[0]);
   const [rack, setRack] = useState(initial?.rack ?? '');
   const [name, setName] = useState(initial?.name ?? `Ativo ${count + 1}`);
-  const [ports, setPorts] = useState(initial?.ports ?? 8);
+  const [simplePorts, setPorts] = useState(initial?.ports ?? 8);
+  const [groups, setGroups] = useState<PortGroup[]>(initial?.groups ?? []);
+  const [lags, setLags] = useState<PortLag[]>(initial?.lags ?? []);
+  const [mgmt, setMgmt] = useState<MgmtAccess>(initial?.mgmt ?? {});
   const [h, setH] = useState(initial ? rackHeight(initial) : 1);
   const current = options.find((m) => modelKey(m) === model);
+  // Com grupos de portas, o total de portas é a soma dos grupos.
+  const ports = groups.length ? Math.max(1, groupsTotal(groups)) : simplePorts;
+  const mgmtBad = !!mgmt.ip && !validMgmtHost(mgmt.ip);
   return (
-    <PopDialog icon={<NetIcon size={18} />} title={initial ? `Editar ${initial.name}` : 'Adicionar equipamento ativo'} subtitle={current ? equipmentLabel(current) : 'Switch, roteador, BNG...'} onClose={onClose}>
+    <PopDialog
+      icon={<NetIcon size={18} />}
+      title={initial ? `Editar ${initial.name}` : 'Adicionar equipamento ativo'}
+      subtitle={current ? equipmentLabel(current) : 'Switch, roteador, servidor, DWDM...'}
+      onClose={onClose}
+      width="max-w-lg"
+    >
       <div className="space-y-3">
         <ModelPicker
           models={options}
@@ -703,6 +721,7 @@ export function ActiveDialog({
             setModel(modelKey(m));
             if (m.type) setType(m.type);
             setPorts(m.ports);
+            setGroups(m.port_groups ?? []);
             setH(m.height_u);
             if (!initial) setName(`${m.model} ${count + 1}`);
           }}
@@ -718,17 +737,49 @@ export function ActiveDialog({
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Portas">
-            <input type="number" min={1} max={96} className="input" value={ports} onChange={(e) => setPorts(Math.max(1, Math.min(96, Math.round(Number(e.target.value)) || 1)))} />
+          <Field label={groups.length ? 'Portas (soma dos grupos)' : 'Portas'}>
+            <input
+              type="number"
+              min={1}
+              max={576}
+              className="input"
+              disabled={groups.length > 0}
+              value={ports}
+              onChange={(e) => setPorts(Math.max(1, Math.min(576, Math.round(Number(e.target.value)) || 1)))}
+            />
           </Field>
           <HeightField value={h} onChange={setH} />
         </div>
+        <PortGroupsEditor groups={groups} onChange={setGroups} />
+        <LagEditor ports={ports} groups={groups} lags={lags} onChange={setLags} />
+        <MgmtFields value={mgmt} onChange={setMgmt} />
         <p className="text-xs text-slate-400">Use as portas para ligar cordões aos uplinks da OLT ou à frente do DIO (ponto a ponto).</p>
         <RackSelect racks={racks} value={rack} onChange={setRack} />
         <button
           className="btn-primary w-full"
-          disabled={!name.trim()}
-          onClick={() => onSubmit({ ...(initial ?? { id: uid(), kind: 'active' as const, x: 0, y: 0 }), kind: 'active', type, name: name.trim(), ports, h, ...modelFields(current), ...rackFields(initial, rack) })}
+          disabled={!name.trim() || mgmtBad}
+          onClick={() => {
+            const cleanGroups = groups.filter((g) => g.count > 0 && g.type.trim()).map((g) => ({ ...g, type: g.type.trim() }));
+            const cleanLags = pruneLags(lags.filter((l) => l.ports.length > 0).map((l) => ({ ...l, name: l.name.trim() || 'LAG' })), ports);
+            const hasMgmt = !!(mgmt.ip || mgmt.port || mgmt.proto);
+            const base: Active = { ...(initial ?? { id: uid(), kind: 'active' as const, name: '', type, ports, x: 0, y: 0 }) };
+            delete base.groups;
+            delete base.lags;
+            delete base.mgmt;
+            onSubmit({
+              ...base,
+              kind: 'active',
+              type,
+              name: name.trim(),
+              ports,
+              h,
+              ...(cleanGroups.length ? { groups: cleanGroups } : {}),
+              ...(cleanLags ? { lags: cleanLags } : {}),
+              ...(hasMgmt ? { mgmt } : {}),
+              ...modelFields(current),
+              ...rackFields(initial, rack),
+            });
+          }}
         >
           <Zap size={15} /> {initial ? 'Salvar alterações' : 'Criar equipamento'}
         </button>
