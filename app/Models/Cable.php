@@ -16,7 +16,7 @@ class Cable extends Model
     public const SLACK_KINDS = ['aerial', 'underground'];
 
     protected $fillable = [
-        'name', 'category', 'model', 'fiber_count', 'fibers_per_tube', 'status', 'color', 'width', 'line_style',
+        'name', 'category', 'model', 'fiber_count', 'fibers_per_tube', 'loss_db_km', 'status', 'color', 'width', 'line_style',
         'path', 'from_node_id', 'to_node_id', 'slack_m', 'slacks', 'notes',
     ];
 
@@ -26,6 +26,7 @@ class Cable extends Model
             'path' => 'array',
             'fiber_count' => 'integer',
             'fibers_per_tube' => 'integer',
+            'loss_db_km' => 'float',
             'width' => 'integer',
             'slack_m' => 'integer',
             'slacks' => 'array',

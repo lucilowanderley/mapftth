@@ -184,6 +184,7 @@ class CableController extends Controller
                         'model' => $cable->model,
                         'fiber_count' => $cable->fiber_count,
                         'fibers_per_tube' => $cable->fibers_per_tube,
+                        'loss_db_km' => $cable->loss_db_km,
                         'status' => $cable->status,
                         'color' => $cable->color,
                         'width' => $cable->width,
@@ -306,6 +307,8 @@ class CableController extends Controller
             'model' => ['nullable', 'string', 'max:64'],
             'fiber_count' => ['sometimes', 'integer', 'between:1,288'],
             'fibers_per_tube' => ['sometimes', 'integer', 'between:1,24'],
+            // Atenuação própria do cabo (dB/km); null = padrão do projeto.
+            'loss_db_km' => ['nullable', 'numeric', 'between:0,10'],
             'status' => ['sometimes', Rule::in(NetworkNode::STATUSES)],
             'color' => ['sometimes', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
             'width' => ['sometimes', 'integer', 'between:1,12'],
