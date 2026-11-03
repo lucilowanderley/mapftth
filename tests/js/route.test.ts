@@ -44,7 +44,7 @@ describe('rota (objetos à frente de um cabo)', () => {
   });
 
   it('nome padrão', () => {
-    expect(routeName('Cabo 12FO')).toBe('Rota Cabo 12FO');
-    expect(routeName('Cabo 12FO', 'f3')).toBe('Rota Cabo 12FO · FO 3');
+    expect(routeName('Cabo 12FO')).toBe('Grupo Cabo 12FO');
+    expect(routeName('Cabo 12FO', 'f3')).toBe('Grupo Cabo 12FO · FO 3');
   });
 });

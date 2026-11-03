@@ -10,7 +10,7 @@ import {
   MoveHorizontal,
   Redo2,
   RotateCw,
-  Route,
+  Group,
   Save,
   Server,
   Spline,
@@ -273,6 +273,12 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       const cd = clientDataOf(n.attributes);
       // O cliente do mapa é a referência (o diagrama grava nele ao salvar); o tipo sem valor continua residencial.
       return { ...c, client_code: cd.client_code, onu_serial: cd.onu_serial, segment: cd.segment ?? c.segment, rx_dbm: cd.rx_dbm, rx_at: cd.rx_at };
+    });
+    // Grupos criados quando o objeto se chamava "Rota": o nome automático passa a "Grupo ..." (nomes digitados ficam).
+    d.components = d.components.map((c) => {
+      if (c.kind !== 'route') return c;
+      const cab = network.cables.find((x) => `c${x.id}` === c.cable);
+      return cab && c.name === `Rota ${cab.name}${c.fiber ? ` · FO ${c.fiber.slice(1)}` : ''}` ? { ...c, name: routeName(cab.name, c.fiber) } : c;
     });
     return d;
   });
@@ -790,7 +796,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   function createRota() {
     const roots = rotaRoots();
     if (!roots.length) {
-      setError('Selecione um cabo (ou a emenda de uma fibra dele) para criar a rota.');
+      setError('Selecione um cabo (ou a emenda de uma fibra dele) para criar o grupo.');
       return;
     }
     const existing = rotaComps.find((r) => roots.some((x) => x.cable === r.cable && x.fiber === (r.fiber ?? null)));
@@ -801,7 +807,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     }
     const pick = roots.map((x) => ({ ...x, members: routeMembers({ connections: validConnections }, x, rotaEnv) })).find((x) => x.members.length);
     if (!pick) {
-      setError('Nada ligado à frente desse cabo: faça as fusões até os splitters e clientes antes de criar a rota.');
+      setError('Nada ligado à frente desse cabo: faça as fusões até os splitters e clientes antes de criar o grupo.');
       return;
     }
     const box = groupBox(pick.members)!;
@@ -976,7 +982,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       else if (e.key === 'c' || e.key === 'C') setTool('connector');
       else if (e.key === 's' || e.key === 'S') setDialog('splitter');
       else if (e.key === 'b' || e.key === 'B') setDialog('trays');
-      else if ((e.key === 'o' || e.key === 'O') && !isPop) {
+      else if ((e.key === 'g' || e.key === 'G') && !isPop) {
         if (selRota) toggleRota(selRota.r.id);
         else createRota();
       }
@@ -1209,13 +1215,13 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         {isPop && <IconTool icon={<SquareStack size={16} />} label="Adicionar DIO" text="DIO" onClick={() => setDialog('dio')} />}
         {!isPop && !readOnly && (
           <IconTool
-            icon={<Route size={16} />}
+            icon={<Group size={16} />}
             label={
               selRota
-                ? `${selRota.r.open ? 'Recolher' : 'Expandir'} a rota (O)`
-                : 'Criar rota (O): com um cabo ou a emenda de uma fibra selecionada, junta tudo o que vem à frente dele (splitters, clientes, drops) num objeto Rota recolhido'
+                ? `${selRota.r.open ? 'Recolher' : 'Expandir'} o grupo (G)`
+                : 'Criar grupo (G): com um cabo ou a emenda de uma fibra selecionada, junta tudo o que vem à frente dele (splitters, clientes, drops) num objeto Grupo recolhido'
             }
-            text={selRota ? (selRota.r.open ? 'Recolher rota' : 'Expandir rota') : 'Rota'}
+            text={selRota ? (selRota.r.open ? 'Recolher grupo' : 'Expandir grupo') : 'Grupo'}
             onClick={() => (selRota ? toggleRota(selRota.r.id) : createRota())}
             disabled={!selRota && !rotaRoots().length}
           />
@@ -1243,7 +1249,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
               : selBlock?.kind === 'cable'
                 ? 'Apagar emendas ou o cabo (Delete)'
                 : selRota
-                  ? 'Desfazer a rota (Delete): os objetos continuam no diagrama'
+                  ? 'Desfazer o grupo (Delete): os objetos continuam no diagrama'
                   : 'Apagar o selecionado (Delete)'
           }
           onClick={removeSelected}
@@ -1716,7 +1722,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         )}
         {selRota && !pendingPort && (
           <div className="absolute left-3 bottom-3 panel px-4 py-3 text-sm w-80 max-h-[70%] overflow-y-auto">
-            <div className="text-xs text-slate-400">Rota {selRota.r.open ? '(expandida)' : '(recolhida)'}</div>
+            <div className="text-xs text-slate-400">Grupo {selRota.r.open ? '(expandido)' : '(recolhido)'}</div>
             {readOnly ? (
               <div className="font-semibold">{selRota.r.name}</div>
             ) : (
@@ -1724,7 +1730,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                 key={selRota.r.id}
                 className="input mt-1 w-full font-semibold"
                 defaultValue={selRota.r.name}
-                aria-label="Nome da rota"
+                aria-label="Nome do grupo"
                 onBlur={(e) => {
                   const v = e.target.value.trim();
                   if (v && v !== selRota.r.name) renameRota(selRota.r.id, v);
@@ -1769,7 +1775,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
               </button>
               {!readOnly && (
                 <button className="text-red-400 hover:underline cursor-pointer" onClick={removeSelected}>
-                  Desfazer rota
+                  Desfazer grupo
                 </button>
               )}
             </div>
@@ -1843,7 +1849,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   ['S', 'Adicionar splitter'],
                   ['B', 'Bandejas e tubos loose'],
                   ['K', 'Adicionar cliente'],
-                  ['O', 'Criar rota do cabo selecionado / expandir ou recolher'],
+                  ['G', 'Criar grupo do cabo selecionado / expandir ou recolher'],
                   ['R', 'Girar o selecionado'],
                   ['Ctrl+D', 'Duplicar splitter'],
                   ['Delete', 'Apagar o selecionado'],
@@ -2268,9 +2274,9 @@ function RotaCard({
       <rect x={x} y={y} width={ROTA_W} height={h} rx={7} fill="#eef2ff" stroke={selected ? '#eab308' : ROTA_COLOR} strokeWidth={selected ? 2.5 : 1.4} />
       <rect x={x} y={y} width={ROTA_W} height={HEADER - 6} rx={7} fill={ROTA_COLOR} />
       <rect x={x} y={y + HEADER - 13} width={ROTA_W} height={7} fill={ROTA_COLOR} />
-      <path d={`M${x + 12},${y + 19} c4,-10 8,6 12,-4 s6,-2 8,-6`} fill="none" stroke="#ffffff" strokeWidth={1.6} strokeLinecap="round" />
-      <circle cx={x + 12} cy={y + 19} r={2} fill="#ffffff" />
-      <circle cx={x + 32} cy={y + 9} r={2} fill="#ffffff" />
+      {/* Ícone de grupo: dois cartões sobrepostos. */}
+      <rect x={x + 10} y={y + 6} width={14} height={11} rx={2} fill="none" stroke="#ffffff" strokeWidth={1.5} />
+      <rect x={x + 16} y={y + 11} width={14} height={11} rx={2} fill={ROTA_COLOR} stroke="#ffffff" strokeWidth={1.5} />
       <text x={x + 40} y={y + 13} fontSize={10.5} fontWeight="bold" fill="#ffffff">
         {cut(rota.name, 24)}
       </text>
@@ -2286,7 +2292,7 @@ function RotaCard({
           onToggle();
         }}
       >
-        <title>Expandir a rota</title>
+        <title>Expandir o grupo</title>
         <rect x={x + ROTA_W - 24} y={y + 6} width={18} height={16} rx={4} fill="#ffffff" fillOpacity={0.18} />
         <path d={`M${x + ROTA_W - 19},${y + 12} l4,4 l4,-4`} fill="none" stroke="#ffffff" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
       </g>
@@ -2356,7 +2362,7 @@ function RotaFrame({
           onToggle();
         }}
       >
-        <title>Recolher a rota</title>
+        <title>Recolher o grupo</title>
         <rect x={box.x + 3} y={box.y - 15} width={16} height={12} rx={3} fill="#ffffff" fillOpacity={0.2} />
         <path d={`M${box.x + 7},${box.y - 7} l4,-4 l4,4`} fill="none" stroke="#ffffff" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
       </g>

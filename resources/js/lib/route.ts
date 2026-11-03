@@ -81,7 +81,7 @@ export function splitCrossings(connections: Connection[], members: Set<string>) 
   return { crossing, internal };
 }
 
-/** Nome padrão: "Rota Cabo 12FO" ou "Rota Cabo 12FO · FO 1". */
+/** Nome padrão: "Grupo Cabo 12FO" ou "Grupo Cabo 12FO · FO 1". */
 export function routeName(cableName: string, fiber?: string | null) {
-  return `Rota ${cableName}${fiber ? ` · FO ${fiber.slice(1)}` : ''}`;
+  return `Grupo ${cableName}${fiber ? ` · FO ${fiber.slice(1)}` : ''}`;
 }
