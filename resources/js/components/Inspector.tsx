@@ -250,10 +250,10 @@ function NodeForm({
             type="button"
             className={group?.active ? 'btn-primary w-full' : 'btn-ghost w-full'}
             onClick={() => onToggleGroup(node)}
-            title={group?.active ? 'Mostra de novo os objetos a jusante' : 'Esconde os objetos à frente pelos cabos de saída e derivações'}
+            title={group?.active ? 'Mostra de novo os objetos à frente' : 'Esconde os objetos à frente pelos cabos de saída e derivações'}
           >
             {group?.active ? <Layers2 size={16} /> : <Layers size={16} />}
-            {group?.active ? `Desagrupar (${group.count} ${group.count === 1 ? 'oculto' : 'ocultos'})` : 'Agrupar objetos a jusante'}
+            {group?.active ? `Desagrupar (${group.count} ${group.count === 1 ? 'oculto' : 'ocultos'})` : 'Agrupar objetos à frente'}
           </button>
         )}
         {node.type === 'client' && budget && level && (

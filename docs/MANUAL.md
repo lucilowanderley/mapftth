@@ -149,11 +149,11 @@ até ele e já o seleciona. Também aceita coordenadas, como `-8.0476, -34.8770`
 
 ### Agrupar objetos no mapa
 
-Para deixar o mapa mais limpo, você pode **recolher tudo o que está à frente de um objeto** (a jusante) e mostrar
+Para deixar o mapa mais limpo, você pode **recolher tudo o que está à frente de um objeto** e mostrar
 só ele:
 
 1. Com **Selecionar**, clique no POP, CEO, CTO (ou outro objeto) no mapa.
-2. No painel do objeto, clique em **Agrupar objetos a jusante**.
+2. No painel do objeto, clique em **Agrupar objetos à frente**.
 3. Somem do mapa todos os objetos e cabos que vêm depois dele pelos **cabos de saída e derivações** (CTOs, CEOs,
    clientes, drops, reservas e enlaces desses objetos). O cabo que **chega** no objeto continua visível.
 4. O ícone do objeto ganha um **anel amarelo tracejado** e um **selo** com a quantidade de objetos ocultos
@@ -162,10 +162,10 @@ só ele:
 Para mostrar tudo de novo, selecione o objeto agrupado e clique em **Desagrupar** (o botão mostra quantos estão
 ocultos). O ícone volta ao normal e os objetos voltam a ser desenhados.
 
-- O sentido "a jusante" é calculado pelos cabos a partir do POP, Datacenter ou Torre mais próximo, então não importa
+- O que fica "à frente" é calculado pelos cabos a partir do POP, Datacenter ou Torre mais próximo, então não importa
   o sentido em que o cabo foi desenhado. Em anel, o grupo não volta para o lado de cima. Numa rede ainda sem POP,
   o cabo de chegada é o que **termina** no objeto.
-- Os membros não ficam gravados: o que você ligar depois a jusante entra no grupo sozinho.
+- Os membros não ficam gravados: o que você ligar depois à frente entra no grupo sozinho.
 - Dá para ter vários grupos ao mesmo tempo, inclusive um dentro do outro.
 - Agrupar muda só a visualização: nada é apagado e não aparece no histórico. Fica salvo **neste navegador**, por
   projeto (outro computador ou outro usuário vê o mapa sem os grupos).

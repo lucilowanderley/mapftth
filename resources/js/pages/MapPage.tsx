@@ -774,11 +774,11 @@ export default function MapPage() {
   function toggleGroup(n: NetNode) {
     if (groups.includes(n.id)) {
       setGroups(groups.filter((g) => g !== n.id));
-      notify(`${n.name} desagrupado: objetos a jusante visíveis de novo`);
+      notify(`${n.name} desagrupado: objetos à frente visíveis de novo`);
       return;
     }
     const count = groupView([n.id], nodes, cables).counts.get(n.id) ?? 0;
-    if (!count) return notify(`Nada a jusante de ${n.name} para agrupar (nenhum cabo de saída com objetos).`, 'error');
+    if (!count) return notify(`Nada à frente de ${n.name} para agrupar (nenhum cabo de saída com objetos).`, 'error');
     setGroups([...groups, n.id]);
     notify(`${n.name} agrupado: ${count} ${count === 1 ? 'objeto oculto' : 'objetos ocultos'}`);
   }
