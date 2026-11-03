@@ -2,10 +2,11 @@ import { Box, Check, LogOut, Link2, Network as NetIcon, PackagePlus, Rows4, Sear
 import { useMemo, useState, type ReactNode } from 'react';
 import { ACTIVE_TYPES, PORT_SPEEDS, DIO_SIZES, DIO_TRAY, RACK_MOUNTS, RACK_SIZES, equipmentLabel } from '../../lib/catalog';
 import { MAX_RACK_BATCH, OLT_UPLINK_SPEED, groupsTotal, pruneLags, speedLabel, validMgmtHost, canMount, compareRacks, defaultRackHeight, firstFreeU, nextRackPos, normalizeRow, rackCode, rackGroup, rackHeight, rackLabel, rackUsed, uid, type Rack, type Rackable } from '../../lib/pop';
-import type { Cable, Diagram, DiagramComponent, EquipmentModel, MgmtAccess, PortGroup, PortLag, PortVlan, RackLocation, RackMountType, Vlan } from '../../lib/types';
+import type { Cable, DcSpace, DcSpaceKind, Diagram, DiagramComponent, EquipmentModel, MgmtAccess, PortGroup, PortLag, PortVlan, RackLocation, RackMountType, Vlan } from '../../lib/types';
 import { LagEditor, MgmtFields, PortGroupsEditor, VlanEditor } from './ActiveFields';
 import { cleanMgmt, prunePortVlans, validVlan, type NetHost } from '../../lib/netcfg';
 import { Field } from '../ui';
+import { FLOOR_TYPES, SPACE_KINDS, canContain, floorFromCode, floorInfo, rackTargets, spaceLoc, spacePath, spaceTitle, suggestCode, tidyCode, type FloorType } from '../../lib/dcspace';
 
 type Olt = Extract<DiagramComponent, { kind: 'olt' }>;
 type Dio = Extract<DiagramComponent, { kind: 'dio' }>;
@@ -357,17 +358,53 @@ function RackSelect({ racks, value, onChange }: { racks: Rack[]; value: string; 
   );
 }
 
-export function RackDialog({ initial, racks, onClose, onSubmit }: { initial?: Rack; racks: Rack[]; onClose: () => void; onSubmit: (r: Rack[]) => void }) {
-  // Novo rack: parte do endereço do último rack cadastrado (mesma sala e fileira), na próxima posição livre.
+export function RackDialog({
+  initial,
+  racks,
+  spaces = [],
+  preset,
+  onClose,
+  onSubmit,
+}: {
+  initial?: Rack;
+  racks: Rack[];
+  /** Estrutura do datacenter: o rack pode entrar numa fileira (o endereço vem dela). */
+  spaces?: DcSpace[];
+  /** Fileira já escolhida (botão + Rack da fileira). */
+  preset?: string;
+  onClose: () => void;
+  onSubmit: (r: Rack[]) => void;
+}) {
+  const targets = useMemo(() => rackTargets(spaces), [spaces]);
+  const [space, setSpace] = useState<string>(() => {
+    const s = preset ?? initial?.space ?? '';
+    return targets.some((t) => t.id === s) ? s : '';
+  });
+  const inSpace = (id: string) => racks.filter((r) => r.id !== initial?.id && r.space === id);
+  // Novo rack: na fileira escolhida, ou parte do endereço do último rack cadastrado, na próxima posição livre.
   const base = useMemo<RackLocation>(() => {
+    if (space && !(initial && initial.space === space)) {
+      const l = spaceLoc(spaces, space);
+      return { ...l, pos: nextRackPos(inSpace(space), l) };
+    }
     if (initial) return initial.loc ?? {};
     const last = [...racks].filter((r) => rackCode(r.loc)).sort(compareRacks).pop();
     if (!last?.loc) return {};
     const { pos: _p, ...rest } = last.loc;
     return { ...rest, pos: nextRackPos(racks, rest) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial, racks]);
-  const [loc, setLoc] = useState<RackLocation>(base);
+  const [rawLoc, setLoc] = useState<RackLocation>(base);
+  /** Na fileira, prédio/andar/sala/fileira vêm da estrutura; só a posição é digitada. */
+  const loc: RackLocation = space ? { ...spaceLoc(spaces, space), pos: rawLoc.pos } : rawLoc;
   const code = rackCode(loc);
+  function pickSpace(id: string) {
+    setSpace(id);
+    if (id) {
+      const l = spaceLoc(spaces, id);
+      setLoc({ ...l, pos: initial?.space === id ? initial.loc?.pos : nextRackPos(inSpace(id), l) });
+    }
+  }
   const [useCode, setUseCode] = useState(initial ? !!code && initial.name === code : true);
   const [name, setName] = useState(initial?.name ?? `Rack ${racks.length + 1}`);
   const [mount, setMount] = useState<RackMountType>(initial?.mount ?? 'floor');
@@ -394,8 +431,9 @@ export function RackDialog({ initial, racks, onClose, onSubmit }: { initial?: Ra
         pos: l.pos && l.pos > 0 ? Math.round(l.pos) : undefined,
       };
       const hasLoc = Object.values(tidy).some((v) => v !== undefined);
-      const r: Rack = { ...(initial ?? { id: uid(), kind: 'rack' as const, x: 0, y: 0 }), kind: 'rack', name: nm, mount, units, loc: hasLoc ? tidy : undefined };
+      const r: Rack = { ...(initial ?? { id: uid(), kind: 'rack' as const, x: 0, y: 0 }), kind: 'rack', name: nm, mount, units, loc: hasLoc ? tidy : undefined, space: space || undefined };
       if (!hasLoc) delete r.loc;
+      if (!space) delete r.space;
       return r;
     });
     onSubmit(made);
@@ -409,6 +447,20 @@ export function RackDialog({ initial, racks, onClose, onSubmit }: { initial?: Ra
             <div className="label !mb-0">Endereçamento no datacenter</div>
             <span className="text-[10px] text-slate-500" title="Padrão de identificação ANSI/TIA-606: prédio.andar+sala - fileira+posição">TIA-606</span>
           </div>
+          {targets.length > 0 && (
+            <label className="block">
+              <span className="block text-[10px] text-slate-400 mb-0.5">Fileira (estrutura do datacenter)</span>
+              <select className="input !py-1 text-xs" value={space} onChange={(e) => pickSpace(e.target.value)}>
+                <option value="">Solto no canvas (endereço digitado)</option>
+                {targets.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.code ? `${t.code} · ` : ''}
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <div className="grid grid-cols-5 gap-1.5">
             {(
               [
@@ -421,8 +473,10 @@ export function RackDialog({ initial, racks, onClose, onSubmit }: { initial?: Ra
               <label key={k} className="block">
                 <span className="block text-[10px] text-slate-400 mb-0.5">{label}</span>
                 <input
-                  className="input !px-2 !py-1 uppercase"
-                  placeholder={ph}
+                  className="input !px-2 !py-1 uppercase disabled:opacity-60"
+                  placeholder={space ? '' : ph}
+                  disabled={!!space}
+                  title={space ? 'Vem da estrutura (prédio, andar, sala e fileira). Troque a fileira acima.' : undefined}
                   value={loc[k] ?? ''}
                   onChange={(e) => setL(k, k === 'row' ? normalizeRow(e.target.value) : e.target.value.toUpperCase())}
                 />
@@ -444,7 +498,7 @@ export function RackDialog({ initial, racks, onClose, onSubmit }: { initial?: Ra
             <span className="text-slate-400">Código:</span>
             <span className={`font-mono font-semibold ${code ? 'text-emerald-300' : 'text-slate-500'}`}>{code || 'preencha os campos'}</span>
             {loc.row && (
-              <button className="ml-auto text-[11px] text-sky-400 hover:underline cursor-pointer" onClick={() => setLoc((l) => ({ ...l, pos: nextRackPos(others, l) }))}>
+              <button className="ml-auto text-[11px] text-sky-400 hover:underline cursor-pointer" onClick={() => setLoc((l) => ({ ...l, pos: space ? nextRackPos(inSpace(space), loc) : nextRackPos(others, l) }))}>
                 próxima posição livre
               </button>
             )}
@@ -934,5 +988,254 @@ export function useCableItems(cables: Cable[], nodeId: number, nodeName: (id: nu
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [cables, nodeId],
+  );
+}
+
+/** Máximo de fileiras criadas de uma vez. */
+const MAX_ROW_BATCH = 30;
+
+/**
+ * Cria ou edita um espaço do datacenter: prédio (com empresa), andar (térreo, subsolo, piso...), sala ou fileira.
+ * parent = espaço onde ele fica (pode mudar ao editar). Fileiras novas podem ser criadas em sequência (A, B, C...).
+ */
+export function SpaceDialog({
+  initial,
+  kind: fixedKind,
+  parent: presetParent,
+  spaces,
+  onClose,
+  onSubmit,
+}: {
+  initial?: DcSpace;
+  kind?: DcSpaceKind;
+  parent?: string | null;
+  spaces: DcSpace[];
+  onClose: () => void;
+  onSubmit: (list: DcSpace[]) => void;
+}) {
+  const [kind, setKind] = useState<DcSpaceKind>(initial?.kind ?? fixedKind ?? 'site');
+  const [parent, setParent] = useState<string>(initial?.parent ?? presetParent ?? '');
+  const parentOk = (k: DcSpaceKind, p: string) => !p || spaces.some((s) => s.id === p && canContain(s.kind, k));
+  // Andar novo: térreo se ainda não existe, senão o piso acima do mais alto.
+  const f0 = useMemo(() => {
+    if (initial?.kind === 'floor') return floorFromCode(initial.code);
+    const sib = spaces.filter((s) => s.kind === 'floor' && (s.parent ?? null) === (presetParent ?? null));
+    if (!sib.some((s) => (s.level ?? 0) === 0)) return { type: 'ground' as FloorType, n: 1 };
+    return { type: 'floor' as FloorType, n: Math.max(0, ...sib.map((s) => Math.floor(s.level ?? 0)).filter((n) => n < 999)) + 1 };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const firstFloor = floorInfo(f0.type, f0.n || 1);
+  const [code, setCode] = useState(initial?.code ?? (kind === 'floor' ? firstFloor.code : suggestCode(spaces, kind, (initial?.parent ?? presetParent) || null)));
+  const [name, setName] = useState(initial?.name ?? (kind === 'floor' ? firstFloor.name : ''));
+  const [company, setCompany] = useState(initial?.company ?? '');
+  const [ftype, setFtype] = useState<FloorType>(f0.type);
+  const [fnum, setFnum] = useState(f0.n || 1);
+  const [qty, setQty] = useState(1);
+  const meta = SPACE_KINDS[kind];
+  // Não deixa colocar o espaço dentro dele mesmo ou de algo que está dentro dele.
+  const blocked = useMemo(() => {
+    if (!initial) return new Set<string>();
+    const out = new Set<string>([initial.id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      spaces.forEach((s) => {
+        if (s.parent && out.has(s.parent) && !out.has(s.id)) {
+          out.add(s.id);
+          grew = true;
+        }
+      });
+    }
+    return out;
+  }, [initial, spaces]);
+  const parents = spaces.filter((s) => canContain(s.kind, kind) && !blocked.has(s.id));
+  const pathLabel = (id: string) =>
+    spacePath(spaces, id)
+      .map((p) => (p.kind === 'site' ? p.code || spaceTitle(p) : spaceTitle(p)))
+      .join(' › ');
+
+  function pickFloor(t: FloorType, n: number) {
+    setFtype(t);
+    setFnum(n);
+    const info = floorInfo(t, n);
+    setCode(info.code);
+    setName(info.name);
+  }
+  function pickKind(k: DcSpaceKind) {
+    setKind(k);
+    const p = parentOk(k, parent) ? parent : '';
+    setParent(p);
+    if (k === 'floor') pickFloor(ftype, fnum);
+    else {
+      setCode(suggestCode(spaces, k, p || null));
+      setName('');
+    }
+  }
+
+  const clean = tidyCode(kind, code);
+  const batch = !initial && kind === 'row' && qty > 1;
+  const codes: string[] = useMemo(() => {
+    if (!batch) return [clean];
+    const out = [clean];
+    for (let i = 1; i < qty; i++) {
+      let n = 0;
+      for (const ch of out[i - 1]) n = n * 26 + (ch.charCodeAt(0) - 64);
+      n += 1;
+      let s = '';
+      while (n > 0) {
+        const m = (n - 1) % 26;
+        s = String.fromCharCode(65 + m) + s;
+        n = Math.floor((n - 1) / 26);
+      }
+      out.push(s);
+    }
+    return out;
+  }, [batch, clean, qty]);
+  const sibs = spaces.filter((s) => s.kind === kind && (s.parent ?? '') === parent && s.id !== initial?.id);
+  const clash = codes.filter((c) => c && sibs.some((s) => s.code === c));
+  const preview = rackCode({ ...(parent ? spaceLoc(spaces, parent) : {}), [kind]: clean });
+  const need = kind === 'row' || kind === 'room' ? !!clean : kind === 'floor' ? !!clean : !!(clean || name.trim());
+
+  function submit() {
+    const level = kind === 'floor' ? floorInfo(ftype, fnum).level : undefined;
+    const list = codes.map((c, i) => {
+      const s: DcSpace = {
+        ...(initial ?? { id: uid(), open: true, x: 0, y: 0 }),
+        kind,
+        parent: parent || null,
+        code: c,
+        name: batch ? undefined : name.trim() || undefined,
+        company: kind === 'site' ? company.trim() || undefined : undefined,
+        level: kind === 'floor' ? (initial && initial.kind === 'floor' && initial.code === c ? (initial.level ?? level) : level) : undefined,
+      };
+      if (batch && i > 0) s.id = uid();
+      (Object.keys(s) as (keyof DcSpace)[]).forEach((k) => s[k] === undefined && delete s[k]);
+      return s;
+    });
+    onSubmit(list);
+  }
+
+  return (
+    <PopDialog
+      icon={<Rows4 size={18} />}
+      title={initial ? `Editar ${spaceTitle(initial)}` : `Adicionar ${meta.label.toLowerCase()}`}
+      subtitle={<span className="font-mono">{preview || 'sem código'} · TIA-606</span>}
+      onClose={onClose}
+      width="max-w-md"
+    >
+      <div className="space-y-3">
+        {!initial && !fixedKind && (
+          <div className="grid grid-cols-4 gap-1.5">
+            {(Object.keys(SPACE_KINDS) as DcSpaceKind[]).map((k) => (
+              <button
+                key={k}
+                onClick={() => pickKind(k)}
+                className={`rounded-md border py-1.5 text-xs font-semibold cursor-pointer ${kind === k ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 hover:border-slate-500'}`}
+              >
+                {SPACE_KINDS[k].label}
+              </button>
+            ))}
+          </div>
+        )}
+        {kind !== 'site' && (
+          <Field label="Fica dentro de">
+            <select className="input" value={parent} onChange={(e) => setParent(e.target.value)}>
+              <option value="">Nada (solto no canvas)</option>
+              {parents.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {SPACE_KINDS[p.kind].label}: {pathLabel(p.id)}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {kind === 'site' && (
+          <>
+            <Field label="Empresa">
+              <input className="input" placeholder="Ex.: Equinix, Ascenty, própria" value={company} onChange={(e) => setCompany(e.target.value)} autoFocus />
+            </Field>
+            <div className="grid grid-cols-3 gap-2">
+              <Field label="Código">
+                <input className="input uppercase" placeholder="DC1" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
+              </Field>
+              <div className="col-span-2">
+                <Field label="Nome do prédio">
+                  <input className="input" placeholder="Ex.: SP2 · Tamboré" value={name} onChange={(e) => setName(e.target.value)} />
+                </Field>
+              </div>
+            </div>
+          </>
+        )}
+        {kind === 'floor' && (
+          <>
+            <div className="grid grid-cols-5 gap-1.5">
+              {(Object.keys(FLOOR_TYPES) as FloorType[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => pickFloor(t, fnum)}
+                  className={`rounded-md border py-1.5 text-[11px] font-semibold cursor-pointer ${ftype === t ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 hover:border-slate-500'}`}
+                >
+                  {FLOOR_TYPES[t].label}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {FLOOR_TYPES[ftype].numbered && (
+                <Field label="Número">
+                  <input type="number" min={1} max={200} className="input" value={fnum} onChange={(e) => pickFloor(ftype, Math.max(1, Math.min(200, Math.round(Number(e.target.value)) || 1)))} />
+                </Field>
+              )}
+              <Field label="Código">
+                <input className="input uppercase" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
+              </Field>
+              <Field label="Nome">
+                <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+              </Field>
+            </div>
+          </>
+        )}
+        {(kind === 'room' || kind === 'row') && (
+          <div className="grid grid-cols-3 gap-2">
+            <Field label={kind === 'row' ? (batch ? 'Primeira fileira' : 'Fileira (letras)') : 'Código da sala'}>
+              <input
+                className="input uppercase"
+                placeholder={kind === 'row' ? 'AJ' : 'A'}
+                value={code}
+                onChange={(e) => setCode(kind === 'row' ? normalizeRow(e.target.value) : e.target.value.toUpperCase())}
+                autoFocus
+              />
+            </Field>
+            {!batch && (
+              <div className="col-span-2">
+                <Field label="Descrição (opcional)">
+                  <input className="input" placeholder={kind === 'room' ? 'Ex.: Data hall 2' : 'Ex.: Corredor frio 1'} value={name} onChange={(e) => setName(e.target.value)} />
+                </Field>
+              </div>
+            )}
+          </div>
+        )}
+        {!initial && kind === 'row' && (
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            Criar
+            <input type="number" min={1} max={MAX_ROW_BATCH} className="input !w-16 !py-1" value={qty} onChange={(e) => setQty(Math.max(1, Math.min(MAX_ROW_BATCH, Math.round(Number(e.target.value)) || 1)))} />
+            fileira(s)
+            {batch && clean && (
+              <span className="text-slate-500">
+                {codes[0]} a {codes[codes.length - 1]}
+              </span>
+            )}
+          </div>
+        )}
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-slate-400">Código TIA-606:</span>
+          <span className={`font-mono font-semibold ${preview ? 'text-emerald-300' : 'text-slate-500'}`}>{preview || 'preencha o código'}</span>
+        </div>
+        {clash.length > 0 && <div className="text-[11px] text-amber-400">Já existe {meta.label.toLowerCase()} {clash.slice(0, 5).join(', ')} aqui.</div>}
+        {initial && initial.code !== clean && <div className="text-[11px] text-slate-400">Os racks dentro passam a usar o novo código.</div>}
+        <button className="btn-primary w-full" disabled={!need || clash.length > 0} onClick={submit}>
+          <Zap size={15} /> {initial ? 'Salvar alterações' : batch ? `Criar ${qty} fileiras` : `Criar ${meta.label.toLowerCase()}`}
+        </button>
+      </div>
+    </PopDialog>
   );
 }

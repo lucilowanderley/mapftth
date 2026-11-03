@@ -407,7 +407,8 @@ DIOs no meio, OLTs à direita).
 | Botão | O que faz |
 | --- | --- |
 | **OLT**, **DIO**, **Ativo** | Adicionam um equipamento ao canvas. |
-| **Rack** | Adiciona um rack de piso ou suspenso, com a altura em U. |
+| **Prédio** | Cria a estrutura do datacenter: **Prédio** (com a empresa), **Andar**, **Sala** e **Fileira**. Veja *Estrutura do datacenter* abaixo. |
+| **Rack** | Adiciona um rack de piso ou suspenso, com a altura em U (solto no canvas ou dentro de uma fileira). |
 | **Cadastro** | Abre o **Cadastro de equipamentos** (fabricante, modelo, portas e altura em U). |
 | Contadores | **Rack**, **OLT** e **DIO** (quantidade), **Portas** (portas do DIO com cordão / total) e **PON** (em uso / total). |
 | **Localizar rack** | Com mais de um rack, digite o código (ex.: *AJ05* ou *DC1.1A-AJ05*) ou o nome e tecle Enter: a vista vai até o rack, que pisca com borda amarela. |
@@ -422,10 +423,47 @@ DIOs no meio, OLTs à direita).
 No canto inferior direito ficam o **zoom** e o **enquadrar tudo**. Arraste o fundo para mover a vista e use a
 roda do mouse para o zoom. O status do POP (*Em projeto*, *Implantado*...) fica ao lado do título.
 
+**Estrutura do datacenter (prédio, andar, sala e fileira)**
+
+Num datacenter com dezenas ou centenas de racks, organize o canvas em níveis, no padrão ANSI/TIA-606:
+**Prédio → Andar → Sala → Fileira → Racks**. Cada nível é um objeto que **expande e recolhe**: recolhido, vira um
+cartão com o resumo (ex.: *2 andares · 3 salas · 12 fileiras · 140 racks* e o total de U); expandido, vira uma
+moldura tracejada com o que tem dentro, arrumado sozinho (andares um embaixo do outro, do mais alto para o subsolo;
+salas lado a lado; fileiras empilhadas; racks lado a lado, em ordem de posição).
+
+1. Clique em **Prédio** na barra. Informe a **Empresa** (ex.: *Equinix*, *Ascenty* ou a sua), o **Código** do prédio
+   (ex.: *DC1*) e, se quiser, o **Nome do prédio**. Clique em **Criar prédio**.
+2. No cabeçalho do prédio clique em **+ Andar**. Escolha o tipo: **Térreo** (código *T*), **Subsolo** (*S1*, *S2*...),
+   **Piso** (*1*, *2*...), **Mezanino** (*M*) ou **Cobertura** (*C*). O código pode ser trocado.
+3. No andar clique em **+ Sala** (ex.: *A*, *DH2*) ou, se o andar não tem salas, direto em **+ Fileira**.
+4. Na sala clique em **+ Fileira** (letras: *A*, *B*... *AJ*). Dá para criar várias de uma vez (ex.: 10 fileiras de A a J).
+5. Na fileira clique em **+ Rack**. O endereço vem da estrutura (só a **Posição** é digitada) e o código fica, por
+   exemplo, **DC1.1A-AJ05**. Para encher a fileira, use **Criar N rack(s)**.
+
+Detalhes:
+
+- A seta no cabeçalho (ou duplo clique nele, ou um clique no cartão recolhido) **expande/recolhe**. Abrir e fechar
+  não conta como alteração; o estado fica salvo junto na próxima vez que você salvar.
+- Só o nível de fora (o prédio, ou um espaço solto) é **arrastado** pelo cabeçalho; o que está dentro se arruma
+  sozinho. Racks dentro de uma fileira não são arrastados: a ordem é a **posição** (mude editando o rack).
+- Os racks **só entram em fileiras**. Pode pular níveis: fileira direto no andar (sem sala) ou até um andar solto.
+- Um rack **solto** arrastado para cima de uma fileira entra nela, na próxima posição livre. No **editar rack**, o
+  campo **Fileira** troca o rack de fileira ou o deixa **solto no canvas**.
+- Mudou o código de um prédio, andar, sala ou fileira? Os racks de dentro passam a usar o novo código (e o nome,
+  quando o nome era o próprio código).
+- **Excluir** um nível apaga ele e os níveis de dentro; os racks continuam no POP, soltos, com o mesmo endereço.
+- Cabos e cordões de equipamentos que estão num espaço recolhido chegam no cartão dele. O **Localizar rack** abre
+  sozinho o caminho até o rack achado.
+- POP pequeno (um só piso, sem salas nem fileiras)? Não precisa criar estrutura: os racks ficam soltos no canvas,
+  como sempre.
+- Racks criados antes desta versão, que já tinham **fileira** no endereço, são organizados automaticamente no
+  prédio, andar, sala e fileira do endereço ao abrir o editor.
+
 **Rack (piso ou suspenso)**
 
-1. Clique em **Rack**.
-2. Preencha o **Endereçamento no datacenter** (todos os campos são opcionais):
+1. Clique em **Rack** (ou em **+ Rack** numa fileira).
+2. Se há estrutura, escolha a **Fileira** (o endereço vem dela) ou deixe **Solto no canvas**. Solto, preencha o
+   **Endereçamento no datacenter** (todos os campos são opcionais):
    **Prédio/site** (ex.: DC1), **Andar** (ex.: 1), **Sala** (ex.: A), **Fileira** (letras: A, B... Z, AA, AB...) e
    **Posição** na fileira (1, 2, 3...). O editor monta o **código** no padrão de grade de piso da norma
    ANSI/TIA-606: `prédio.andarSala-FileiraPosição`, com a posição em dois dígitos. Exemplo: **DC1.1A-AJ05** é o
