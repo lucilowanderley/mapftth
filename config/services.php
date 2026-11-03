@@ -40,4 +40,10 @@ return [
         'key' => env('GOOGLE_MAPS_KEY'),
     ],
 
+    // Câmeras (objeto Câmera): teste de comunicação e foto feitos pelo servidor. CAMERA_CHECK=false desliga.
+    'cameras' => [
+        'check' => env('CAMERA_CHECK', true),
+        'allow_loopback' => env('CAMERA_ALLOW_LOOPBACK', false),
+    ],
+
 ];

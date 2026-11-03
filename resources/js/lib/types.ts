@@ -1,4 +1,4 @@
-export type NodeType = 'cto' | 'ceo' | 'pop' | 'dc' | 'tower' | 'pole' | 'client' | 'condo';
+export type NodeType = 'cto' | 'ceo' | 'pop' | 'dc' | 'tower' | 'pole' | 'client' | 'condo' | 'camera';
 export type Status = 'planned' | 'not_deployed' | 'deployed' | 'certified';
 export type CableCategory = 'backbone' | 'distribution' | 'drop';
 export type LatLng = [number, number];
@@ -373,4 +373,71 @@ export interface PoleAttributes extends Record<string, unknown> {
   load_dan?: number;
   owner?: string;
   structure?: string;
+}
+
+/** Câmera: IP (rede), analógica/HD (ligada a um canal de DVR) ou o próprio gravador DVR/NVR. */
+export type CameraKind = 'ip' | 'analog' | 'dvr';
+export type CameraProto = 'rtsp' | 'onvif' | 'http';
+export type CameraPower = 'poe' | 'poe_plus' | 'dc12' | 'ac24' | 'solar' | 'other';
+
+/** Resultado do último teste de comunicação feito pelo servidor. */
+export interface CameraCheck {
+  name: string;
+  port: number | null;
+  ok: boolean;
+  ms?: number | null;
+  detail?: string | null;
+}
+export interface CameraStatus {
+  online: boolean;
+  at: string;
+  checks: CameraCheck[];
+  /** Dados lidos do equipamento por ONVIF (GetDeviceInformation). */
+  info?: { manufacturer?: string; model?: string; firmware?: string; serial?: string; hardware?: string } | null;
+}
+
+/** Atributos da câmera e do DVR/NVR (guardados em node.attributes). A senha fica criptografada no servidor. */
+export interface CameraAttributes extends Record<string, unknown> {
+  cam_kind?: CameraKind;
+  vendor?: string;
+  model?: string;
+  serial?: string;
+  /** Endereço IP ou nome (DDNS) do equipamento. */
+  host?: string;
+  http_port?: number;
+  https?: boolean;
+  rtsp_port?: number;
+  onvif_port?: number;
+  protocol?: CameraProto;
+  username?: string;
+  /** Só na resposta do servidor: existe senha guardada (o valor nunca volta para o navegador). */
+  cam_has_password?: boolean;
+  /** Só no envio: senha nova (o servidor criptografa) ou pedido para apagar a guardada. */
+  password?: string;
+  password_clear?: boolean;
+  rtsp_path?: string;
+  snapshot_path?: string;
+  resolution?: string;
+  lens_mm?: number;
+  /** Campo de visão horizontal (graus). */
+  fov?: number;
+  /** Direção para onde a câmera aponta (graus, 0 = norte). */
+  azimuth?: number;
+  /** Alcance desenhado no mapa (m). */
+  range_m?: number;
+  ir_m?: number;
+  power?: CameraPower;
+  /** Objeto onde a câmera está instalada: poste, cliente, datacenter ou POP. */
+  mount_id?: number;
+  height_m?: number;
+  /** Por onde a câmera chega na rede (CTO, cliente/ONU, POP...). */
+  uplink_id?: number;
+  /** Câmera analógica (ou IP gravando em NVR): gravador e canal. */
+  dvr_id?: number;
+  dvr_channel?: number;
+  /** DVR/NVR: quantidade de canais, HD e dias de gravação. */
+  channels?: number;
+  hdd_tb?: number;
+  retention_days?: number;
+  cam_status?: CameraStatus;
 }

@@ -36,6 +36,8 @@ import {
   Warehouse,
   RadioTower,
   ChevronDown,
+  Cctv,
+  Video,
 } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Circle, CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
@@ -47,8 +49,10 @@ import { analyzeSignal, measuredClients, type SignalAnalysis } from '../lib/sign
 import { BOX_TYPES, CABLE_CATEGORIES, CABLE_MODELS, CONDO_KINDS, NODE_TYPES, NODE_TYPE_LIST, RACK_HOST_TYPES, SLACK_KINDS, effectiveLineStyle, lineDash } from '../lib/catalog';
 import { distance, pathLength } from '../lib/geo';
 import { LINK_STYLE, RADIO_HOST_TYPES, RADIO_KINDS, linkColor, linkMidpoint, radioBeam, radioLinks, radiosOf, sectorPolygon } from '../lib/tower';
-import type { Activity as ActivityItem, Area, Cable, CableCategory, CondoKind, LatLng, NetNode, NodeType, Project, Role, Settings, Slack, SlackKind } from '../lib/types';
+import type { Activity as ActivityItem, Area, CameraKind, Cable, CableCategory, CondoKind, LatLng, NetNode, NodeType, Project, Role, Settings, Slack, SlackKind } from '../lib/types';
 import { viability } from '../lib/analysis';
+import { CAMERA_COLOR, CAMERA_KINDS, CAMERA_MOUNT_TYPES, HEALTH_COLORS, cameraHealth, cameraLinks, cameraOf, fovPolygon } from '../lib/camera';
+import { destination } from '../lib/tower';
 import { LAYERS, MAP_ENGINES, MAP_STYLES, availableEngines, googleTileUrl, loadEngine, loadStyle, saveEngine, saveStyle, type MapEngine, type MapStyle } from '../lib/basemaps';
 import { appConfig } from '../lib/user';
 import { AutoResize, RememberView, TILE_OPTIONS, loadView } from '../lib/mapview';
@@ -87,6 +91,7 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'pole', label: 'Poste', icon: <Zap size={18} /> },
   { id: 'client', label: 'Cliente', icon: <User size={18} /> },
   { id: 'condo', label: 'Condomínio', icon: <Building2 size={18} /> },
+  { id: 'camera', label: 'Câmera', icon: <Cctv size={18} /> },
   { id: 'cable', label: 'Cabo', icon: <CableIcon size={18} /> },
   { id: 'area', label: 'Área', icon: <Pentagon size={18} /> },
   { id: 'slack', label: 'Reserva', icon: <SlackToolIcon size={18} /> },
@@ -132,6 +137,7 @@ export default function MapPage() {
   const [recent, setRecent] = useState<ActivityItem[] | null>(null);
   const [tool, setTool] = useState<Tool>('select');
   const [condoKind, setCondoKind] = useState<CondoKind>('buildings');
+  const [cameraKind, setCameraKind] = useState<CameraKind>('ip');
   const [selection, setSelection] = useState<Selection>(null);
   const [draft, setDraft] = useState<{
     path: LatLng[];
@@ -161,6 +167,7 @@ export default function MapPage() {
     pole: true,
     client: true,
     condo: true,
+    camera: true,
     backbone: true,
     distribution: true,
     drop: true,
@@ -405,13 +412,22 @@ export default function MapPage() {
   const mergeCables = (updated: Cable[]) => setCables((list) => list.map((c) => updated.find((u) => u.id === c.id) ?? c));
   const mergeNodes = (updated: NetNode[]) => setNodes((list) => list.map((n) => updated.find((u) => u.id === n.id) ?? n));
 
-  async function addNode(type: NodeType, at: LatLng) {
+  async function addNode(type: NodeType, at: LatLng, mount?: NetNode) {
     try {
+      // Câmera lançada sobre um poste/cliente/DC/POP fica "instalada" nele, um pouco ao lado para não cobrir o ícone.
+      const pos: LatLng = mount ? roundLatLng(destination([mount.lat, mount.lng], 45, 12)) : at;
+      const dvrCount = nodes.filter((n) => n.type === 'camera' && cameraOf(n).cam_kind === 'dvr').length;
       const node = await api.createNode(projectId, {
         type,
-        lat: at[0],
-        lng: at[1],
+        lat: pos[0],
+        lng: pos[1],
         ...(type === 'condo' ? { attributes: { condo_kind: condoKind } } : {}),
+        ...(type === 'camera'
+          ? {
+              ...(cameraKind === 'dvr' ? { name: `DVR-${dvrCount + 1}` } : {}),
+              attributes: { cam_kind: cameraKind, ...(cameraKind === 'dvr' ? { channels: 8 } : {}), ...(mount ? { mount_id: mount.id } : {}) },
+            }
+          : {}),
       });
       setNodes((list) => [...list, node]);
       setSelection({ kind: 'node', id: node.id });
@@ -699,6 +715,10 @@ export default function MapPage() {
       placeSlack([node.lat, node.lng], node);
       return;
     }
+    if (tool === 'camera' && !readOnly && CAMERA_MOUNT_TYPES.includes(node.type)) {
+      addNode('camera', [node.lat, node.lng], node);
+      return;
+    }
     setSelection({ kind: 'node', id: node.id });
   }
 
@@ -933,7 +953,7 @@ export default function MapPage() {
           }}
         />
         <div className="mt-auto p-3 text-xs text-slate-500 grid grid-cols-2 gap-1">
-          {(['dc', 'pop', 'tower', 'ceo', 'cto', 'condo', 'client'] as NodeType[]).map((t) => (
+          {(['dc', 'pop', 'tower', 'ceo', 'cto', 'condo', 'client', 'camera'] as NodeType[]).map((t) => (
             <span key={t}>
               {NODE_TYPES[t].plural}: <b className="text-slate-300">{nodes.filter((n) => n.type === t).length}</b>
             </span>
@@ -1116,6 +1136,35 @@ export default function MapPage() {
               );
             })}
 
+          {/* Câmeras: campo de visão e ligações tracejadas com o gravador (DVR/NVR) e com o objeto onde estão instaladas. */}
+          {zoom >= 15 &&
+            nodes
+              .filter((n) => n.type === 'camera' && showNode(n))
+              .map((n) => {
+                const fov = fovPolygon(n);
+                return fov ? (
+                  <Polygon
+                    key={`fov${n.id}`}
+                    positions={fov}
+                    interactive={false}
+                    pathOptions={{ color: CAMERA_COLOR, weight: 1, fillColor: CAMERA_COLOR, fillOpacity: 0.18, opacity: 0.8 }}
+                  />
+                ) : null;
+              })}
+          {zoom >= 15 &&
+            cameraLinks(nodes.filter((n) => showNode(n))).map((l) => (
+              <Polyline
+                key={`cl${l.key}`}
+                positions={[
+                  [l.from.lat, l.from.lng],
+                  [l.to.lat, l.to.lng],
+                ]}
+                pathOptions={l.kind === 'dvr' ? { color: CAMERA_COLOR, weight: 2, dashArray: '2 6', opacity: 0.9, lineCap: 'round' } : { color: '#e2e8f0', weight: 1.5, dashArray: '3 4', opacity: 0.7 }}
+              >
+                <Tooltip sticky>{l.kind === 'dvr' ? `${l.from.name} → ${l.to.name} (canal ${cameraOf(l.from).dvr_channel ?? '?'})` : `${l.from.name} instalada em ${l.to.name}`}</Tooltip>
+              </Polyline>
+            ))}
+
           {nodes
             .filter((n) => showNode(n))
             .map((n) => {
@@ -1128,6 +1177,7 @@ export default function MapPage() {
                     selected: selection?.kind === 'node' && selection.id === n.id,
                     fill: level ? POWER_COLORS[level] : undefined,
                     group: grouped.counts.get(n.id),
+                    dot: n.type === 'camera' && cameraOf(n).cam_status ? HEALTH_COLORS[cameraHealth(cameraOf(n).cam_status)] : undefined,
                   })}
                   draggable={tool === 'select' && !readOnly}
                   eventHandlers={{
@@ -1451,6 +1501,26 @@ export default function MapPage() {
                 </button>
               ))}
               {slackCableId && <span className="text-slate-400">no cabo {cables.find((c) => c.id === slackCableId)?.name}</span>}
+            </div>
+          )}
+
+          {/* Tipo de câmera lançada pela ferramenta Câmera */}
+          {!readOnly && tool === 'camera' && (
+            <div className="panel flex items-center gap-2 p-2 text-xs pointer-events-auto">
+              <span className="text-slate-300 flex items-center gap-1">
+                <Cctv size={14} /> Câmera
+              </span>
+              {(Object.keys(CAMERA_KINDS) as CameraKind[]).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setCameraKind(k)}
+                  title={CAMERA_KINDS[k].hint}
+                  className={`flex items-center gap-1 rounded px-2 py-1 cursor-pointer ${cameraKind === k ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  {k === 'dvr' ? <Video size={13} /> : <Cctv size={13} />} {k === 'dvr' ? 'DVR / NVR' : CAMERA_KINDS[k].short}
+                </button>
+              ))}
+              <span className="text-slate-500 hidden lg:inline">Clique no mapa ou num poste, cliente, datacenter ou POP.</span>
             </div>
           )}
 
@@ -1796,6 +1866,7 @@ export default function MapPage() {
             node={selectedNode}
             cable={selectedCable}
             nodes={nodes}
+            onSelectNode={(n) => focusNode(n)}
             budget={selectedNode?.type === 'client' ? clientPower.get(selectedNode.id) : undefined}
             signal={selectedNode?.type === 'client' ? clientSignal.get(selectedNode.id) : undefined}
             settings={settings}
