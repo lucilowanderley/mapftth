@@ -638,15 +638,29 @@ cada tubo na sua bandeja, como na caixa real.
    outra bandeja muda ele de bandeja.
 4. Ali também dá para **renomear**, mudar a **capacidade** ou **apagar** a bandeja (as emendas continuam).
 
-No diagrama:
+No diagrama (**bandeja aberta**):
 
-- Cada bandeja aparece como um cartão com o nome, a **ocupação** (*7/24 fusões*, com barra verde, amarela perto
-  de lotar e **vermelha quando passa da capacidade**) e a lista dos tubos vinculados.
-- Uma **linha tracejada na cor do tubo** liga a faixa do tubo (na borda externa do cartão do cabo) à bandeja.
-- Contam na ocupação as emendas por fusão e por conector das fibras dos tubos vinculados. Passagens não contam.
-- Ao selecionar uma emenda, o quadro mostra em qual bandeja ela está. A dica de cada fibra também mostra.
-- Arraste o cartão para mudar a bandeja de lugar. Duplo clique nele abre a janela de bandejas. Para apagar,
-  selecione e use **Apagar** (Delete). **Organizar** empilha as bandejas abaixo dos cabos.
+- Quando um tubo é vinculado, o **cabo deixa de mostrar as 12 FO desse tubo** e fica só com a **derivação do tubo
+  loose**: uma linha *Tubo 1 Verde · FO 1–12 → Bandeja 1* e uma linha grossa na cor do tubo até a bandeja.
+- As FO do tubo viram **portas da bandeja**: as dos cabos que estão à esquerda ficam no lado esquerdo, as dos
+  cabos à direita no lado direito (ex.: 12 conexões de cada lado).
+- As **emendas dentro da bandeja aparecem no próprio cartão**, com o tubete de fusão (ou o conector). **FO
+  cruzadas** (ex.: 3 → 5) aparecem com o traço desviando e a emenda em **amarelo**.
+- O cabeçalho mostra a **ocupação** (*11/12 fusões*: verde, amarela perto de lotar, **vermelha acima da
+  capacidade**) e o rodapé mostra o resumo: *fusões · cruzadas · FO livres*.
+- Uma porta da bandeja também pode ser ligada a algo fora dela (ex.: entrada do splitter): clique na porta e
+  depois no destino, como em qualquer outra porta.
+
+**Editar as fusões da bandeja** (duplo clique no cartão):
+
+1. Escolha **Emenda (fusão)** ou **Conector**.
+2. Clique numa FO de um lado e depois na FO do outro lado. Para **cruzar**, é só ligar números diferentes.
+3. Clique numa emenda para selecioná-la: **Trocar fusão/conector** ou **Apagar emenda**.
+4. **1↔1 automático** funde 1 com 1, 2 com 2... nas FO livres. **Limpar bandeja** apaga as emendas internas.
+   **Tubos da bandeja…** abre a janela de vínculo dos tubos. Tudo pode ser desfeito com **Ctrl+Z**.
+
+Para mover a bandeja, arraste o cartão. Para apagar, selecione e use **Apagar** (Delete): o tubo volta a mostrar
+as FO no cartão do cabo e as emendas continuam. **Organizar** empilha as bandejas entre os cabos.
 
 <a id="auto-fusão"></a>
 **Auto-fusão** (sangria e emendas em sequência)

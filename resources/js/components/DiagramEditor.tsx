@@ -27,7 +27,7 @@ import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, powerLevel, traceUpstream, type BudgetResult } from '../lib/budget';
 import { DIO_SIZES, OLT_MODELS, SPLITTER_MODELS, STATUSES, fiberColor, splitterModel, tubeColor } from '../lib/catalog';
 import { cableLetter, curvePath, laneSegment, polylinePath, routeOrthogonal, spliceAnchor, textOn, type Pt } from '../lib/splice';
-import { TRAY_CAPACITIES, pruneTrays, toggleTube, trayOfConnection, trayOfFiber, trayUsage, tubeCount, tubeFibers, tubeKey } from '../lib/tray';
+import { TRAY_CAPACITIES, cableRows, rowsHeight, trayPorts, type CableRow, pruneTrays, toggleTube, trayOfConnection, trayOfFiber, trayUsage, tubeCount, tubeFibers, tubeKey } from '../lib/tray';
 import type { Cable, Connection, Diagram, DiagramComponent, End, NetNode, Network, SpliceTray, Status } from '../lib/types';
 import { Field, Modal } from './ui';
 
@@ -40,18 +40,20 @@ const SPLIT_W = 56;
 const CONN_W = 26;
 const HISTORY_MAX = 60;
 const ROUTE_KEY = 'mapftth.splice.route';
-const TRAY_W = 190;
-const TRAY_ROW = 16;
+const TRAY_W = 230;
+/** Topo das portas da bandeja (abaixo do cabeçalho e da barra de ocupação). */
+const TRAY_TOP = HEADER + 12;
+const TRAY_FOOT = 22;
 
-/** Altura do cartão da bandeja (cabeçalho, barra de ocupação e uma linha por tubo). */
-const trayHeight = (t: SpliceTray) => HEADER + 14 + Math.max(1, t.tubes.length) * TRAY_ROW + 6;
+/** Altura do cartão da bandeja aberta: uma linha por FO do lado com mais fibras, mais o rodapé com o resumo. */
+const trayHeightFor = (nLeft: number, nRight: number) => TRAY_TOP + Math.max(1, nLeft, nRight) * ROW + TRAY_FOOT;
 
 type RouteStyle = 'ortho' | 'curve';
 type Tool = 'fuse' | 'connector' | 'pass';
 
 /** Racks só existem no editor de POP e não entram no diagrama de fusão. */
 type BoxComponent = Exclude<DiagramComponent, { kind: 'rack' }>;
-type Block = { key: string; kind: 'cable'; cable: Cable; x: number; y: number; side: 'left' | 'right'; label: string; letter: string } | (BoxComponent & { key: string });
+type Block = { key: string; kind: 'cable'; cable: Cable; x: number; y: number; side: 'left' | 'right'; label: string; letter: string; rows: CableRow[] } | (BoxComponent & { key: string });
 
 interface Port {
   end: End;
@@ -73,7 +75,7 @@ const sameEnd = (a: End, b: End) => a.c === b.c && a.p === b.p;
 function blockSize(b: Block): { w: number; h: number } {
   switch (b.kind) {
     case 'cable':
-      return { w: CABLE_W, h: HEADER + b.cable.fiber_count * ROW + 6 };
+      return { w: CABLE_W, h: HEADER + rowsHeight(b.rows) + 6 };
     case 'splitter': {
       const n = splitterModel(b.model).outputs;
       return { w: SPLIT_W, h: Math.max(40, n * ROW + 12) };
@@ -91,15 +93,22 @@ function blockPorts(b: Block): Port[] {
   switch (b.kind) {
     case 'cable': {
       // As fibras ficam na borda voltada para o centro do diagrama.
+      // Fibras de tubos vinculados a uma bandeja viram portas da bandeja (não aparecem no cabo).
       const right = b.side === 'left';
-      return Array.from({ length: b.cable.fiber_count }, (_, i) => ({
-        end: { c: b.key, p: `f${i + 1}` },
-        x: right ? b.x + w : b.x,
-        y: b.y + HEADER + (i + 0.5) * ROW,
-        dir: right ? 1 : -1,
-        color: fiberColor(i + 1, b.cable.fibers_per_tube).hex,
-        label: String(i + 1),
-      }));
+      return b.rows.flatMap((r) =>
+        r.kind === 'fiber'
+          ? [
+              {
+                end: { c: b.key, p: `f${r.fiber}` },
+                x: right ? b.x + w : b.x,
+                y: b.y + HEADER + r.y + ROW / 2,
+                dir: (right ? 1 : -1) as 1 | -1,
+                color: fiberColor(r.fiber, b.cable.fibers_per_tube).hex,
+                label: String(r.fiber),
+              },
+            ]
+          : [],
+      );
     }
     case 'splitter': {
       // Geometria sem rotação (entrada à esquerda, saídas à direita), girada em torno do centro do bloco.
@@ -196,7 +205,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const [view, setView] = useState({ x: 40, y: 40, k: 1 });
   const [pending, setPending] = useState<End | null>(null);
   const [selected, setSelected] = useState<{ kind: 'conn' | 'block' | 'tray'; key: string } | null>(null);
-  const [dialog, setDialog] = useState<'splitter' | 'olt' | 'dio' | 'auto' | 'trays' | null>(null);
+  const [dialog, setDialog] = useState<'splitter' | 'olt' | 'dio' | 'auto' | 'trays' | 'trayEdit' | null>(null);
   const [trayFocus, setTrayFocus] = useState<string | null>(null);
   const [showPower, setShowPower] = useState(true);
   const [tool, setTool] = useState<Tool>('fuse');
@@ -275,7 +284,8 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       const incoming = c.to_node_id === node.id;
       const pos = diagram.cablePos[key];
       const side = pos?.side ?? (incoming ? 'left' : 'right');
-      const h = HEADER + c.fiber_count * ROW + 30;
+      const rows = cableRows(key, c, diagram.trays, ROW);
+      const h = HEADER + rowsHeight(rows) + 30;
       const auto = side === 'left' ? { x: 0, y: (leftY += h) - h } : { x: 520, y: (rightY += h) - h };
       return {
         key,
@@ -286,13 +296,38 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         side,
         label: incoming ? `de ${nodeName(c.from_node_id)}` : `para ${nodeName(c.to_node_id)}`,
         letter: cableLetter(i),
+        rows,
       };
     });
     return [...cableBlocks, ...diagram.components.filter((c): c is BoxComponent => c.kind !== 'rack').map((c) => ({ ...c, key: c.id }))];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cables, diagram, node.id]);
 
-  const ports = useMemo(() => blocks.flatMap(blockPorts), [blocks]);
+  // Bandeja aberta: as FO dos tubos vinculados viram portas nas laterais da bandeja.
+  const trayGeo = useMemo(() => {
+    const cableInfo = blocks.filter((b): b is Extract<Block, { kind: 'cable' }> => b.kind === 'cable');
+    const map = new Map<string, { left: End[]; right: End[]; h: number; ports: Port[] }>();
+    for (const t of diagram.trays ?? []) {
+      const { left, right } = trayPorts(t, cableInfo);
+      const color = (e: End) => {
+        const cb = cableInfo.find((b) => b.key === e.c)!;
+        return fiberColor(Number(e.p.slice(1)), cb.cable.fibers_per_tube).hex;
+      };
+      const mk = (e: End, i: number, side: -1 | 1): Port => ({
+        end: e,
+        x: side < 0 ? t.x : t.x + TRAY_W,
+        y: t.y + TRAY_TOP + (i + 0.5) * ROW,
+        dir: side,
+        color: color(e),
+        label: e.p.slice(1),
+      });
+      map.set(t.id, { left, right, h: trayHeightFor(left.length, right.length), ports: [...left.map((e, i) => mk(e, i, -1)), ...right.map((e, i) => mk(e, i, 1))] });
+    }
+    return map;
+  }, [blocks, diagram.trays]);
+  const trayHeight = (t: SpliceTray) => trayGeo.get(t.id)?.h ?? trayHeightFor(0, 0);
+
+  const ports = useMemo(() => [...blocks.flatMap(blockPorts), ...[...trayGeo.values()].flatMap((g) => g.ports)], [blocks, trayGeo]);
   const portOf = (e: End) => ports.find((p) => sameEnd(p.end, e));
   const validConnections = diagram.connections.filter((c) => portOf(c.a) && portOf(c.b));
   const connectedTo = (e: End) => validConnections.find((c) => sameEnd(c.a, e) || sameEnd(c.b, e));
@@ -673,28 +708,74 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const trays = diagram.trays ?? [];
   const usage = trayUsage({ trays, connections: validConnections }, cables);
   const cableBlockOf = (key: string) => blocks.find((b): b is Extract<Block, { kind: 'cable' }> => b.kind === 'cable' && b.key === key);
+  // Porta da bandeja de cada FO vinculada ("c1:f3" -> id da bandeja) e emendas internas (as duas pontas na mesma bandeja).
+  const portTray = new Map<string, string>();
+  trayGeo.forEach((g, id) => g.ports.forEach((p) => portTray.set(`${p.end.c}:${p.end.p}`, id)));
+  const trayOfEnd = (e: End) => portTray.get(`${e.c}:${e.p}`);
+  const internalTray = (c: Connection) => {
+    const ta = trayOfEnd(c.a);
+    return ta && ta === trayOfEnd(c.b) ? ta : undefined;
+  };
+  const traySummary = (id: string) => {
+    const g = trayGeo.get(id);
+    if (!g) return { fusions: 0, crossed: 0, free: 0 };
+    const inner = validConnections.filter((c) => internalTray(c) === id && !c.pass);
+    const idx = (e: End) => {
+      const l = g.left.findIndex((x) => sameEnd(x, e));
+      return l >= 0 ? { side: 'l', i: l } : { side: 'r', i: g.right.findIndex((x) => sameEnd(x, e)) };
+    };
+    const crossed = inner.filter((c) => {
+      const a = idx(c.a);
+      const b = idx(c.b);
+      return a.side !== b.side && a.i !== b.i;
+    }).length;
+    const free = g.ports.filter((p) => !connectedTo(p.end)).length;
+    return { fusions: inner.length, crossed, free };
+  };
+
+  // Derivação do tubo loose: linha grossa na cor do tubo, do cabo até um ponto ao lado da bandeja, e dali um leque até as FO.
   const tubeLinks = (() => {
-    const reqs: { id: string; color: string; a: { x: number; y: number; dir: 1 | -1 }; b: { x: number; y: number; dir: 1 | -1 } }[] = [];
-    trays.forEach((t) =>
-      t.tubes.forEach((key, j) => {
-        const [ck, tn] = key.split(':t');
-        const b = cableBlockOf(ck);
-        if (!b) return;
-        const [f1, f2] = tubeFibers(Number(tn), b.cable);
-        const sx = b.side === 'left' ? b.x : b.x + CABLE_W;
-        const sy = b.y + HEADER + ((f1 - 1 + f2) / 2) * ROW;
-        const ty = t.y + HEADER + 14 + (j + 0.5) * TRAY_ROW;
-        const toLeft = sx < t.x + TRAY_W / 2;
+    const reqs: { id: string; color: string; fan: Pt; ports: Port[]; a: { x: number; y: number; dir: 1 | -1 }; b: { x: number; y: number; dir: 1 | -1 } }[] = [];
+    blocks.forEach((b) => {
+      if (b.kind !== 'cable') return;
+      const inner = b.side === 'left';
+      b.rows.forEach((r) => {
+        if (r.kind !== 'tube') return;
+        const g = trayGeo.get(r.tray.id);
+        if (!g) return;
+        const [f1, f2] = tubeFibers(r.tube, b.cable);
+        const tp = g.ports.filter((p) => p.end.c === b.key && Number(p.end.p.slice(1)) >= f1 && Number(p.end.p.slice(1)) <= f2);
+        if (!tp.length) return;
+        const left = tp[0].dir < 0;
+        const fan = { x: left ? r.tray.x - 26 : r.tray.x + TRAY_W + 26, y: (tp[0].y + tp[tp.length - 1].y) / 2 };
         reqs.push({
-          id: `${t.id}|${key}`,
+          id: `${b.key}:t${r.tube}`,
           color: tubeColor(f1, b.cable.fibers_per_tube).hex,
-          a: { x: sx, y: sy, dir: b.side === 'left' ? -1 : 1 },
-          b: { x: toLeft ? t.x : t.x + TRAY_W, y: ty, dir: toLeft ? -1 : 1 },
+          fan,
+          ports: tp,
+          a: { x: inner ? b.x + CABLE_W : b.x, y: b.y + HEADER + r.y + r.h / 2, dir: inner ? 1 : -1 },
+          b: { x: fan.x, y: fan.y, dir: left ? -1 : 1 },
         });
-      }),
-    );
-    const r = routeOrthogonal(reqs, { stub: 14, gap: 4 });
+      });
+    });
+    const r = routeOrthogonal(reqs, { stub: 14, gap: 8 });
     return reqs.map((q) => ({ ...q, pts: r.get(q.id)! }));
+  })();
+
+  // Rotas das emendas dentro de cada bandeja (pistas entre os dois lados, por dentro do cartão).
+  const innerRoutes = (() => {
+    const out = new Map<string, Pt[]>();
+    trayGeo.forEach((_, id) => {
+      const reqs = validConnections
+        .filter((c) => internalTray(c) === id)
+        .map((c) => {
+          const a = portOf(c.a)!;
+          const b = portOf(c.b)!;
+          return { id: c.id, a: { x: a.x, y: a.y, dir: (-a.dir) as 1 | -1 }, b: { x: b.x, y: b.y, dir: (-b.dir) as 1 | -1 } };
+        });
+      routeOrthogonal(reqs, { stub: 44, gap: 5 }).forEach((v, k) => out.set(k, v));
+    });
+    return out;
   })();
 
   // Rotas das fibras: em ângulo reto (padrão, uma pista por fibra) ou em curva.
@@ -797,6 +878,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
             <g ref={contentRef}>
               {/* Conexões */}
               {validConnections.map((c) => {
+                if (internalTray(c)) return null;
                 const a = portOf(c.a)!;
                 const b = portOf(c.b)!;
                 const aCable = isCablePort(a);
@@ -828,6 +910,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
               {/* Ajuste do traçado em 90°: arraste a pista vertical da fibra selecionada. */}
               {selConn &&
                 !readOnly &&
+                !internalTray(selConn) &&
                 (() => {
                   const pts = routes.get(selConn.id);
                   const seg = pts && laneSegment(pts);
@@ -855,13 +938,17 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   );
                 })()}
 
-              {/* Tubos loose vinculados às bandejas */}
+              {/* Derivação dos tubos loose até a bandeja */}
               {tubeLinks.map((l) => {
                 const d = polylinePath(l.pts);
                 return (
                   <g key={l.id} className="pointer-events-none">
-                    <path d={d} fill="none" stroke="#0f172a" strokeOpacity={0.45} strokeWidth={4} strokeLinejoin="round" />
-                    <path d={d} fill="none" stroke={l.color} strokeWidth={2.4} strokeDasharray="7 3" strokeLinejoin="round" />
+                    {l.ports.map((p) => (
+                      <line key={p.end.p} x1={l.fan.x} y1={l.fan.y} x2={p.x} y2={p.y} stroke={p.color === '#f8fafc' ? '#cbd5e1' : p.color} strokeWidth={1.6} />
+                    ))}
+                    <path d={d} fill="none" stroke="#0f172a" strokeOpacity={0.55} strokeWidth={9} strokeLinejoin="round" />
+                    <path d={d} fill="none" stroke={l.color} strokeWidth={6} strokeLinejoin="round" />
+                    <circle cx={l.fan.x} cy={l.fan.y} r={4} fill="#334155" />
                   </g>
                 );
               })}
@@ -877,28 +964,66 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                 />
               ))}
 
-              {/* Bandejas */}
-              {trays.map((t) => (
-                <TrayCard
-                  key={t.id}
-                  tray={t}
-                  used={usage.get(t.id) ?? 0}
-                  rows={t.tubes.map((key) => {
-                    const [ck, tn] = key.split(':t');
-                    const b = cableBlockOf(ck);
-                    if (!b) return { key, color: '#cbd5e1', text: 'Cabo fora da caixa' };
-                    const [f1, f2] = tubeFibers(Number(tn), b.cable);
-                    const tc = tubeColor(f1, b.cable.fibers_per_tube);
-                    return { key, color: tc.hex, text: `Cabo ${b.letter} · Tubo ${tn} ${tc.name} · FO ${f1}–${f2}` };
-                  })}
-                  selected={selected?.kind === 'tray' && selected.key === t.id}
-                  onPointerDown={(e) => onPointerDown(e, t.id)}
-                  onDoubleClick={() => {
-                    setTrayFocus(t.id);
-                    setDialog('trays');
-                  }}
-                />
-              ))}
+              {/* Bandejas (abertas: as emendas aparecem dentro do cartão) */}
+              {trays.map((t) => {
+                const sum = traySummary(t.id);
+                return (
+                  <TrayCard
+                    key={t.id}
+                    tray={t}
+                    h={trayHeight(t)}
+                    used={usage.get(t.id) ?? 0}
+                    summary={sum}
+                    tubes={t.tubes
+                      .map((key) => {
+                        const [ck, tn] = key.split(':t');
+                        const b = cableBlockOf(ck);
+                        return b ? `${b.letter}·T${tn}` : '';
+                      })
+                      .filter(Boolean)
+                      .join(' + ')}
+                    selected={selected?.kind === 'tray' && selected.key === t.id}
+                    onPointerDown={(e) => onPointerDown(e, t.id)}
+                    onDoubleClick={() => {
+                      setTrayFocus(t.id);
+                      setDialog('trayEdit');
+                    }}
+                  />
+                );
+              })}
+              {validConnections.map((c) => {
+                const id = internalTray(c);
+                const pts = id ? innerRoutes.get(c.id) : undefined;
+                if (!id || !pts) return null;
+                const a = portOf(c.a)!;
+                const b = portOf(c.b)!;
+                const left = a.dir < 0 ? a : b;
+                const d = polylinePath(pts);
+                const isSel = selected?.kind === 'conn' && selected.key === c.id;
+                const crossed = a.dir !== b.dir && Math.abs(a.y - b.y) > 0.5;
+                const sp = !c.pass ? spliceAnchor(pts, left === a ? 'a' : 'b', 30) : null;
+                return (
+                  <g
+                    key={`in-${c.id}`}
+                    className="cursor-pointer"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelected({ kind: 'conn', key: c.id });
+                    }}
+                  >
+                    <path d={d} fill="none" stroke="transparent" strokeWidth={8} />
+                    <path d={d} fill="none" stroke={isSel ? '#facc15' : '#0f172a'} strokeWidth={isSel ? 5 : 3.6} strokeOpacity={isSel ? 1 : 0.5} strokeLinejoin="round" />
+                    <path d={d} fill="none" stroke={left.color} strokeWidth={2} strokeDasharray={c.pass ? '5 3' : undefined} strokeLinejoin="round" />
+                    {sp &&
+                      (c.joint === 'connector' ? (
+                        <ConnectorMark x={sp.x} y={sp.y} vertical={sp.vertical} selected={isSel || crossed} />
+                      ) : (
+                        <SpliceMark x={sp.x} y={sp.y} vertical={sp.vertical} selected={isSel || crossed} />
+                      ))}
+                  </g>
+                );
+              })}
 
               {/* Portas */}
               {ports.map((p) => {
@@ -1177,6 +1302,58 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       {dialog === 'dio' && (
         <DioDialog count={diagram.components.filter((c) => c.kind === 'dio').length} onClose={() => setDialog(null)} onCreate={(c) => addComponent(c)} />
       )}
+      {dialog === 'trayEdit' &&
+        (() => {
+          const t = trays.find((x) => x.id === trayFocus);
+          const g = t && trayGeo.get(t.id);
+          if (!t || !g) return null;
+          const left = g.ports.filter((p) => p.dir < 0);
+          const right = g.ports.filter((p) => p.dir > 0);
+          const isMine = (c: Connection) => internalTray(c) === t.id;
+          const short = (e: End) => {
+            const b = cableBlockOf(e.c);
+            const f = Number(e.p.slice(1));
+            return b ? `${b.letter} · ${f} ${fiberColor(f, b.cable.fibers_per_tube).name}` : e.p;
+          };
+          return (
+            <TrayEditDialog
+              tray={t}
+              left={left}
+              right={right}
+              connections={validConnections}
+              label={short}
+              readOnly={readOnly}
+              onConnect={(a, b, joint) =>
+                update((d) => ({ ...d, connections: [...d.connections, { id: uid(), a, b, ...(joint === 'connector' ? { joint: 'connector' as const } : {}) }] }))
+              }
+              onRemove={(id) => update((d) => ({ ...d, connections: d.connections.filter((c) => c.id !== id) }))}
+              onToggleJoint={(id) =>
+                update((d) => ({
+                  ...d,
+                  connections: d.connections.map((c) => {
+                    if (c.id !== id) return c;
+                    const { joint: _j, pass: _p, ...rest } = c;
+                    return c.joint === 'connector' ? rest : { ...rest, joint: 'connector' as const };
+                  }),
+                }))
+              }
+              onAuto={() => {
+                const created: Connection[] = [];
+                left.forEach((p, i) => {
+                  const q = right[i];
+                  if (q && !connectedTo(p.end) && !connectedTo(q.end)) created.push({ id: uid(), a: p.end, b: q.end });
+                });
+                if (created.length) update((d) => ({ ...d, connections: [...d.connections, ...created] }));
+              }}
+              onClear={() => {
+                if (!confirm(`Apagar as emendas internas de ${t.name}? (Dá para desfazer com Ctrl+Z.)`)) return;
+                update((d) => ({ ...d, connections: d.connections.filter((c) => !isMine(c)) }));
+              }}
+              onTubes={() => setDialog('trays')}
+              onClose={() => setDialog(null)}
+            />
+          );
+        })()}
       {dialog === 'trays' && (
         <TrayDialog
           trays={trays}
@@ -1371,18 +1548,36 @@ function BlockView({
         {subtitle.length > 32 ? `${subtitle.slice(0, 31)}…` : subtitle}
       </text>
       {b.kind === 'cable' &&
-        Array.from({ length: b.cable.fiber_count }, (_, i) => {
-          const y = b.y + HEADER + i * ROW;
-          const tube = tubeColor(i + 1, b.cable.fibers_per_tube);
-          // Faixa do tubo loose na borda externa (sempre visível quando há bandejas, para o vínculo).
+        b.rows.map((r) => {
+          const y = b.y + HEADER + r.y;
+          // Faixa do tubo loose na borda externa (cabos com mais de um tubo ou quando há bandejas).
           const showTube = showTubes || b.cable.fiber_count > b.cable.fibers_per_tube;
-          const fc = fiberColor(i + 1, b.cable.fibers_per_tube);
+          if (r.kind === 'tube') {
+            const [f1, f2] = tubeFibers(r.tube, b.cable);
+            const tc = tubeColor(f1, b.cable.fibers_per_tube);
+            const text = `Tubo ${r.tube} ${tc.name} · FO ${f1}–${f2}`;
+            return (
+              <g key={`t${r.tube}`}>
+                <rect x={b.x + 3} y={y + 2} width={w - 6} height={r.h - 4} rx={4} fill="#f1f5f9" stroke="#cbd5e1" strokeWidth={0.6} />
+                <rect x={right ? b.x + 10 : b.x + w - 26} y={y + 6} width={16} height={r.h - 12} rx={3} fill={tc.hex} stroke="#64748b" strokeWidth={0.6} />
+                <text x={right ? b.x + 32 : b.x + w - 32} y={y + 11.5} fontSize={8.5} fill="#0f172a" fontWeight="bold" textAnchor={right ? 'start' : 'end'}>
+                  {text}
+                </text>
+                <text x={right ? b.x + 32 : b.x + w - 32} y={y + 21} fontSize={7.5} fill="#0369a1" textAnchor={right ? 'start' : 'end'}>
+                  → {r.tray.name.length > 18 ? `${r.tray.name.slice(0, 17)}…` : r.tray.name}
+                </text>
+              </g>
+            );
+          }
+          const i = r.fiber - 1;
+          const tube = tubeColor(r.fiber, b.cable.fibers_per_tube);
+          const fc = fiberColor(r.fiber, b.cable.fibers_per_tube);
           return (
             <g key={i}>
               {showTube && <rect x={right ? b.x + 3 : b.x + w - (showTubes ? 9 : 8)} y={y} width={showTubes ? 6 : 4} height={ROW} fill={tube.hex} stroke="#cbd5e1" strokeWidth={0.3} />}
               <rect x={right ? b.x + w - 50 : b.x + 10} y={y + 3} width={40} height={ROW - 6} rx={2} fill={fc.hex} stroke="#94a3b8" strokeWidth={0.4} />
               <text x={right ? b.x + w - 56 : b.x + 56} y={y + ROW - 3.5} fontSize={8.5} fill="#334155" textAnchor={right ? 'end' : 'start'}>
-                {i + 1} {fc.name}
+                {r.fiber} {fc.name}
               </text>
             </g>
           );
@@ -1561,62 +1756,222 @@ function AutoFuseDialog({ blocks, onClose, onRun }: { blocks: Block[]; onClose: 
   );
 }
 
-/** Cartão da bandeja no diagrama: nome, ocupação (emendas / capacidade) e os tubos loose vinculados. */
+/** Cartão da bandeja aberta: cabeçalho com ocupação; as FO ficam nas laterais e as emendas são desenhadas por cima. */
 function TrayCard({
   tray: t,
+  h,
   used,
-  rows,
+  summary,
+  tubes,
   selected,
   onPointerDown,
   onDoubleClick,
 }: {
   tray: SpliceTray;
+  h: number;
   used: number;
-  rows: { key: string; color: string; text: string }[];
+  summary: { fusions: number; crossed: number; free: number };
+  tubes: string;
   selected: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
   onDoubleClick: () => void;
 }) {
-  const h = trayHeight(t);
   const over = used > t.capacity;
   const pct = Math.min(1, used / Math.max(1, t.capacity));
+  const foot = [`${summary.fusions} fusões`, summary.crossed ? `${summary.crossed} cruzadas` : '', `${summary.free} FO livres`].filter(Boolean).join(' · ');
   return (
     <g onPointerDown={onPointerDown} onDoubleClick={onDoubleClick} className="cursor-move">
-      <title>Duplo clique para vincular tubos</title>
-      <rect x={t.x} y={t.y} width={TRAY_W} height={h} rx={6} fill="#f8fafc" stroke={selected ? '#eab308' : over ? '#dc2626' : '#64748b'} strokeWidth={selected ? 2.5 : 1.2} />
-      <rect x={t.x} y={t.y} width={TRAY_W} height={22} rx={6} fill={over ? '#fee2e2' : '#e2e8f0'} />
-      <rect x={t.x} y={t.y + 16} width={TRAY_W} height={6} fill={over ? '#fee2e2' : '#e2e8f0'} />
-      {/* Ícone: bandeja com as emendas */}
-      <g transform={`translate(${t.x + 8},${t.y + 6})`}>
+      <title>{`${t.name}${tubes ? ` · tubos ${tubes}` : ''} · duplo clique para editar as fusões`}</title>
+      <rect x={t.x} y={t.y} width={TRAY_W} height={h} rx={8} fill="#f8fafc" stroke={selected ? '#eab308' : over ? '#dc2626' : '#64748b'} strokeWidth={selected ? 2.5 : 1.4} />
+      <rect x={t.x} y={t.y} width={TRAY_W} height={24} rx={8} fill={over ? '#fee2e2' : '#e2e8f0'} />
+      <rect x={t.x} y={t.y + 16} width={TRAY_W} height={8} fill={over ? '#fee2e2' : '#e2e8f0'} />
+      <g transform={`translate(${t.x + 9},${t.y + 7})`}>
         <rect width={16} height={10} rx={2} fill="none" stroke="#334155" strokeWidth={1.2} />
         <line x1={3} y1={3.5} x2={13} y2={3.5} stroke="#334155" strokeWidth={1} />
         <line x1={3} y1={6.5} x2={13} y2={6.5} stroke="#334155" strokeWidth={1} />
       </g>
-      <text x={t.x + 30} y={t.y + 15} fontSize={10.5} fontWeight="bold" fill="#0f172a">
-        {t.name.length > 18 ? `${t.name.slice(0, 17)}…` : t.name}
+      <text x={t.x + 31} y={t.y + 16} fontSize={11} fontWeight="bold" fill="#0f172a">
+        {t.name.length > 20 ? `${t.name.slice(0, 19)}…` : t.name}
       </text>
-      <text x={t.x + TRAY_W - 8} y={t.y + 15} fontSize={9} fontWeight="bold" textAnchor="end" fill={over ? '#dc2626' : '#334155'}>
+      <text x={t.x + TRAY_W - 9} y={t.y + 16} fontSize={9} fontWeight="bold" textAnchor="end" fill={over ? '#dc2626' : '#334155'}>
         {used}/{t.capacity} fusões
       </text>
-      <rect x={t.x + 8} y={t.y + HEADER - 4} width={TRAY_W - 16} height={5} rx={2.5} fill="#e2e8f0" />
-      <rect x={t.x + 8} y={t.y + HEADER - 4} width={(TRAY_W - 16) * pct} height={5} rx={2.5} fill={over ? '#dc2626' : pct > 0.85 ? '#f59e0b' : '#16a34a'} />
-      {rows.length === 0 && (
-        <text x={t.x + 10} y={t.y + HEADER + 14 + TRAY_ROW * 0.65} fontSize={8.5} fill="#94a3b8">
-          Nenhum tubo vinculado
+      <rect x={t.x + 9} y={t.y + 30} width={TRAY_W - 18} height={5} rx={2.5} fill="#e2e8f0" />
+      <rect x={t.x + 9} y={t.y + 30} width={(TRAY_W - 18) * pct} height={5} rx={2.5} fill={over ? '#dc2626' : pct > 0.85 ? '#f59e0b' : '#16a34a'} />
+      {!t.tubes.length && (
+        <text x={t.x + TRAY_W / 2} y={t.y + TRAY_TOP + 10} fontSize={8.5} textAnchor="middle" fill="#94a3b8">
+          Vincule tubos em Bandejas
         </text>
       )}
-      {rows.map((r, j) => {
-        const y = t.y + HEADER + 14 + j * TRAY_ROW;
-        return (
-          <g key={r.key}>
-            <rect x={t.x + 8} y={y + 3} width={14} height={TRAY_ROW - 6} rx={2} fill={r.color} stroke="#64748b" strokeWidth={0.6} />
-            <text x={t.x + 28} y={y + TRAY_ROW - 4.5} fontSize={8.5} fill="#334155">
-              {r.text}
-            </text>
-          </g>
-        );
-      })}
+      <text x={t.x + TRAY_W / 2} y={t.y + h - 8} fontSize={8.5} textAnchor="middle" fill={summary.crossed ? '#b45309' : '#64748b'}>
+        {foot}
+      </text>
     </g>
+  );
+}
+
+/** Edição das fusões internas da bandeja: FO do lado esquerdo × lado direito, com cruzamento livre. */
+function TrayEditDialog({
+  tray,
+  left,
+  right,
+  connections,
+  label,
+  readOnly,
+  onConnect,
+  onRemove,
+  onToggleJoint,
+  onAuto,
+  onClear,
+  onTubes,
+  onClose,
+}: {
+  tray: SpliceTray;
+  left: Port[];
+  right: Port[];
+  connections: Connection[];
+  label: (e: End) => string;
+  readOnly?: boolean;
+  onConnect: (a: End, b: End, joint: 'fusion' | 'connector') => void;
+  onRemove: (id: string) => void;
+  onToggleJoint: (id: string) => void;
+  onAuto: () => void;
+  onClear: () => void;
+  onTubes: () => void;
+  onClose: () => void;
+}) {
+  const [joint, setJoint] = useState<'fusion' | 'connector'>('fusion');
+  const [pick, setPick] = useState<End | null>(null);
+  const [sel, setSel] = useState<string | null>(null);
+  const RW = 26;
+  const lx = 190;
+  const rx = 510;
+  const n = Math.max(left.length, right.length, 1);
+  const H = 30 + n * RW + 10;
+  const all = [...left.map((p, i) => ({ p, x: lx, y: 30 + (i + 0.5) * RW, side: -1 })), ...right.map((p, i) => ({ p, x: rx, y: 30 + (i + 0.5) * RW, side: 1 }))];
+  const at = (e: End) => all.find((q) => sameEnd(q.p.end, e));
+  const busy = (e: End) => connections.find((c) => sameEnd(c.a, e) || sameEnd(c.b, e));
+  const inner = connections.filter((c) => at(c.a) && at(c.b));
+  const routes = routeOrthogonal(
+    inner.map((c) => {
+      const a = at(c.a)!;
+      const b = at(c.b)!;
+      return { id: c.id, a: { x: a.x, y: a.y, dir: (-a.side) as 1 | -1 }, b: { x: b.x, y: b.y, dir: (-b.side) as 1 | -1 } };
+    }),
+    { stub: 60, gap: 7 },
+  );
+  function click(e: End) {
+    if (readOnly) return;
+    const c = busy(e);
+    if (!pick) {
+      if (c) setSel(c.id);
+      else setPick(e);
+      return;
+    }
+    if (sameEnd(pick, e)) return setPick(null);
+    if (c) return setPick(null);
+    onConnect(pick, e, joint);
+    setPick(null);
+  }
+  const selConn = inner.find((c) => c.id === sel);
+  return (
+    <Modal title={`${tray.name} · fusões internas`} onClose={onClose} width="max-w-3xl">
+      {!readOnly && (
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {(
+            [
+              ['fusion', 'Emenda (fusão)'],
+              ['connector', 'Conector'],
+            ] as const
+          ).map(([k, t]) => (
+            <button key={k} onClick={() => setJoint(k)} className={`rounded-md px-3 py-1.5 text-xs cursor-pointer border ${joint === k ? 'bg-emerald-600 border-emerald-600' : 'border-slate-700 hover:bg-slate-800'}`}>
+              {t}
+            </button>
+          ))}
+          <button onClick={onAuto} className="rounded-md px-3 py-1.5 text-xs cursor-pointer border border-slate-700 hover:bg-slate-800">
+            1↔1 automático
+          </button>
+          <button onClick={onClear} className="rounded-md px-3 py-1.5 text-xs cursor-pointer border border-slate-700 hover:bg-slate-800 text-red-300">
+            Limpar bandeja
+          </button>
+          <button onClick={onTubes} className="rounded-md px-3 py-1.5 text-xs cursor-pointer border border-slate-700 hover:bg-slate-800 ml-auto">
+            Tubos da bandeja…
+          </button>
+        </div>
+      )}
+      <p className="text-xs text-slate-400 mb-2">
+        Clique numa FO de um lado e depois na FO do outro lado para fundir. Para <b>cruzar</b>, é só ligar números diferentes (ex.: 3 → 5). Clique numa emenda para
+        selecioná-la. Emendas cruzadas ficam em amarelo.
+      </p>
+      <div className="rounded-lg bg-slate-100 overflow-auto max-h-[60vh]">
+        <svg width={700} height={H} className="block mx-auto select-none" fontFamily="inherit">
+          {inner.map((c) => {
+            const pts = routes.get(c.id)!;
+            const a = at(c.a)!;
+            const b = at(c.b)!;
+            const leftEnd = a.side < 0 ? a : b;
+            const d = polylinePath(pts);
+            const isSel = sel === c.id;
+            const crossed = a.side !== b.side && a.y !== b.y;
+            const sp = spliceAnchor(pts, leftEnd === a ? 'a' : 'b', 44);
+            return (
+              <g key={c.id} className="cursor-pointer" onClick={() => setSel(c.id)}>
+                <path d={d} fill="none" stroke="transparent" strokeWidth={10} />
+                <path d={d} fill="none" stroke={isSel ? '#facc15' : '#0f172a'} strokeOpacity={isSel ? 1 : 0.5} strokeWidth={isSel ? 6 : 4.4} strokeLinejoin="round" />
+                <path d={d} fill="none" stroke={leftEnd.p.color} strokeWidth={2.6} strokeDasharray={c.pass ? '6 4' : undefined} strokeLinejoin="round" />
+                {!c.pass &&
+                  (c.joint === 'connector' ? (
+                    <ConnectorMark x={sp.x} y={sp.y} vertical={sp.vertical} selected={isSel || crossed} />
+                  ) : (
+                    <SpliceMark x={sp.x} y={sp.y} vertical={sp.vertical} selected={isSel || crossed} />
+                  ))}
+              </g>
+            );
+          })}
+          {all.map(({ p, x, y, side }) => {
+            const ext = busy(p.end) && !inner.some((c) => sameEnd(c.a, p.end) || sameEnd(c.b, p.end));
+            const isPick = pick && sameEnd(pick, p.end);
+            return (
+              <g key={`${p.end.c}:${p.end.p}`} className="cursor-pointer" onClick={() => click(p.end)}>
+                <rect x={side < 0 ? x - 176 : x + 10} y={y - 9} width={166} height={18} fill="transparent" />
+                <rect x={side < 0 ? x - 172 : x + 136} y={y - 4.5} width={36} height={9} rx={2} fill={p.color} stroke="#94a3b8" strokeWidth={0.5} />
+                <text x={side < 0 ? x - 12 : x + 12} y={y + 3.5} fontSize={10} textAnchor={side < 0 ? 'end' : 'start'} fill="#334155">
+                  {label(p.end)}
+                </text>
+                {ext && (
+                  <text x={side < 0 ? x - 12 : x + 12} y={y + 12} fontSize={7} textAnchor={side < 0 ? 'end' : 'start'} fill="#0369a1">
+                    ligada fora da bandeja
+                  </text>
+                )}
+                <circle cx={x} cy={y} r={isPick ? 9 : 7.5} fill={p.color} stroke={isPick ? '#facc15' : '#0f172a'} strokeWidth={isPick ? 3 : 1.2} />
+                <text x={x} y={y + 3} fontSize={8} fontWeight="bold" textAnchor="middle" fill={textOn(p.color)} className="pointer-events-none">
+                  {p.label}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      {selConn && !readOnly && (
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+          <span className="text-slate-300">
+            {label(selConn.a)} ↔ {label(selConn.b)} · {selConn.pass ? 'passagem' : selConn.joint === 'connector' ? 'conector' : 'fusão'}
+          </span>
+          <button className="text-emerald-400 text-xs hover:underline cursor-pointer" onClick={() => onToggleJoint(selConn.id)}>
+            Trocar fusão/conector
+          </button>
+          <button
+            className="text-red-400 text-xs hover:underline cursor-pointer"
+            onClick={() => {
+              onRemove(selConn.id);
+              setSel(null);
+            }}
+          >
+            Apagar emenda
+          </button>
+        </div>
+      )}
+    </Modal>
   );
 }
 

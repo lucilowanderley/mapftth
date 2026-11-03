@@ -69,3 +69,47 @@ export function trayUsage(diagram: Pick<Diagram, 'trays' | 'connections'>, cable
   }
   return usage;
 }
+
+/** Altura da linha de um tubo vinculado no cartão do cabo (a derivação do tubo loose). */
+export const TUBE_ROW = 26;
+
+/** Linhas do cartão do cabo: fibras soltas (uma por linha) ou tubo vinculado a bandeja (uma linha só). */
+export type CableRow = { kind: 'fiber'; fiber: number; y: number; h: number } | { kind: 'tube'; tube: number; tray: SpliceTray; y: number; h: number };
+
+export function cableRows(cableKey: string, cable: Pick<Cable, 'fiber_count' | 'fibers_per_tube'>, trays: SpliceTray[] | undefined, row = 14): CableRow[] {
+  const rows: CableRow[] = [];
+  let y = 0;
+  for (let t = 1; t <= tubeCount(cable); t++) {
+    const tray = trayOfTube(trays, tubeKey(cableKey, t));
+    const [f1, f2] = tubeFibers(t, cable);
+    if (tray) {
+      rows.push({ kind: 'tube', tube: t, tray, y, h: TUBE_ROW });
+      y += TUBE_ROW;
+    } else {
+      for (let f = f1; f <= f2; f++) {
+        rows.push({ kind: 'fiber', fiber: f, y, h: row });
+        y += row;
+      }
+    }
+  }
+  return rows;
+}
+
+export const rowsHeight = (rows: CableRow[]) => rows.reduce((a, r) => a + r.h, 0);
+
+/** Portas da bandeja: fibras dos tubos vinculados, à esquerda as dos cabos do lado esquerdo, à direita as demais. */
+export function trayPorts(
+  tray: SpliceTray,
+  cables: { key: string; side: 'left' | 'right'; cable: Pick<Cable, 'fiber_count' | 'fibers_per_tube'> }[],
+): { left: { c: string; p: string }[]; right: { c: string; p: string }[] } {
+  const left: { c: string; p: string }[] = [];
+  const right: { c: string; p: string }[] = [];
+  for (const cb of cables) {
+    for (let t = 1; t <= tubeCount(cb.cable); t++) {
+      if (!tray.tubes.includes(tubeKey(cb.key, t))) continue;
+      const [f1, f2] = tubeFibers(t, cb.cable);
+      for (let f = f1; f <= f2; f++) (cb.side === 'left' ? left : right).push({ c: cb.key, p: `f${f}` });
+    }
+  }
+  return { left, right };
+}
