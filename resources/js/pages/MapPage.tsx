@@ -70,6 +70,7 @@ import PolesModal from '../components/PolesModal';
 import OtdrModal from '../components/OtdrModal';
 import ViabilityPanel from '../components/ViabilityPanel';
 import AreaPanel from '../components/AreaPanel';
+import { groupView, loadGroups, saveGroups } from '../lib/mapgroup';
 
 type Tool = 'select' | NodeType | 'cable' | 'slack' | 'ruler' | 'area' | 'viability';
 
@@ -163,6 +164,16 @@ export default function MapPage() {
     areas: true,
   });
   const [labels, setLabels] = useState(true);
+  /** Objetos agrupados (escondem o que está a jusante), salvos neste navegador por projeto. */
+  const [groups, setGroupsState] = useState<number[]>(() => loadGroups(projectId));
+  const setGroups = (g: number[]) => {
+    setGroupsState(g);
+    saveGroups(projectId, g);
+  };
+  useEffect(() => setGroupsState(loadGroups(projectId)), [projectId]);
+  const grouped = useMemo(() => groupView(groups, nodes, cables), [groups, nodes, cables]);
+  const showNode = (n: NetNode) => visible[n.type] && !grouped.hiddenNodes.has(n.id);
+  const showCable = (c: Cable) => visible[c.category] && !grouped.hiddenCables.has(c.id);
   const [zoom, setZoom] = useState(16);
   const [diagramNodeId, setDiagramNodeId] = useState<number | null>(null);
   const [budget, setBudget] = useState<{
@@ -476,7 +487,7 @@ export default function MapPage() {
     let best: Cable | null = null;
     let bestD = 20 * mpp;
     for (const c of cables) {
-      if (!visible[c.category]) continue;
+      if (!showCable(c)) continue;
       const d = nearestOnPath(c.path, at).dist;
       if (d < bestD) {
         bestD = d;
@@ -530,7 +541,7 @@ export default function MapPage() {
     let best: NetNode | null = null;
     let bestD = 20;
     for (const n of nodes) {
-      if (!visible[n.type]) continue;
+      if (!showNode(n)) continue;
       if (isEnd ? n.id === other : n.type === 'client' || n.id === cable.from_node_id || n.id === cable.to_node_id) continue;
       const d = map.latLngToContainerPoint([n.lat, n.lng]).distanceTo(p);
       if (d < bestD) {
@@ -737,13 +748,26 @@ export default function MapPage() {
     }
   }
 
+  /** Agrupar/Desagrupar: esconde (ou mostra de novo) tudo o que está a jusante do objeto pelos cabos de saída. */
+  function toggleGroup(n: NetNode) {
+    if (groups.includes(n.id)) {
+      setGroups(groups.filter((g) => g !== n.id));
+      notify(`${n.name} desagrupado: objetos a jusante visíveis de novo`);
+      return;
+    }
+    const count = groupView([n.id], nodes, cables).counts.get(n.id) ?? 0;
+    if (!count) return notify(`Nada a jusante de ${n.name} para agrupar (nenhum cabo de saída com objetos).`, 'error');
+    setGroups([...groups, n.id]);
+    notify(`${n.name} agrupado: ${count} ${count === 1 ? 'objeto oculto' : 'objetos ocultos'}`);
+  }
+
   const selectedNode = selection?.kind === 'node' ? nodes.find((n) => n.id === selection.id) : undefined;
   const selectedCable = selection?.kind === 'cable' ? cables.find((c) => c.id === selection.id) : undefined;
   const selectedArea = selection?.kind === 'area' ? areas.find((a) => a.id === selection.id) : undefined;
   const diagramNode = nodes.find((n) => n.id === diagramNodeId);
   const connectedCable = connectId ? cables.find((c) => c.id === connectId) : undefined;
   const menuCable = cableMenu ? cables.find((c) => c.id === cableMenu.id) : undefined;
-  const menuPlan = useMemo(() => (menuCable ? planBoxesAlong(menuCable, nodes.filter((n) => visible[n.type])) : null), [menuCable, nodes, visible]);
+  const menuPlan = useMemo(() => (menuCable ? planBoxesAlong(menuCable, nodes.filter((n) => showNode(n))) : null), [menuCable, nodes, visible, grouped]);
   // Pontos médios do cabo selecionado (memorizados pelo mesmo motivo de positionOf).
   const selectedPath = selectedCable?.path;
   const midpoints = useMemo<LatLng[]>(
@@ -965,7 +989,7 @@ export default function MapPage() {
             ))}
 
           {/* Destaque do cabo selecionado: halo amarelo por baixo, o cabo mantém a cor e o estilo. */}
-          {selectedCable && visible[selectedCable.category] && (
+          {selectedCable && showCable(selectedCable) && (
             <Polyline
               positions={displayPath(selectedCable)}
               interactive={false}
@@ -973,7 +997,7 @@ export default function MapPage() {
             />
           )}
           {cables
-            .filter((c) => visible[c.category])
+            .filter((c) => showCable(c))
             .map((c) => (
               <Polyline
                 key={c.id}
@@ -1029,7 +1053,7 @@ export default function MapPage() {
           {visible.wireless &&
             zoom >= 13 &&
             nodes
-              .filter((n) => visible[n.type] && RADIO_HOST_TYPES.includes(n.type))
+              .filter((n) => showNode(n) && RADIO_HOST_TYPES.includes(n.type))
               .flatMap((n) =>
                 radiosOf(n)
                   .filter((r) => !r.link && typeof r.azimuth === 'number')
@@ -1047,7 +1071,7 @@ export default function MapPage() {
               )}
           {visible.wireless &&
             radioLinks(
-              nodes.filter((n) => visible[n.type]),
+              nodes.filter((n) => showNode(n)),
               distance,
             ).map((l) => {
               // Estilo próprio do enlace (não confunde com cabo/drop): halo largo + pontilhado arredondado + ícone de rádio no meio.
@@ -1071,7 +1095,7 @@ export default function MapPage() {
             })}
 
           {nodes
-            .filter((n) => visible[n.type])
+            .filter((n) => showNode(n))
             .map((n) => {
               const level = n.type === 'client' ? powerLevel(clientPower.get(n.id)?.power ?? null, settings) : null;
               return (
@@ -1081,6 +1105,7 @@ export default function MapPage() {
                   icon={nodeIcon(n, {
                     selected: selection?.kind === 'node' && selection.id === n.id,
                     fill: level ? POWER_COLORS[level] : undefined,
+                    group: grouped.counts.get(n.id),
                   })}
                   draggable={tool === 'select' && !readOnly}
                   eventHandlers={{
@@ -1127,7 +1152,7 @@ export default function MapPage() {
 
           {/* Reservas técnicas: arrastáveis ao longo do próprio cabo. */}
           {cables
-            .filter((c) => visible[c.category] && c.slacks?.length)
+            .filter((c) => showCable(c) && c.slacks?.length)
             .flatMap((c) =>
               c.slacks!.map((r) => (
                 <Marker
@@ -1163,7 +1188,7 @@ export default function MapPage() {
           {/* Pontos (vértices) de todos os cabos: fundo branco e borda na cor do cabo. */}
           {zoom >= 16 &&
             cables
-              .filter((c) => visible[c.category] && !(c.id === selectedCable?.id && tool === 'select' && !readOnly))
+              .filter((c) => showCable(c) && !(c.id === selectedCable?.id && tool === 'select' && !readOnly))
               .flatMap((c) =>
                 displayPath(c).map((p, i) => (
                   <CircleMarker
@@ -1176,7 +1201,7 @@ export default function MapPage() {
                 )),
               )}
 
-          {selectedCable && tool === 'select' && !readOnly && visible[selectedCable.category] && (
+          {selectedCable && tool === 'select' && !readOnly && showCable(selectedCable) && (
             <>
               {selectedCable.path.map((p, i) => {
                 const last = selectedCable.path.length - 1;
@@ -1745,6 +1770,8 @@ export default function MapPage() {
               notify('Excluído');
             }}
             onOpenDiagram={(n) => setDiagramNodeId(n.id)}
+            group={selectedNode ? { active: grouped.counts.has(selectedNode.id), count: grouped.counts.get(selectedNode.id) ?? 0 } : undefined}
+            onToggleGroup={toggleGroup}
             onShowBudget={(n) =>
               setBudget({
                 title: n.name,
