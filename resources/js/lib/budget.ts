@@ -13,6 +13,8 @@ export interface BudgetStep {
   cableId?: number;
   downNodeId?: number;
   meters?: number;
+  /** Emendas: identifica a conexão ("nó:id da conexão"), para comparar percursos de clientes diferentes. */
+  ref?: string;
 }
 
 export interface BudgetResult {
@@ -186,9 +188,9 @@ export function traceUpstream(net: Network, nodeId: number, start: End): BudgetR
     }
     if (!link.conn.pass && !isPatch(nextNode, idx, nextEnd) && !isPatch(nextNode, idx, link.other)) {
       if (link.conn.joint === 'connector') {
-        steps.push({ kind: 'connector', label: 'Conector', detail: `Conector/acoplador em ${nextNode.name}`, loss: round(s.connector_loss_db), nodeId: nextNode.id });
+        steps.push({ kind: 'connector', label: 'Conector', detail: `Conector/acoplador em ${nextNode.name}`, loss: round(s.connector_loss_db), nodeId: nextNode.id, ref: `${nextNode.id}:${link.conn.id}` });
       } else {
-        steps.push({ kind: 'fusion', label: 'F', detail: `Fusão em ${nextNode.name}`, loss: round(s.fusion_loss_db), nodeId: nextNode.id });
+        steps.push({ kind: 'fusion', label: 'F', detail: `Fusão em ${nextNode.name}`, loss: round(s.fusion_loss_db), nodeId: nextNode.id, ref: `${nextNode.id}:${link.conn.id}` });
       }
     }
     node = nextNode;

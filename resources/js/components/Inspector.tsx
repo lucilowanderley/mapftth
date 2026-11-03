@@ -1,4 +1,6 @@
 import { Activity, Building2, Copy, Crosshair, History, Home, Link2, Network, Radar, Store, Trash2, X } from 'lucide-react';
+import type { SignalAnalysis } from '../lib/signal';
+import SignalHealthBox from './SignalHealthBox';
 import { CLIENT_SEGMENTS, clientDataOf, normalizeSerial, type ClientSegment } from '../lib/client';
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
@@ -19,6 +21,8 @@ interface Props {
   cable?: Cable;
   nodes: NetNode[];
   budget?: BudgetResult;
+  /** Cliente: sinal medido × estimado, saúde e trecho provável do problema. */
+  signal?: SignalAnalysis;
   settings: Settings;
   onClose: () => void;
   onNodeSaved: (n: NetNode, cables: Cable[]) => void;
@@ -126,6 +130,7 @@ function NodeForm({
   node,
   nodes,
   budget,
+  signal,
   settings,
   readOnly,
   cables,
@@ -158,6 +163,9 @@ function NodeForm({
   const [clientCode, setClientCode] = useState(initialClient.client_code ?? '');
   const [onuSerial, setOnuSerial] = useState(initialClient.onu_serial ?? '');
   const [segment, setSegment] = useState<ClientSegment | null>(initialClient.segment ?? null);
+  const [rx, setRx] = useState(initialClient.rx_dbm != null ? String(initialClient.rx_dbm) : '');
+  const rxNum = rx.trim() === '' ? null : Number(rx.replace(',', '.'));
+  const rxBad = rxNum !== null && (Number.isNaN(rxNum) || rxNum < -60 || rxNum > 10);
   const [pole, setPole] = useState<PoleAttributes>((node.attributes as PoleAttributes) ?? {});
   const setP = (patch: PoleAttributes) => setPole((p) => ({ ...p, ...patch }));
   const [condo, setCondo] = useState<CondoAttributes>(() => ({ condo_kind: 'buildings', ...((node.attributes as CondoAttributes) ?? {}) }));
@@ -187,7 +195,15 @@ function NodeForm({
         attributes: {
           ...(node.attributes ?? {}),
           ...(node.type === 'client'
-            ? { address, client_code: clientCode.trim() || null, onu_serial: normalizeSerial(onuSerial) || null, segment }
+            ? {
+                address,
+                client_code: clientCode.trim() || null,
+                onu_serial: normalizeSerial(onuSerial) || null,
+                segment,
+                rx_dbm: rxNum === null || rxBad ? null : Math.round(rxNum * 100) / 100,
+                // A data da medição só muda quando o valor muda.
+                rx_at: rxNum === null || rxBad ? null : rxNum === initialClient.rx_dbm ? (initialClient.rx_at ?? null) : new Date().toISOString(),
+              }
             : {}),
           ...(node.type === 'pole' ? pole : {}),
           ...(node.type === 'condo' ? condo : {}),
@@ -238,6 +254,7 @@ function NodeForm({
             {budget.error && <div className="text-xs text-slate-400">{budget.error}</div>}
           </button>
         )}
+        {node.type === 'client' && signal && <SignalHealthBox analysis={signal} />}
         {node.type === 'client' && budget && budget.power !== null && onOtdr && (
           <button type="button" className="btn-ghost w-full" onClick={() => onOtdr(node)}>
             <Radar size={16} /> Simular OTDR / localizar evento
@@ -336,6 +353,10 @@ function NodeForm({
                   />
                 </Field>
               </div>
+              <Field label="Sinal medido na ONU/ONT (dBm)">
+                <input className="input font-mono" inputMode="decimal" placeholder="ex.: -21,4" value={rx} onChange={(e) => setRx(e.target.value)} />
+              </Field>
+              {rxBad && <p className="text-xs text-red-400">Informe um valor entre -60 e 10 dBm.</p>}
             </>
           )}
           {node.type === 'tower' && (
