@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseTubeKey, pruneTrays, toggleTube, trayOfConnection, trayUsage, tubeCount, tubeFibers, tubeKey, tubeOfFiber } from '../../resources/js/lib/tray';
+import { TUBE_ROW, cableRows, parseTubeKey, pruneTrays, rowsHeight, trayPorts, toggleTube, trayOfConnection, trayUsage, tubeCount, tubeFibers, tubeKey, tubeOfFiber } from '../../resources/js/lib/tray';
 import type { Connection, SpliceTray } from '../../resources/js/lib/types';
 
 const cables = [
@@ -51,5 +51,30 @@ describe('bandejas e tubos loose', () => {
 
   it('remove vínculos de cabos que saíram da caixa', () => {
     expect(pruneTrays([tray('b1', ['c1:t3', 'c9:t1', 'c2:t2'])], cables)[0].tubes).toEqual(['c1:t3']);
+  });
+});
+
+describe('bandeja aberta: linhas do cabo e portas da bandeja', () => {
+  it('tubo vinculado vira uma linha só no cartão do cabo', () => {
+    const t = tray('b1', ['c1:t2']);
+    const rows = cableRows('c1', cables[0], [t], 14);
+    expect(rows.filter((r) => r.kind === 'fiber')).toHaveLength(24);
+    const tube = rows.find((r) => r.kind === 'tube')!;
+    expect(tube).toMatchObject({ kind: 'tube', tube: 2, y: 12 * 14, h: TUBE_ROW });
+    expect(rowsHeight(rows)).toBe(24 * 14 + TUBE_ROW);
+    const f13 = rows.find((r) => r.kind === 'fiber' && r.fiber === 25)!;
+    expect(f13.y).toBe(12 * 14 + TUBE_ROW);
+  });
+
+  it('portas: cabos da esquerda de um lado, da direita do outro', () => {
+    const t = tray('b1', ['c1:t1', 'c2:t1']);
+    const p = trayPorts(t, [
+      { key: 'c1', side: 'left', cable: cables[0] },
+      { key: 'c2', side: 'right', cable: cables[1] },
+    ]);
+    expect(p.left).toHaveLength(12);
+    expect(p.right).toHaveLength(12);
+    expect(p.left[0]).toEqual({ c: 'c1', p: 'f1' });
+    expect(p.right[11]).toEqual({ c: 'c2', p: 'f12' });
   });
 });
