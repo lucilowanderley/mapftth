@@ -1,5 +1,6 @@
 import { splitterModel } from './catalog';
 import { isPatchEnd } from './pop';
+import { jointLoss, jointSpec } from './joints';
 import type { Cable, Connection, DiagramComponent, End, NetNode, Network, Settings } from './types';
 
 export interface BudgetStep {
@@ -187,10 +188,14 @@ export function traceUpstream(net: Network, nodeId: number, start: End): BudgetR
       return fail(`Porta sem conexão em ${nextNode.name}.`);
     }
     if (!link.conn.pass && !isPatch(nextNode, idx, nextEnd) && !isPatch(nextNode, idx, link.other)) {
+      const loss = round(jointLoss(link.conn, s));
+      const spec = jointSpec(link.conn);
       if (link.conn.joint === 'connector') {
-        steps.push({ kind: 'connector', label: 'Conector', detail: `Conector/acoplador em ${nextNode.name}`, loss: round(s.connector_loss_db), nodeId: nextNode.id, ref: `${nextNode.id}:${link.conn.id}` });
+        const what = spec ? `Conector ${spec.id === 'HYBRID' ? 'híbrido' : spec.id}` : 'Conector/acoplador';
+        steps.push({ kind: 'connector', label: 'Conector', detail: `${what} em ${nextNode.name}`, loss, nodeId: nextNode.id, ref: `${nextNode.id}:${link.conn.id}` });
       } else {
-        steps.push({ kind: 'fusion', label: 'F', detail: `Fusão em ${nextNode.name}`, loss: round(s.fusion_loss_db), nodeId: nextNode.id, ref: `${nextNode.id}:${link.conn.id}` });
+        const what = spec ? spec.label : 'Fusão';
+        steps.push({ kind: 'fusion', label: 'F', detail: `${what} em ${nextNode.name}`, loss, nodeId: nextNode.id, ref: `${nextNode.id}:${link.conn.id}` });
       }
     }
     node = nextNode;

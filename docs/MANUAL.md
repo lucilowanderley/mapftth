@@ -654,8 +654,26 @@ como um bloco (*de POP...* / *para CTO...*), com as fibras nas cores ABNT.
 3. A emenda criada depende da ferramenta ativa na barra: **Emenda** (fusão), **Conector** ou **Passagem**.
 4. Clique numa fibra ou numa porta já ligada para selecionar a emenda. Um quadro no canto mostra as duas pontas
    e permite **trocar o tipo** (Fusão / Conector / Passagem) ou **Apagar** (também pela tecla **Delete**).
+   O quadro mostra também a **perda** usada no cálculo e o link **Tipo e perda…**.
 
 O sistema não deixa ligar duas portas do mesmo elemento nem uma porta que já está ocupada.
+
+**Tipo e perda de cada emenda** (duplo clique na emenda, ou **Tipo e perda…** no quadro)
+
+Para o cálculo de potência ficar mais preciso, cada emenda pode ter o próprio tipo e a própria perda:
+
+1. **Tipo de emenda**: **Fusão / emenda** ou **Conector / acoplador**.
+2. **Conector / acoplador**: SC/APC, SC/UPC, LC/APC, LC/UPC, FC/APC, FC/UPC, ST/UPC, E2000/APC, MPO/MTP,
+   conector de campo (fast connector) ou acoplador híbrido (ex.: SC ↔ LC). Cada um tem uma **perda típica**.
+   Na fusão, o campo vira **Método**: fusão por alinhamento de núcleo (0,03 dB), por alinhamento de casca
+   (0,08 dB) ou emenda mecânica (0,20 dB).
+3. **Perda desta emenda (dB)**: digite o valor **medido** (máquina de fusão ou OTDR) quando tiver. Deixe vazio
+   para usar a perda típica do tipo; sem tipo, vale a perda padrão do projeto ([seção 21](#21-configurações-do-projeto)).
+4. O quadro **Perda usada no cálculo** mostra o valor e de onde ele vem (informada, típica do tipo ou padrão do
+   projeto). Acima de 0,75 dB num conector ou 0,30 dB numa fusão aparece um aviso.
+
+A potência nas portas, nos clientes, o orçamento óptico, a saúde do sinal e o OTDR virtual passam a usar essa
+perda na hora. Passe o mouse sobre uma emenda para ver o tipo e a perda. Tudo pode ser desfeito com **Ctrl+Z**.
 
 **Adicionar splitter**
 
@@ -733,7 +751,8 @@ No diagrama (**bandeja aberta**):
 
 1. Escolha **Emenda (fusão)** ou **Conector**.
 2. Clique numa FO de um lado e depois na FO do outro lado. Para **cruzar**, é só ligar números diferentes.
-3. Clique numa emenda para selecioná-la: **Trocar fusão/conector** ou **Apagar emenda**.
+3. Clique numa emenda para selecioná-la: **Trocar fusão/conector**, **Apagar emenda**, e embaixo escolha o
+   **tipo de conector ou método da fusão** e a **perda** dessa emenda (como na janela **Tipo e perda**).
 4. **1↔1 automático** funde 1 com 1, 2 com 2... nas FO livres. **Limpar bandeja** apaga as emendas internas.
    **Tubos da bandeja…** abre a janela de vínculo dos tubos. Tudo pode ser desfeito com **Ctrl+Z**.
 
@@ -972,6 +991,9 @@ navegador. Embaixo da lista aparece de onde vem cada estilo (Satélite, Ruas, Re
 | Potência máxima na ONU | −8 dBm |
 | Limite de atenção na ONU | −25 dBm |
 | Sensibilidade mínima da ONU | −27 dBm |
+
+As perdas de fusão e de conector daqui valem para as emendas que não têm tipo nem perda própria no diagrama
+(veja **Tipo e perda de cada emenda** na [seção 8](#8-diagrama-de-fusão-da-ceo-e-da-cto)).
 
 Ao salvar, todos os sinais, cores e relatórios são recalculados.
 
