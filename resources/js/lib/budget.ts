@@ -140,6 +140,11 @@ export function traceUpstream(net: Network, nodeId: number, start: End): BudgetR
     } else {
       const comp = idx.component(node, end.c);
       if (!comp) return fail('Componente não encontrado no diagrama.');
+      if (comp.kind === 'client') {
+        // O cliente é a ponta do caminho: só vale como ponto de partida (a fibra segue pela emenda ligada a ele).
+        if (guard > 0) return fail(`O caminho chega no cliente ${comp.name}, não numa OLT.`);
+        if (!idx.partner(node, end)) return fail(`${comp.name} sem fibra ligada em ${node.name}.`);
+      }
       if (comp.kind === 'active') return fail(`O caminho chega em ${comp.name} (equipamento ativo), não numa porta PON.`);
       if (comp.kind === 'olt' && end.p.startsWith('u')) return fail(`O caminho chega no uplink de ${comp.name}, não numa porta PON.`);
       if (comp.kind === 'olt') {
@@ -157,7 +162,9 @@ export function traceUpstream(net: Network, nodeId: number, start: End): BudgetR
           source: `${comp.name} · Slot ${slot} / PON ${pon}`,
         };
       }
-      if (comp.kind === 'splitter') {
+      if (comp.kind === 'client') {
+        nextEnd = end;
+      } else if (comp.kind === 'splitter') {
         if (end.p === 'in') return fail('A fibra chega na entrada do splitter pelo lado do cliente.');
         const model = splitterModel(comp.model);
         const out = Number(end.p.slice(1));
@@ -190,10 +197,26 @@ export function traceUpstream(net: Network, nodeId: number, start: End): BudgetR
   return fail('Caminho óptico muito longo.');
 }
 
-/** Orçamento até o cliente: sobe pelo cabo drop que chega no cliente. */
+/** Cliente desenhado no diagrama de alguma caixa e vinculado a este cliente do mapa. */
+export function diagramClientOf(net: Network, clientId: number): { node: NetNode; compId: string } | undefined {
+  for (const n of net.nodes) {
+    const c = n.diagram?.components.find((x) => x.kind === 'client' && x.node_id === clientId);
+    if (c) return { node: n, compId: c.id };
+  }
+  return undefined;
+}
+
+/**
+ * Orçamento até o cliente: sobe pelo cabo drop que chega no cliente. Sem cabo drop, usa o cliente
+ * vinculado no diagrama de uma CTO/CEO (ligado a uma saída de splitter).
+ */
 export function clientBudget(net: Network, client: NetNode): BudgetResult {
   const drop = net.cables.find((c) => c.from_node_id === client.id || c.to_node_id === client.id);
-  if (!drop) return { ok: false, power: null, totalLoss: 0, steps: [], error: 'Cliente sem cabo drop.' };
+  if (!drop) {
+    const linked = diagramClientOf(net, client.id);
+    if (linked) return traceUpstream(net, linked.node.id, { c: linked.compId, p: 'in' });
+    return { ok: false, power: null, totalLoss: 0, steps: [], error: 'Cliente sem cabo drop.' };
+  }
   const fiber = (client.attributes?.fiber as number | undefined) ?? 1;
   return traceUpstream(net, client.id, { c: cableKey(drop.id), p: `f${fiber}` });
 }

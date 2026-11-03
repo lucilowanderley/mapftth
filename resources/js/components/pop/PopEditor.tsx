@@ -311,6 +311,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
       case 'splitter':
         return `Splitter · ${e.p === 'in' ? 'entrada' : `saída ${e.p.slice(1)}`}`;
       case 'rack':
+      case 'client':
         return c.name;
     }
   }
