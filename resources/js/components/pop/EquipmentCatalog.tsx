@@ -1,5 +1,5 @@
-import { BookOpen, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { BookOpen, ImagePlus, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, errorMessage } from '../../lib/api';
 import { ACTIVE_TYPES, BUILTIN_EQUIPMENT, EQUIPMENT_KINDS, equipmentLabel } from '../../lib/catalog';
 import type { EquipmentModel } from '../../lib/types';
@@ -10,7 +10,18 @@ import { groupsTotal, speedLabel } from '../../lib/pop';
 
 type Kind = EquipmentModel['kind'];
 
-/** Modelos padrão + cadastrados (do usuário e do dono do projeto). */
+/**
+ * Modelos padrão + cadastrados (do usuário e do dono do projeto). Um padrão editado aparece
+ * só na versão editada; um padrão excluído fica oculto (e pode ser restaurado).
+ */
+export function mergeModels(saved: EquipmentModel[]): { models: EquipmentModel[]; hidden: EquipmentModel[] } {
+  const replaced = new Set(saved.filter((m) => m.replaces).map((m) => m.replaces));
+  return {
+    models: [...BUILTIN_EQUIPMENT.filter((b) => !replaced.has(String(b.id))), ...saved.filter((m) => !m.hidden)],
+    hidden: saved.filter((m) => m.hidden),
+  };
+}
+
 export function useEquipmentModels(projectId?: number) {
   const [saved, setSaved] = useState<EquipmentModel[]>([]);
   const reload = useCallback(() => {
@@ -20,7 +31,13 @@ export function useEquipmentModels(projectId?: number) {
       .catch(() => setSaved([]));
   }, [projectId]);
   useEffect(reload, [reload]);
-  return { models: [...BUILTIN_EQUIPMENT, ...saved], reload };
+  return { ...mergeModels(saved), reload };
+}
+
+/** Campos enviados ao servidor (sem id, flags de exibição etc.). */
+function payload(m: Partial<EquipmentModel>): Partial<EquipmentModel> {
+  const { kind, vendor, model, type, ports, slots, uplinks, tx_dbm, height_u, port_groups, notes, replaces, hidden } = m;
+  return { kind, vendor, model, type, ports, slots, uplinks, tx_dbm, height_u, port_groups, notes, replaces: replaces ?? null, hidden: !!hidden };
 }
 
 const EMPTY = (kind: Kind): Partial<EquipmentModel> => ({
@@ -38,12 +55,14 @@ const EMPTY = (kind: Kind): Partial<EquipmentModel> => ({
 /** Cadastro de equipamentos: fabricante, modelo, portas e altura em U de OLTs, DIOs e ativos. */
 export default function EquipmentCatalog({
   models,
+  hidden = [],
   initialKind = 'olt',
   readOnly,
   onChanged,
   onClose,
 }: {
   models: EquipmentModel[];
+  hidden?: EquipmentModel[];
   initialKind?: Kind;
   readOnly?: boolean;
   onChanged: () => void;
@@ -53,6 +72,15 @@ export default function EquipmentCatalog({
   const [form, setForm] = useState<Partial<EquipmentModel> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Foto escolhida (enviada ao salvar) ou foto atual marcada para remover.
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [dropPhoto, setDropPhoto] = useState(false);
+  const photoUrl = useMemo(() => (photo ? URL.createObjectURL(photo) : null), [photo]);
+  useEffect(() => () => void (photoUrl && URL.revokeObjectURL(photoUrl)), [photoUrl]);
+  useEffect(() => {
+    setPhoto(null);
+    setDropPhoto(false);
+  }, [form?.id, form?.replaces, !!form]);
   const list = models.filter((m) => m.kind === kind);
   const set = (patch: Partial<EquipmentModel>) => setForm((f) => (f ? { ...f, ...patch } : f));
   const int = (v: string, min = 0) => Math.max(min, Math.round(Number(v)) || min);
@@ -62,8 +90,11 @@ export default function EquipmentCatalog({
     setBusy(true);
     setError(null);
     try {
-      if (typeof form.id === 'number') await api.updateEquipmentModel(form.id, form);
-      else await api.createEquipmentModel(form);
+      const saved = typeof form.id === 'number' ? await api.updateEquipmentModel(form.id, payload(form)) : await api.createEquipmentModel(payload(form));
+      if (typeof saved.id === 'number') {
+        if (photo) await api.uploadEquipmentImage(saved.id, photo);
+        else if (dropPhoto && saved.image_url) await api.deleteEquipmentImage(saved.id);
+      }
       setForm(null);
       onChanged();
     } catch (e) {
@@ -72,15 +103,33 @@ export default function EquipmentCatalog({
     setBusy(false);
   }
 
-  async function remove(m: EquipmentModel) {
-    if (typeof m.id !== 'number' || !confirm(`Excluir o modelo ${equipmentLabel(m)} do cadastro? Equipamentos já criados não mudam.`)) return;
+  async function run(fn: () => Promise<unknown>) {
+    setError(null);
     try {
-      await api.deleteEquipmentModel(m.id);
+      await fn();
       onChanged();
     } catch (e) {
       setError(errorMessage(e));
     }
   }
+
+  /** Excluir: cadastrado = apaga; padrão (ou padrão editado) = oculta para você e a equipe. */
+  function remove(m: EquipmentModel) {
+    if (!confirm(`Excluir o modelo ${equipmentLabel(m)} do cadastro? Equipamentos já criados não mudam.`)) return;
+    if (m.builtin) return run(() => api.createEquipmentModel(payload({ ...m, replaces: String(m.id), hidden: true })));
+    if (typeof m.id !== 'number') return;
+    if (m.replaces) return run(() => api.updateEquipmentModel(m.id as number, payload({ ...m, hidden: true })));
+    return run(() => api.deleteEquipmentModel(m.id as number));
+  }
+
+  /** Volta o padrão original (desfaz edição ou exclusão). */
+  function restore(m: EquipmentModel) {
+    if (typeof m.id === 'number') run(() => api.deleteEquipmentModel(m.id as number));
+  }
+
+  /** Editar um padrão cria a sua versão dele (mesma chave: os equipamentos continuam vinculados). */
+  const edit = (m: EquipmentModel) => setForm(m.builtin ? { ...m, id: undefined, builtin: undefined, replaces: String(m.id) } : { ...m });
+  const hiddenHere = hidden.filter((m) => m.kind === kind);
 
   const detail = (m: EquipmentModel) =>
     m.kind === 'olt'
@@ -120,25 +169,34 @@ export default function EquipmentCatalog({
             {list.map((m) => (
               <tr key={String(m.id)} className="border-t border-slate-800">
                 <td className="px-3 py-1.5">
-                  <div className="font-medium">{m.model}</div>
-                  <div className="text-[11px] text-slate-500">{m.vendor || '—'}</div>
+                  <div className="flex items-center gap-2.5">
+                    <ModelPhoto model={m} size={40} />
+                    <div className="min-w-0">
+                      <div className="font-medium">{m.model}</div>
+                      <div className="text-[11px] text-slate-500">{m.vendor || '—'}</div>
+                    </div>
+                  </div>
                 </td>
                 <td className="text-xs text-slate-400">{detail(m)}</td>
                 <td className="text-center font-mono">{m.height_u}U</td>
                 <td className="pr-2 text-right whitespace-nowrap">
-                  {m.builtin ? (
-                    <span className="text-[10px] uppercase text-slate-500">padrão</span>
-                  ) : m.own && !readOnly ? (
+                  {(m.builtin || m.replaces) && <span className="text-[10px] uppercase text-slate-500 mr-1">{m.builtin ? 'padrão' : 'padrão editado'}</span>}
+                  {(m.builtin || m.own) && !readOnly ? (
                     <>
-                      <button title="Editar" className="p-1.5 text-slate-400 hover:text-white cursor-pointer" onClick={() => setForm({ ...m })}>
+                      <button title={m.builtin ? 'Editar (cria a sua versão do padrão)' : 'Editar'} className="p-1.5 text-slate-400 hover:text-white cursor-pointer" onClick={() => edit(m)}>
                         <Pencil size={13} />
                       </button>
+                      {m.replaces && (
+                        <button title="Restaurar o padrão original" className="p-1.5 text-slate-400 hover:text-white cursor-pointer" onClick={() => restore(m)}>
+                          <RotateCcw size={13} />
+                        </button>
+                      )}
                       <button title="Excluir" className="p-1.5 text-slate-400 hover:text-red-400 cursor-pointer" onClick={() => remove(m)}>
                         <Trash2 size={13} />
                       </button>
                     </>
                   ) : (
-                    <span className="text-[10px] uppercase text-slate-500">do dono</span>
+                    !m.builtin && <span className="text-[10px] uppercase text-slate-500">do dono</span>
                   )}
                 </td>
               </tr>
@@ -155,7 +213,10 @@ export default function EquipmentCatalog({
 
       {form && (
         <div className="mt-3 rounded-lg border border-slate-700 p-3 space-y-3">
-          <div className="text-xs font-semibold text-slate-300">{typeof form.id === 'number' ? 'Editar modelo' : `Novo modelo de ${kind === 'active' ? 'ativo' : EQUIPMENT_KINDS[kind]}`}</div>
+          <div className="text-xs font-semibold text-slate-300">
+            {typeof form.id === 'number' || form.replaces ? 'Editar modelo' : `Novo modelo de ${kind === 'active' ? 'ativo' : EQUIPMENT_KINDS[kind]}`}
+            {form.replaces && <span className="ml-2 font-normal text-slate-500">versão sua do modelo padrão; os equipamentos já criados continuam vinculados</span>}
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Fabricante">
               <input className="input" placeholder="Huawei, ZTE, Furukawa..." value={form.vendor ?? ''} onChange={(e) => set({ vendor: e.target.value })} />
@@ -203,6 +264,47 @@ export default function EquipmentCatalog({
               </Field>
             )}
           </div>
+          <div className="flex items-center gap-3">
+            {photoUrl || (form.image_url && !dropPhoto) ? (
+              <a href={photoUrl ?? form.image_url ?? undefined} target="_blank" rel="noreferrer" title="Abrir a foto">
+                <img src={photoUrl ?? form.image_url ?? undefined} alt="Foto do equipamento" className="h-20 w-32 rounded-md border border-slate-700 bg-white object-contain" />
+              </a>
+            ) : (
+              <div className="h-20 w-32 rounded-md border border-dashed border-slate-700 flex items-center justify-center text-[11px] text-slate-500 text-center px-2">Sem foto</div>
+            )}
+            <div className="space-y-1.5">
+              <label className="btn-ghost cursor-pointer !py-1.5 text-xs w-fit">
+                <ImagePlus size={14} /> {photoUrl || (form.image_url && !dropPhoto) ? 'Trocar foto' : 'Adicionar foto'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!f) return;
+                    if (f.size > 5 * 1024 * 1024) return setError('A imagem pode ter até 5 MB.');
+                    setError(null);
+                    setPhoto(f);
+                    setDropPhoto(false);
+                  }}
+                />
+              </label>
+              {(photoUrl || (form.image_url && !dropPhoto)) && (
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-xs text-slate-400 hover:text-red-400 cursor-pointer"
+                  onClick={() => {
+                    setPhoto(null);
+                    setDropPhoto(true);
+                  }}
+                >
+                  <X size={13} /> Remover foto
+                </button>
+              )}
+              <div className="text-[11px] text-slate-500">Foto real do equipamento, para referência. JPG, PNG ou WebP até 5 MB.</div>
+            </div>
+          </div>
           {kind === 'active' && (
             <PortGroupsEditor
               groups={form.port_groups ?? []}
@@ -221,9 +323,36 @@ export default function EquipmentCatalog({
         </div>
       )}
       {!form && error && <div className="text-xs text-red-400 mt-2">{error}</div>}
+      {hiddenHere.length > 0 && (
+        <div className="mt-2 text-[11px] text-slate-500">
+          Padrões excluídos:{' '}
+          {hiddenHere.map((m, i) => (
+            <span key={String(m.id)}>
+              {i > 0 && ', '}
+              {m.model}
+              {m.own && !readOnly && (
+                <button className="ml-1 text-emerald-400 hover:text-emerald-300 cursor-pointer" onClick={() => restore(m)}>
+                  restaurar
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
       <p className="text-[11px] text-slate-500 mt-3">
         Os modelos cadastrados aparecem para escolher ao criar OLT, DIO ou Ativo no editor do POP, e valem para todos os seus projetos (a equipe vê os modelos do dono do projeto).
       </p>
     </PopDialog>
+  );
+}
+
+/** Miniatura da foto de referência do modelo (abre a foto ao clicar). */
+export function ModelPhoto({ model, size = 40 }: { model?: EquipmentModel; size?: number }) {
+  if (!model?.image_url)
+    return <div className="rounded border border-dashed border-slate-800 shrink-0" style={{ width: size, height: size }} title="Sem foto" />;
+  return (
+    <a href={model.image_url} target="_blank" rel="noreferrer" title="Abrir a foto" className="shrink-0" onClick={(e) => e.stopPropagation()}>
+      <img src={model.image_url} alt={model.model} loading="lazy" className="rounded border border-slate-700 bg-white object-contain" style={{ width: size, height: size }} />
+    </a>
   );
 }

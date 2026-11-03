@@ -1,9 +1,10 @@
 import { Box, Check, LogOut, Link2, Network as NetIcon, PackagePlus, Rows4, Search, Server, Spline, X, Zap } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
-import { ACTIVE_TYPES, DIO_SIZES, DIO_TRAY, RACK_MOUNTS, RACK_SIZES, equipmentLabel } from '../../lib/catalog';
-import { MAX_RACK_BATCH, groupsTotal, pruneLags, speedLabel, validMgmtHost, canMount, compareRacks, defaultRackHeight, firstFreeU, nextRackPos, normalizeRow, rackCode, rackGroup, rackHeight, rackLabel, rackUsed, uid, type Rack, type Rackable } from '../../lib/pop';
-import type { Cable, Diagram, DiagramComponent, EquipmentModel, MgmtAccess, PortGroup, PortLag, RackLocation, RackMountType } from '../../lib/types';
-import { LagEditor, MgmtFields, PortGroupsEditor } from './ActiveFields';
+import { ACTIVE_TYPES, PORT_SPEEDS, DIO_SIZES, DIO_TRAY, RACK_MOUNTS, RACK_SIZES, equipmentLabel } from '../../lib/catalog';
+import { MAX_RACK_BATCH, OLT_UPLINK_SPEED, groupsTotal, pruneLags, speedLabel, validMgmtHost, canMount, compareRacks, defaultRackHeight, firstFreeU, nextRackPos, normalizeRow, rackCode, rackGroup, rackHeight, rackLabel, rackUsed, uid, type Rack, type Rackable } from '../../lib/pop';
+import type { Cable, Diagram, DiagramComponent, EquipmentModel, MgmtAccess, PortGroup, PortLag, PortVlan, RackLocation, RackMountType, Vlan } from '../../lib/types';
+import { LagEditor, MgmtFields, PortGroupsEditor, VlanEditor } from './ActiveFields';
+import { cleanMgmt, prunePortVlans, validVlan, type NetHost } from '../../lib/netcfg';
 import { Field } from '../ui';
 
 type Olt = Extract<DiagramComponent, { kind: 'olt' }>;
@@ -49,8 +50,11 @@ export function PopDialog({
   );
 }
 
-/** Chave do modelo guardada no equipamento: id do padrão ("zte-c320") ou "db:12" para cadastrados. */
-export const modelKey = (m: EquipmentModel) => (m.builtin ? String(m.id) : `db:${m.id}`);
+/**
+ * Chave do modelo guardada no equipamento: id do padrão ("zte-c320") ou "db:12" para cadastrados.
+ * Um padrão editado pelo usuário mantém a chave do padrão, então os equipamentos continuam vinculados.
+ */
+export const modelKey = (m: EquipmentModel) => (m.builtin ? String(m.id) : m.replaces ? m.replaces : `db:${m.id}`);
 
 /** Lista pesquisável de modelos do cadastro (com a opção "personalizado"). */
 function ModelPicker({
@@ -91,6 +95,11 @@ function ModelPicker({
         <span className="font-medium truncate">{current ? equipmentLabel(current) : customLabel}</span>
         <span className="text-xs text-slate-400 shrink-0 ml-2">{current ? `${detail(current)} · ${current.height_u}U` : ''}</span>
       </button>
+      {current?.image_url && !open && (
+        <a href={current.image_url} target="_blank" rel="noreferrer" title="Abrir a foto" className="block mt-2">
+          <img src={current.image_url} alt={current.model} className="h-24 w-full rounded-md border border-slate-700 bg-white object-contain" />
+        </a>
+      )}
       {open && (
         <div className="mt-1 rounded-md border border-slate-700 bg-slate-950 p-2">
           <div className="relative mb-2">
@@ -109,7 +118,8 @@ function ModelPicker({
                   onClick={() => pick(m)}
                   className={`w-full flex items-center justify-between rounded px-2 py-1.5 text-left cursor-pointer hover:bg-slate-800 ${modelKey(m) === value ? 'text-emerald-400' : ''}`}
                 >
-                  <span>
+                  {m.image_url && <img src={m.image_url} alt="" loading="lazy" className="w-9 h-9 mr-2 shrink-0 rounded border border-slate-700 bg-white object-contain" />}
+                  <span className="flex-1 min-w-0">
                     <span className="block text-sm font-medium">{equipmentLabel(m)}</span>
                     <span className="block text-[11px] text-slate-500">
                       {detail(m)} · {m.height_u}U{m.builtin ? ' · padrão' : ''}
@@ -142,8 +152,11 @@ function HeightField({ value, onChange }: { value: number; onChange: (v: number)
 }
 
 /** Fabricante/modelo do cadastro gravados no equipamento (ou nada, se personalizado). */
-function modelFields(m: EquipmentModel | undefined): { model?: string; vendor?: string; modelName?: string } {
-  return m ? { model: modelKey(m), vendor: m.vendor ?? undefined, modelName: m.model } : { model: undefined, vendor: undefined, modelName: undefined };
+function modelFields(m: EquipmentModel | undefined, keep?: { model?: string; vendor?: string; modelName?: string }, picked?: string): { model?: string; vendor?: string; modelName?: string } {
+  if (m) return { model: modelKey(m), vendor: m.vendor ?? undefined, modelName: m.model };
+  // Modelo que saiu do cadastro (excluído): o equipamento mantém o que já tinha.
+  if (keep?.model && picked === keep.model && keep.model !== 'custom') return { model: keep.model, vendor: keep.vendor, modelName: keep.modelName };
+  return { model: undefined, vendor: undefined, modelName: undefined };
 }
 
 export function OltDialog({
@@ -171,12 +184,17 @@ export function OltDialog({
   const [slots, setSlots] = useState(initial?.slots ?? 1);
   const [ports, setPorts] = useState(initial?.ports ?? 8);
   const [uplinks, setUplinks] = useState(initial?.uplinks ?? 2);
+  const [upSpeed, setUpSpeed] = useState(initial?.uplink_speed ?? OLT_UPLINK_SPEED);
   const [tx, setTx] = useState(initial?.tx_dbm ?? defaultTx);
   const [h, setH] = useState(initial ? rackHeight(initial) : 1);
   const [name, setName] = useState(initial?.name ?? `OLT ${count + 1}`);
   const [mgmt, setMgmt] = useState<MgmtAccess>(initial?.mgmt ?? {});
-  const mgmtBad = !!mgmt.ip && !validMgmtHost(mgmt.ip);
+  const [lags, setLags] = useState<PortLag[]>(initial?.lags ?? []);
+  const [vlans, setVlans] = useState<Vlan[]>(initial?.vlans ?? []);
+  const [portVlans, setPortVlans] = useState<Record<string, PortVlan>>(initial?.portVlans ?? {});
+  const mgmtBad = (!!mgmt.ip && !validMgmtHost(mgmt.ip)) || (mgmt.vlan != null && !validVlan(mgmt.vlan));
   const current = options.find((m) => modelKey(m) === model);
+  const host: NetHost = { kind: 'olt', ports, uplinks, uplink_speed: upSpeed, lags, vlans, portVlans, mgmt };
 
   function pick(m: EquipmentModel | null) {
     if (!m) return setModel('custom');
@@ -191,52 +209,93 @@ export function OltDialog({
 
   const clamp = (v: number, max: number) => Math.max(1, Math.min(max, Math.round(v) || 1));
   return (
-    <PopDialog icon={<Server size={18} />} title={initial ? `Editar ${initial.name}` : 'Adicionar OLT'} subtitle={current ? equipmentLabel(current) : 'Configuração personalizada'} onClose={onClose}>
-      <div className="space-y-3">
-        <ModelPicker models={options} value={model} customLabel="Configuração personalizada" detail={oltDetail} onPick={pick} onCatalog={onCatalog} />
-        <Field label="Nome">
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <div className="grid grid-cols-5 gap-2">
-          <Field label="Slots">
-            <input type="number" min={1} max={32} className="input px-2" value={slots} onChange={(e) => setSlots(clamp(Number(e.target.value), 32))} />
+    <PopDialog
+      icon={<Server size={18} />}
+      title={initial ? `Editar ${initial.name}` : 'Adicionar OLT'}
+      subtitle={current ? equipmentLabel(current) : 'Configuração personalizada'}
+      onClose={onClose}
+      width="max-w-7xl"
+    >
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1.4fr)] items-start">
+        <div className="space-y-3 min-w-0">
+          <ModelPicker models={options} value={model} customLabel="Configuração personalizada" detail={oltDetail} onPick={pick} onCatalog={onCatalog} />
+          <Field label="Nome">
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
-          <Field label="PON/slot">
-            <input type="number" min={1} max={16} className="input px-2" value={ports} onChange={(e) => setPorts(clamp(Number(e.target.value), 16))} />
-          </Field>
-          <Field label="Uplinks">
-            <input type="number" min={0} max={16} className="input px-2" value={uplinks} onChange={(e) => setUplinks(Math.max(0, Math.min(16, Math.round(Number(e.target.value)) || 0)))} />
-          </Field>
-          <Field label="TX dBm">
-            <input type="number" step={0.5} className="input px-2" value={tx} onChange={(e) => setTx(Number(e.target.value))} />
-          </Field>
-          <HeightField value={h} onChange={setH} />
+          <div className="grid grid-cols-3 gap-2">
+            <Field label="Slots">
+              <input type="number" min={1} max={32} className="input px-2" value={slots} onChange={(e) => setSlots(clamp(Number(e.target.value), 32))} />
+            </Field>
+            <Field label="PON/slot">
+              <input type="number" min={1} max={16} className="input px-2" value={ports} onChange={(e) => setPorts(clamp(Number(e.target.value), 16))} />
+            </Field>
+            <Field label="TX dBm">
+              <input type="number" step={0.5} className="input px-2" value={tx} onChange={(e) => setTx(Number(e.target.value))} />
+            </Field>
+            <Field label="Uplinks">
+              <input type="number" min={0} max={16} className="input px-2" value={uplinks} onChange={(e) => setUplinks(Math.max(0, Math.min(16, Math.round(Number(e.target.value)) || 0)))} />
+            </Field>
+            <Field label="Capacidade">
+              <select className="input px-1" value={upSpeed} onChange={(e) => setUpSpeed(Number(e.target.value))}>
+                {[...new Set([...PORT_SPEEDS, upSpeed])]
+                  .sort((a, b) => a - b)
+                  .map((sp) => (
+                    <option key={sp} value={sp}>
+                      {speedLabel(sp)}bps
+                    </option>
+                  ))}
+              </select>
+            </Field>
+            <HeightField value={h} onChange={setH} />
+          </div>
+          <FrontPreview rows={[...Array.from({ length: Math.min(slots, 6) }, (_, i) => ({ label: `S${i + 1}`, n: ports, color: '#8b5cf6' })), ...(uplinks ? [{ label: 'UP', n: uplinks, color: '#f59e0b' }] : [])]} />
+          <p className="text-xs text-slate-400">
+            Total: {slots * ports} portas PON{uplinks ? ` + ${uplinks} uplinks de ${speedLabel(upSpeed)}` : ''} · ocupa {h}U no rack
+          </p>
+          <RackSelect racks={racks} value={rack} onChange={setRack} />
         </div>
-        <FrontPreview rows={[...Array.from({ length: Math.min(slots, 6) }, (_, i) => ({ label: `S${i + 1}`, n: ports, color: '#8b5cf6' })), ...(uplinks ? [{ label: 'UP', n: uplinks, color: '#f59e0b' }] : [])]} />
-        <p className="text-xs text-slate-400">
-          Total: {slots * ports} portas PON{uplinks ? ` + ${uplinks} uplinks` : ''} · ocupa {h}U no rack
-        </p>
-        <MgmtFields value={mgmt} onChange={setMgmt} />
-        <RackSelect racks={racks} value={rack} onChange={setRack} />
+        <div className="space-y-3 min-w-0">
+          <LagEditor host={host} lags={lags} onChange={setLags} />
+          <MgmtFields value={mgmt} onChange={setMgmt} host={host} />
+        </div>
+        <div className="min-w-0">
+          <VlanEditor host={host} vlans={vlans} portVlans={portVlans} onVlans={setVlans} onPortVlans={setPortVlans} />
+        </div>
+      </div>
+      <div className="flex justify-end mt-3">
         <button
-          className="btn-primary w-full"
+          className="btn-primary min-w-48"
           disabled={!name.trim() || mgmtBad}
-          onClick={() =>
+          onClick={() => {
+            const cleanLags = pruneLags(lags.filter((l) => l.ports.length > 0).map((l) => ({ ...l, name: l.name.trim() || 'LAG' })), uplinks);
+            const final: NetHost = { ...host, lags: cleanLags };
+            const cleanVlans = vlans.filter((v) => validVlan(v.id)).map((v) => ({ id: v.id, ...(v.name?.trim() ? { name: v.name.trim() } : {}) }));
+            const base: Olt = { ...(initial ?? { id: uid(), kind: 'olt' as const, name: '', model: 'custom', slots, ports, tx_dbm: tx, x: 0, y: 0 }) };
+            delete base.lags;
+            delete base.vlans;
+            delete base.portVlans;
+            delete base.mgmt;
+            const m = cleanMgmt(final, mgmt);
+            const pv = prunePortVlans(final);
             onSubmit({
-              ...(initial ?? { id: uid(), kind: 'olt' as const, x: 0, y: 0 }),
+              ...base,
               kind: 'olt',
-              mgmt: mgmt.ip || mgmt.port || mgmt.proto ? mgmt : undefined,
               name: name.trim(),
-              ...modelFields(current),
-              model: current ? modelKey(current) : 'custom',
+              ...modelFields(current, initial, model),
+              model: modelFields(current, initial, model).model ?? 'custom',
               slots,
               ports,
               uplinks,
+              uplink_speed: upSpeed,
               tx_dbm: tx,
               h,
+              ...(cleanLags ? { lags: cleanLags } : {}),
+              ...(cleanVlans.length ? { vlans: cleanVlans } : {}),
+              ...(pv ? { portVlans: pv } : {}),
+              ...(m ? { mgmt: m } : {}),
               ...rackFields(initial, rack),
-            })
-          }
+            });
+          }}
         >
           <Zap size={15} /> {initial ? 'Salvar alterações' : 'Criar OLT'}
         </button>
@@ -661,7 +720,7 @@ export function DioDialog({
         <button
           className="btn-primary w-full"
           disabled={!name.trim()}
-          onClick={() => onSubmit({ ...(initial ?? { id: uid(), kind: 'dio' as const, x: 0, y: 0 }), kind: 'dio', name: name.trim(), ports, h, ...modelFields(current), ...rackFields(initial, rack) })}
+          onClick={() => onSubmit({ ...(initial ?? { id: uid(), kind: 'dio' as const, x: 0, y: 0 }), kind: 'dio', name: name.trim(), ports, h, ...modelFields(current, initial, model), ...rackFields(initial, rack) })}
         >
           <Zap size={15} /> {initial ? 'Salvar alterações' : 'Criar dispositivo'}
         </button>
@@ -695,76 +754,93 @@ export function ActiveDialog({
   const [simplePorts, setPorts] = useState(initial?.ports ?? 8);
   const [groups, setGroups] = useState<PortGroup[]>(initial?.groups ?? []);
   const [lags, setLags] = useState<PortLag[]>(initial?.lags ?? []);
+  const [vlans, setVlans] = useState<Vlan[]>(initial?.vlans ?? []);
+  const [portVlans, setPortVlans] = useState<Record<string, PortVlan>>(initial?.portVlans ?? {});
   const [mgmt, setMgmt] = useState<MgmtAccess>(initial?.mgmt ?? {});
   const [h, setH] = useState(initial ? rackHeight(initial) : 1);
   const current = options.find((m) => modelKey(m) === model);
   // Com grupos de portas, o total de portas é a soma dos grupos.
   const ports = groups.length ? Math.max(1, groupsTotal(groups)) : simplePorts;
-  const mgmtBad = !!mgmt.ip && !validMgmtHost(mgmt.ip);
+  const mgmtBad = (!!mgmt.ip && !validMgmtHost(mgmt.ip)) || (mgmt.vlan != null && !validVlan(mgmt.vlan));
+  const host: NetHost = { kind: 'active', ports, groups, lags, vlans, portVlans, mgmt };
   return (
     <PopDialog
       icon={<NetIcon size={18} />}
       title={initial ? `Editar ${initial.name}` : 'Adicionar equipamento ativo'}
       subtitle={current ? equipmentLabel(current) : 'Switch, roteador, servidor, DWDM...'}
       onClose={onClose}
-      width="max-w-lg"
+      width="max-w-7xl"
     >
-      <div className="space-y-3">
-        <ModelPicker
-          models={options}
-          value={model}
-          customLabel="Equipamento personalizado"
-          detail={activeDetail}
-          onCatalog={onCatalog}
-          onPick={(m) => {
-            if (!m) return setModel('');
-            setModel(modelKey(m));
-            if (m.type) setType(m.type);
-            setPorts(m.ports);
-            setGroups(m.port_groups ?? []);
-            setH(m.height_u);
-            if (!initial) setName(`${m.model} ${count + 1}`);
-          }}
-        />
-        <Field label="Tipo">
-          <select className="input" value={type} onChange={(e) => setType(e.target.value)}>
-            {[...new Set([...ACTIVE_TYPES, type])].map((t) => (
-              <option key={t}>{t}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Nome">
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <div className="grid grid-cols-2 gap-2">
-          <Field label={groups.length ? 'Portas (soma dos grupos)' : 'Portas'}>
-            <input
-              type="number"
-              min={1}
-              max={576}
-              className="input"
-              disabled={groups.length > 0}
-              value={ports}
-              onChange={(e) => setPorts(Math.max(1, Math.min(576, Math.round(Number(e.target.value)) || 1)))}
-            />
-          </Field>
-          <HeightField value={h} onChange={setH} />
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1.4fr)] items-start">
+        <div className="space-y-3 min-w-0">
+          <ModelPicker
+            models={options}
+            value={model}
+            customLabel="Equipamento personalizado"
+            detail={activeDetail}
+            onCatalog={onCatalog}
+            onPick={(m) => {
+              if (!m) return setModel('');
+              setModel(modelKey(m));
+              if (m.type) setType(m.type);
+              setPorts(m.ports);
+              setGroups(m.port_groups ?? []);
+              setH(m.height_u);
+              if (!initial) setName(`${m.model} ${count + 1}`);
+            }}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Tipo">
+              <select className="input" value={type} onChange={(e) => setType(e.target.value)}>
+                {[...new Set([...ACTIVE_TYPES, type])].map((t) => (
+                  <option key={t}>{t}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Nome">
+              <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+            </Field>
+            <Field label={groups.length ? 'Portas (soma dos grupos)' : 'Portas'}>
+              <input
+                type="number"
+                min={1}
+                max={576}
+                className="input"
+                disabled={groups.length > 0}
+                value={ports}
+                onChange={(e) => setPorts(Math.max(1, Math.min(576, Math.round(Number(e.target.value)) || 1)))}
+              />
+            </Field>
+            <HeightField value={h} onChange={setH} />
+          </div>
+          <PortGroupsEditor groups={groups} onChange={setGroups} />
+          <RackSelect racks={racks} value={rack} onChange={setRack} />
+          <p className="text-xs text-slate-400">Use as portas para ligar cordões aos uplinks da OLT ou à frente do DIO (ponto a ponto).</p>
         </div>
-        <PortGroupsEditor groups={groups} onChange={setGroups} />
-        <LagEditor ports={ports} groups={groups} lags={lags} onChange={setLags} />
-        <MgmtFields value={mgmt} onChange={setMgmt} />
-        <p className="text-xs text-slate-400">Use as portas para ligar cordões aos uplinks da OLT ou à frente do DIO (ponto a ponto).</p>
-        <RackSelect racks={racks} value={rack} onChange={setRack} />
+        <div className="space-y-3 min-w-0">
+          <LagEditor host={host} lags={lags} onChange={setLags} />
+          <MgmtFields value={mgmt} onChange={setMgmt} host={host} />
+        </div>
+        <div className="min-w-0">
+          <VlanEditor host={host} vlans={vlans} portVlans={portVlans} onVlans={setVlans} onPortVlans={setPortVlans} />
+        </div>
+      </div>
+      <div className="flex justify-end mt-3">
         <button
-          className="btn-primary w-full"
+          className="btn-primary min-w-48"
           disabled={!name.trim() || mgmtBad}
           onClick={() => {
             const cleanGroups = groups.filter((g) => g.count > 0 && g.type.trim()).map((g) => ({ ...g, type: g.type.trim() }));
             const cleanLags = pruneLags(lags.filter((l) => l.ports.length > 0).map((l) => ({ ...l, name: l.name.trim() || 'LAG' })), ports);
-            const hasMgmt = !!(mgmt.ip || mgmt.port || mgmt.proto);
+            const final: NetHost = { ...host, groups: cleanGroups, lags: cleanLags };
+            const cleanVlans = vlans.filter((v) => validVlan(v.id)).map((v) => ({ id: v.id, ...(v.name?.trim() ? { name: v.name.trim() } : {}) }));
+            const m = cleanMgmt(final, mgmt);
+            const pv = prunePortVlans(final);
             const base: Active = { ...(initial ?? { id: uid(), kind: 'active' as const, name: '', type, ports, x: 0, y: 0 }) };
             delete base.groups;
             delete base.lags;
+            delete base.vlans;
+            delete base.portVlans;
             delete base.mgmt;
             onSubmit({
               ...base,
@@ -775,8 +851,10 @@ export function ActiveDialog({
               h,
               ...(cleanGroups.length ? { groups: cleanGroups } : {}),
               ...(cleanLags ? { lags: cleanLags } : {}),
-              ...(hasMgmt ? { mgmt } : {}),
-              ...modelFields(current),
+              ...(cleanVlans.length ? { vlans: cleanVlans } : {}),
+              ...(pv ? { portVlans: pv } : {}),
+              ...(m ? { mgmt: m } : {}),
+              ...modelFields(current, initial, model),
               ...rackFields(initial, rack),
             });
           }}

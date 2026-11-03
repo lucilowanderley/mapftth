@@ -67,6 +67,12 @@ export interface EquipmentModel {
   /** Cadastrado por quem está usando (pode editar/excluir). */
   own?: boolean;
   builtin?: boolean;
+  /** Id do modelo padrão que este cadastro substitui (padrão editado) ou oculta (`hidden`). */
+  replaces?: string | null;
+  /** Padrão excluído pelo usuário. */
+  hidden?: boolean;
+  /** Foto de referência do equipamento. */
+  image_url?: string | null;
 }
 
 /** Grupo de portas de um ativo: tipo (RJ45, SFP+...), quantidade e capacidade de cada porta (Gbps). */
@@ -82,8 +88,28 @@ export interface PortLag {
   id: string;
   name: string;
   mode: 'lacp' | 'static';
-  /** Portas do ativo ("e1", "e5"...). */
+  /** Portas do ativo ("e1", "e5"...) ou uplinks da OLT ("u1", "u2"...). */
   ports: string[];
+}
+
+/** VLAN declarada no equipamento. */
+export interface Vlan {
+  id: number;
+  name?: string;
+}
+
+/** Modo da porta: access (uma VLAN sem tag), trunk (várias com tag + nativa), híbrida (várias sem e com tag). */
+export type VlanMode = 'access' | 'trunk' | 'hybrid';
+
+/** VLANs de uma interface (porta física "e1"/"u1" ou agregação "lag:<id>"). */
+export interface PortVlan {
+  mode: VlanMode;
+  /** access: VLAN da porta; trunk/híbrida: VLAN nativa (PVID, sem tag). */
+  pvid?: number;
+  /** trunk/híbrida: VLANs com tag. */
+  tagged?: number[];
+  /** trunk: libera todas as VLANs. */
+  all?: boolean;
 }
 
 export type MgmtProto = 'SSH' | 'HTTPS' | 'HTTP' | 'Telnet' | 'SNMP' | 'Winbox' | 'API';
@@ -93,6 +119,18 @@ export interface MgmtAccess {
   ip?: string;
   port?: number;
   proto?: MgmtProto;
+  /** Interface usada na gerência: porta física ("e1"/"u1"), agregação ("lag:<id>") ou "mgmt" (porta dedicada). */
+  iface?: string;
+  /** VLAN de gerência. */
+  vlan?: number;
+}
+
+/** Configuração de rede comum a OLT e ativo: agregações e VLANs. */
+export interface NetConfig {
+  lags?: PortLag[];
+  vlans?: Vlan[];
+  /** Chave: porta ("e1", "u1") ou agregação ("lag:<id>"). */
+  portVlans?: Record<string, PortVlan>;
 }
 
 /** Fabricante e modelo do cadastro usados no equipamento (para exibir no card). */
@@ -139,11 +177,11 @@ export type DiagramComponent =
   /** rot: rotação em graus (0, 90, 180, 270), pelo botão Girar do diagrama da CTO. */
   | { id: string; kind: 'splitter'; model: string; name?: string; dio?: string; rot?: number; x: number; y: number }
   /** Portas PON "p1..pN" (slot a slot) e uplinks "u1..uN". */
-  | ({ id: string; kind: 'olt'; name: string; model: string; slots: number; ports: number; uplinks?: number; tx_dbm: number; mgmt?: MgmtAccess; x: number; y: number } & RackMount & ModelRef)
+  | ({ id: string; kind: 'olt'; name: string; model: string; slots: number; ports: number; uplinks?: number; uplink_speed?: number; tx_dbm: number; mgmt?: MgmtAccess; x: number; y: number } & NetConfig & RackMount & ModelRef)
   /** Lado "a" = fusão com o cabo; lado "b" = conector frontal (patch). cables = cabos vinculados ("c12"). */
   | ({ id: string; kind: 'dio'; name: string; ports: number; cables?: string[]; model?: string; x: number; y: number } & RackMount & ModelRef)
   /** Equipamento ativo (switch, roteador, BNG...). Portas "e1..eN", só cordões. */
-  | ({ id: string; kind: 'active'; name: string; type: string; ports: number; groups?: PortGroup[]; lags?: PortLag[]; mgmt?: MgmtAccess; model?: string; x: number; y: number } & RackMount & ModelRef)
+  | ({ id: string; kind: 'active'; name: string; type: string; ports: number; groups?: PortGroup[]; mgmt?: MgmtAccess; model?: string; x: number; y: number } & NetConfig & RackMount & ModelRef)
   /**
    * Cliente (assinante) no diagrama da CTO/CEO: recebe a fibra (porta "in"), normalmente de uma saída de splitter.
    * node_id = cliente do mapa vinculado (o orçamento dele no mapa usa este caminho quando não há cabo drop).

@@ -7,7 +7,9 @@ use App\Models\EquipmentModel;
 use App\Models\Project;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class EquipmentModelController extends Controller
 {
@@ -32,7 +34,14 @@ class EquipmentModelController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $model = $request->user()->equipmentModels()->create($this->validated($request));
+        $data = $this->validated($request);
+        if ($data['replaces']) {
+            // Um padrão tem no máximo uma substituição por usuário: editar de novo atualiza a mesma.
+            $model = $request->user()->equipmentModels()->updateOrCreate(['replaces' => $data['replaces']], $data);
+
+            return response()->json([...$model->fresh()->toArray(), 'own' => true], 201);
+        }
+        $model = $request->user()->equipmentModels()->create($data);
 
         return response()->json([...$model->fresh()->toArray(), 'own' => true], 201);
     }
@@ -40,7 +49,15 @@ class EquipmentModelController extends Controller
     public function update(Request $request, EquipmentModel $equipmentModel): JsonResponse
     {
         abort_unless($equipmentModel->user_id === $request->user()->id, 403, 'Só quem cadastrou pode alterar este modelo.');
-        $equipmentModel->update($this->validated($request));
+        $data = $this->validated($request);
+        // Sem `replaces` no pedido, mantém o vínculo com o padrão que este modelo substitui.
+        if (! $request->has('replaces')) {
+            unset($data['replaces']);
+        }
+        if (! $request->has('hidden')) {
+            unset($data['hidden']);
+        }
+        $equipmentModel->update($data);
 
         return response()->json([...$equipmentModel->toArray(), 'own' => true]);
     }
@@ -48,9 +65,54 @@ class EquipmentModelController extends Controller
     public function destroy(Request $request, EquipmentModel $equipmentModel): JsonResponse
     {
         abort_unless($equipmentModel->user_id === $request->user()->id, 403, 'Só quem cadastrou pode excluir este modelo.');
+        if ($equipmentModel->image_path) {
+            Storage::disk('local')->delete($equipmentModel->image_path);
+        }
         $equipmentModel->delete();
 
         return response()->json(null, 204);
+    }
+
+    /** Envia (ou troca) a foto de referência do modelo: JPG, PNG ou WebP até 5 MB. */
+    public function storeImage(Request $request, EquipmentModel $equipmentModel): JsonResponse
+    {
+        abort_unless($equipmentModel->user_id === $request->user()->id, 403, 'Só quem cadastrou pode alterar este modelo.');
+        $request->validate(['image' => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:5120']], [
+            'image.mimes' => 'Envie uma imagem JPG, PNG ou WebP.',
+            'image.max' => 'A imagem pode ter até 5 MB.',
+        ]);
+        $old = $equipmentModel->image_path;
+        $equipmentModel->image_path = $request->file('image')->store('equipment', 'local');
+        $equipmentModel->save();
+        if ($old) {
+            Storage::disk('local')->delete($old);
+        }
+
+        return response()->json([...$equipmentModel->toArray(), 'own' => true]);
+    }
+
+    public function destroyImage(Request $request, EquipmentModel $equipmentModel): JsonResponse
+    {
+        abort_unless($equipmentModel->user_id === $request->user()->id, 403, 'Só quem cadastrou pode alterar este modelo.');
+        if ($equipmentModel->image_path) {
+            Storage::disk('local')->delete($equipmentModel->image_path);
+            $equipmentModel->image_path = null;
+            $equipmentModel->save();
+        }
+
+        return response()->json([...$equipmentModel->toArray(), 'own' => true]);
+    }
+
+    /** Foto do modelo (para quem cadastrou e para as equipes dos projetos do dono). */
+    public function image(Request $request, EquipmentModel $equipmentModel): StreamedResponse
+    {
+        $user = $request->user();
+        $allowed = $equipmentModel->user_id === $user->id
+            || Project::where('user_id', $equipmentModel->user_id)->get()->contains(fn ($p) => $p->roleOf($user) !== null);
+        abort_unless($allowed, 404);
+        abort_unless($equipmentModel->image_path && Storage::disk('local')->exists($equipmentModel->image_path), 404);
+
+        return Storage::disk('local')->response($equipmentModel->image_path, null, ['Cache-Control' => 'private, max-age=86400']);
     }
 
     private function validated(Request $request): array
@@ -70,7 +132,12 @@ class EquipmentModelController extends Controller
             'port_groups.*.type' => ['required', 'string', 'max:40'],
             'port_groups.*.count' => ['required', 'integer', 'min:1', 'max:576'],
             'port_groups.*.speed' => ['nullable', 'numeric', 'min:0', 'max:1600'],
+            'replaces' => ['nullable', 'string', 'max:60'],
+            'hidden' => ['nullable', 'boolean'],
         ]);
+        $data['hidden'] = (bool) ($data['hidden'] ?? false);
+        $data['replaces'] = $data['replaces'] ?? null;
+        abort_if($data['hidden'] && ! $data['replaces'], 422, 'Só modelos padrão podem ser ocultados.');
         if ($data['kind'] !== 'olt') {
             $data['slots'] = $data['uplinks'] = $data['tx_dbm'] = null;
         }

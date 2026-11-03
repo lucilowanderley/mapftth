@@ -49,5 +49,8 @@ Route::middleware('auth')->group(function () {
         Route::delete('/projects/{project}/members/{member}', [MemberController::class, 'destroy']);
         Route::get('/projects/{project}/activity', [ActivityController::class, 'index']);
         Route::apiResource('equipment-models', EquipmentModelController::class)->except('show');
+        Route::get('/equipment-models/{equipmentModel}/image', [EquipmentModelController::class, 'image']);
+        Route::post('/equipment-models/{equipmentModel}/image', [EquipmentModelController::class, 'storeImage']);
+        Route::delete('/equipment-models/{equipmentModel}/image', [EquipmentModelController::class, 'destroyImage']);
     });
 });
