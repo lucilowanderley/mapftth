@@ -122,8 +122,10 @@ sozinho algumas vezes. Se continuar faltando, mova um pouco o mapa ou troque o m
 > Laragon, `php artisan config:clear`). O Google dá uma cota mensal gratuita e cobra acima dela. Se a chave for
 > recusada, o sistema avisa e volta para o OpenStreetMap.
 
-**Camadas** (painel da direita): ligue e desligue **POPs, CEOs, CTOs, Postes, Clientes**, **Cabos backbone,
-distribuição e drop**, **Áreas** e **Rótulos** (nomes). Os nomes das caixas aparecem a partir do zoom 17 (o POP
+**Elementos** (painel da direita): a lista fica recolhida; clique na **seta para baixo** ao lado de **Elementos**
+para abri-la flutuando abaixo do painel (clique de novo, fora dela ou tecle Esc para fechar). Nela você liga e
+desliga **Datacenters, POPs, Torres, CEOs, CTOs, Condomínios, Postes, Clientes**, **Cabos backbone, distribuição e
+drop**, **Áreas**, **Enlaces wireless**, **Rótulos** (nomes) e **Confirmar ao mover**. Os nomes das caixas aparecem a partir do zoom 17 (o POP
 aparece sempre).
 
 **Buscar** (barra lateral): digite parte do nome de uma caixa, cliente ou cabo e clique no resultado; o mapa vai
@@ -239,7 +241,7 @@ aparece com um **estilo próprio**, que não se confunde com cabos nem drops: li
 larga translúcida, com um **ícone de rádio** (círculo com ondas) no meio. A cor é **rosa** quando as duas pontas têm o
 rádio cadastrado e **âmbar** quando só uma tem. Passe o mouse na linha ou no ícone para ver as pontas, a distância e a
 frequência. Para esconder setores e
-enlaces, desmarque **Cobertura e enlaces wireless** no painel da direita. Os **relatórios** contam os equipamentos
+enlaces, desmarque **Enlaces wireless** no painel da direita. Os **relatórios** contam os equipamentos
 wireless por tipo e os enlaces PtP.
 
 **Mover (arrastar)**: com **Selecionar**, clique e arraste qualquer elemento (POP, datacenter, torre, CEO, CTO, poste, cliente ou condomínio).
