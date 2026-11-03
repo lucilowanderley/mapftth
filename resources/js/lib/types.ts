@@ -144,6 +144,12 @@ export type DiagramComponent =
   | ({ id: string; kind: 'dio'; name: string; ports: number; cables?: string[]; model?: string; x: number; y: number } & RackMount & ModelRef)
   /** Equipamento ativo (switch, roteador, BNG...). Portas "e1..eN", só cordões. */
   | ({ id: string; kind: 'active'; name: string; type: string; ports: number; groups?: PortGroup[]; lags?: PortLag[]; mgmt?: MgmtAccess; model?: string; x: number; y: number } & RackMount & ModelRef)
+  /**
+   * Cliente (assinante) no diagrama da CTO/CEO: recebe a fibra (porta "in"), normalmente de uma saída de splitter.
+   * node_id = cliente do mapa vinculado (o orçamento dele no mapa usa este caminho quando não há cabo drop).
+   * flip = porta do lado direito do cartão.
+   */
+  | { id: string; kind: 'client'; name: string; node_id?: number | null; flip?: boolean; x: number; y: number }
   /** Rack do POP: de piso ou suspenso (parede), com altura em U (ex.: 44U, 48U). */
   | { id: string; kind: 'rack'; name: string; mount: RackMountType; units: number; loc?: RackLocation; x: number; y: number };
 

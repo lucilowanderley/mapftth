@@ -573,9 +573,10 @@ como um bloco (*de POP...* / *para CTO...*), com as fibras nas cores ABNT.
 | conector | **Conector** (C) | Ligar duas portas cria uma **emenda por conector/acoplador** (soma a perda de conector). |
 | ↔ | **Passagem** (P) | A fibra atravessa a caixa **sem emenda e sem perda** (sangria). Linha tracejada. |
 | ◁ | **Splitter** (S) | Adiciona um splitter (veja abaixo). |
+| pessoa | **Cliente** (K) | Adiciona um cliente (assinante) no diagrama, para ligar a uma saída de splitter (veja abaixo). |
 | varinha | **Auto-fusão** | Funde as fibras em sequência entre dois cabos. |
 | camadas | **Bandejas** (B) | Cria as bandejas de emenda da caixa e vincula os tubos loose dos cabos a cada uma (veja abaixo). |
-| ↻ | **Girar** (R) | Splitter: gira **90°** a cada clique (entrada à esquerda, em cima, à direita, embaixo). Cabo: passa para o outro lado. |
+| ↻ | **Girar** (R) | Splitter: gira **90°** a cada clique (entrada à esquerda, em cima, à direita, embaixo). Cabo: passa para o outro lado. Cliente: a porta troca de lado. |
 | ⧉ | **Duplicar** (Ctrl+D) | Cria uma cópia do splitter selecionado. |
 | lixeira | **Apagar** (Delete) | Apaga a emenda, o splitter ou as emendas do cabo selecionado. |
 | borracha | **Limpar** | Apaga todas as emendas e passagens da caixa (pede confirmação; dá para desfazer). |
@@ -625,6 +626,20 @@ O sistema não deixa ligar duas portas do mesmo elemento nem uma porta que já e
 
 Para remover um splitter, selecione o bloco e clique em **Apagar** (lixeira). Num bloco de cabo, **Apagar**
 remove só as emendas desse cabo nesta caixa (o cabo em si se exclui no mapa).
+
+**Cliente no diagrama**
+
+1. Clique em **Cliente** (ou tecla **K**).
+2. Se o cliente já existe no mapa, escolha-o em **Cliente do mapa** (a lista mostra os mais próximos da caixa
+   primeiro; os que já estão ligados em outro diagrama aparecem desabilitados). O nome é preenchido sozinho.
+   Também dá para criar um cliente só no diagrama, sem vínculo.
+3. O cartão do cliente (com o ícone da casa) aparece no diagrama. Ligue uma **saída do splitter** (ou uma fibra)
+   à porta do cliente com **Emenda** ou **Conector**.
+4. O cartão mostra a **potência que chega no cliente** (dBm, na cor do nível: OK, atenção, crítico ou sinal alto).
+   Clique no cliente para ver a perda total e a porta PON de origem. Use **Editar** (ou duplo clique) para
+   trocar o nome ou o vínculo, e **Trocar lado da porta** (tecla **R**) para virar a porta para o outro lado.
+5. Quando o cliente do mapa **não tem cabo drop**, a potência dele no mapa (painel do cliente, análise de rede)
+   passa a ser calculada por este caminho do diagrama.
 
 **Bandejas de emenda e tubos loose**
 
