@@ -549,6 +549,7 @@ como um bloco (*de POP...* / *para CTO...*), com as fibras nas cores ABNT.
 | ↔ | **Passagem** (P) | A fibra atravessa a caixa **sem emenda e sem perda** (sangria). Linha tracejada. |
 | ◁ | **Splitter** (S) | Adiciona um splitter (veja abaixo). |
 | varinha | **Auto-fusão** | Funde as fibras em sequência entre dois cabos. |
+| camadas | **Bandejas** (B) | Cria as bandejas de emenda da caixa e vincula os tubos loose dos cabos a cada uma (veja abaixo). |
 | ↻ | **Girar** (R) | Splitter: gira **90°** a cada clique (entrada à esquerda, em cima, à direita, embaixo). Cabo: passa para o outro lado. |
 | ⧉ | **Duplicar** (Ctrl+D) | Cria uma cópia do splitter selecionado. |
 | lixeira | **Apagar** (Delete) | Apaga a emenda, o splitter ou as emendas do cabo selecionado. |
@@ -599,6 +600,28 @@ O sistema não deixa ligar duas portas do mesmo elemento nem uma porta que já e
 
 Para remover um splitter, selecione o bloco e clique em **Apagar** (lixeira). Num bloco de cabo, **Apagar**
 remove só as emendas desse cabo nesta caixa (o cabo em si se exclui no mapa).
+
+**Bandejas de emenda e tubos loose**
+
+Nos cabos com vários tubos (24, 36, 48 FO...; 12 fibras por tubo, conforme o modelo do cabo) você organiza
+cada tubo na sua bandeja, como na caixa real.
+
+1. Clique em **Bandejas** (ou tecla **B**).
+2. Escolha a capacidade (12, 16, 24, 36, 48 ou 72 fusões) e clique em **+ Bandeja**. Crie quantas precisar.
+3. Com a bandeja selecionada à esquerda, clique nos **tubos** dos cabos (ex.: *Tubo 2 Amarelo · FO 13–24*) para
+   vinculá-los. Clicar de novo desvincula. Cada tubo fica em **uma bandeja só**: clicar num tubo que está em
+   outra bandeja muda ele de bandeja.
+4. Ali também dá para **renomear**, mudar a **capacidade** ou **apagar** a bandeja (as emendas continuam).
+
+No diagrama:
+
+- Cada bandeja aparece como um cartão com o nome, a **ocupação** (*7/24 fusões*, com barra verde, amarela perto
+  de lotar e **vermelha quando passa da capacidade**) e a lista dos tubos vinculados.
+- Uma **linha tracejada na cor do tubo** liga a faixa do tubo (na borda externa do cartão do cabo) à bandeja.
+- Contam na ocupação as emendas por fusão e por conector das fibras dos tubos vinculados. Passagens não contam.
+- Ao selecionar uma emenda, o quadro mostra em qual bandeja ela está. A dica de cada fibra também mostra.
+- Arraste o cartão para mudar a bandeja de lugar. Duplo clique nele abre a janela de bandejas. Para apagar,
+  selecione e use **Apagar** (Delete). **Organizar** empilha as bandejas abaixo dos cabos.
 
 <a id="auto-fusão"></a>
 **Auto-fusão** (sangria e emendas em sequência)
