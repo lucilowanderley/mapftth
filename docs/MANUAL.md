@@ -683,6 +683,11 @@ perda na hora. Passe o mouse sobre uma emenda para ver o tipo e a perda. Tudo po
 3. O splitter aparece no diagrama. Ligue a **entrada (E)** a uma fibra do cabo que chega e as **saídas (1, 2, 3...)**
    às fibras que saem (drops ou outros cabos).
 4. Splitters conectorizados (APC/UPC) somam também a perda de conector no orçamento.
+5. Para **editar ou trocar o tipo** de um splitter já colocado, dê um **duplo clique** nele. Na janela
+   **Editar splitter** dá para mudar o **nome** (ex.: SPL-01) e escolher outro modelo (balanceado ou
+   desbalanceado, RF, AC APC ou AC UPC). As ligações continuam nas mesmas saídas. Se o novo modelo tiver
+   **menos saídas**, a janela avisa quais ligações serão apagadas (dá para desfazer com **Ctrl+Z**). A potência
+   e o orçamento são recalculados na hora.
 
 Para remover um splitter, selecione o bloco e clique em **Apagar** (lixeira). Num bloco de cabo, **Apagar**
 remove só as emendas desse cabo nesta caixa (o cabo em si se exclui no mapa).
