@@ -619,6 +619,7 @@ como um bloco (*de POP...* / *para CTO...*), com as fibras nas cores ABNT.
 | ↔ | **Passagem** (P) | A fibra atravessa a caixa **sem emenda e sem perda** (sangria). Linha tracejada. |
 | ◁ | **Splitter** (S) | Adiciona um splitter (veja abaixo). |
 | pessoa | **Cliente** (K) | Adiciona um cliente (assinante) no diagrama, para ligar a uma saída de splitter (veja abaixo). |
+| rota | **Rota** (O) | Com um **cabo** (ou a **emenda de uma fibra** dele) selecionado, junta tudo o que vem à frente dele num objeto **Rota** recolhido (veja abaixo). Com uma rota selecionada, o botão vira **Expandir rota / Recolher rota**. |
 | varinha | **Auto-fusão** | Funde as fibras em sequência entre dois cabos. |
 | camadas | **Bandejas** (B) | Cria as bandejas de emenda da caixa e vincula os tubos loose dos cabos a cada uma (veja abaixo). |
 | ↻ | **Girar** (R) | Splitter: gira **90°** a cada clique (entrada à esquerda, em cima, à direita, embaixo). Cabo: passa para o outro lado. Cliente: a porta troca de lado. |
@@ -778,6 +779,30 @@ No diagrama (**bandeja aberta**):
 
 Para mover a bandeja, arraste o cartão. Para apagar, selecione e use **Apagar** (Delete): o tubo volta a mostrar
 as FO no cartão do cabo e as emendas continuam. **Organizar** empilha as bandejas entre os cabos.
+
+<a id="rota"></a>
+**Rota: recolher tudo o que vem à frente de um cabo**
+
+Numa caixa com muitos splitters e clientes, a **Rota** junta num cartão só tudo o que deriva de um cabo, como os
+equipamentos recolhidos num rack do POP.
+
+1. Selecione o **cabo** (clique no cartão do cabo) para pegar tudo o que sai de **todas as fibras** dele, ou
+   selecione a **emenda de uma fibra** (ex.: *Cabo A · FO 1 Verde → 1:8 RF*) para pegar só o que vem daquela fibra.
+2. Clique em **Rota** na barra (ou tecla **O**). O sistema segue a luz a partir do cabo: entra nos splitters pela
+   entrada, segue pelas saídas (splitters em cascata também) e chega nos **clientes** e **drops**. Cabos que saem
+   da caixa (para outra CTO) são o limite da rota e continuam fora dela.
+3. Esses objetos viram um cartão **Rota** recolhido (nome, de onde parte, quantos splitters e clientes, o **pior
+   sinal** entre os clientes e a lista dos objetos). As fibras que entram e saem do grupo chegam nas laterais do
+   cartão, com as emendas no lugar.
+
+- **Expandir**: clique na setinha do cartão, dê **duplo clique** nele ou use **Expandir rota** na barra. Os objetos
+  voltam para o diagrama dentro de uma **moldura tracejada** com o nome da rota. **Arrastar a aba** da moldura
+  move o grupo todo. A setinha da aba (ou duplo clique nela) **recolhe** de novo, e o cartão fica onde o grupo estava.
+- A rota não guarda uma lista fixa: o que for **ligado depois** à frente do cabo entra nela sozinho, e o que for
+  desligado sai.
+- Selecionada, a rota mostra um painel onde dá para **renomear** (ex.: *Rota Rua das Flores*), expandir/recolher
+  e **Desfazer rota** (Delete): só o grupo some, os splitters, clientes e emendas continuam no diagrama.
+- Selecionar o mesmo cabo (ou a mesma fibra) e clicar em **Rota** de novo abre ou recolhe a rota que já existe.
 
 <a id="auto-fusão"></a>
 **Auto-fusão** (sangria e emendas em sequência)
@@ -1035,6 +1060,7 @@ Ao salvar, todos os sinais, cores e relatórios são recalculados.
 | **Botão direito** no cabo | Mapa | Menu: Editar, Conectar a caixa, poste ou POP, Conectar caixas no traçado, Excluir. |
 | **Esc** no modo conectar | Mapa | Sai do modo (mesmo que **Concluir**). |
 | **Delete** | Diagrama | Remove a fusão ou o bloco selecionado. |
+| **O** | Diagrama | Cria a rota do cabo (ou da fibra) selecionado; com uma rota selecionada, expande ou recolhe. |
 | **Esc** | Diagrama | Cancela a porta selecionada. |
 | **Rolar o mouse** | Diagrama | Zoom. |
 | **Ctrl+Z** | Editor do POP | Desfaz a última alteração. |

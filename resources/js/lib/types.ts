@@ -191,7 +191,12 @@ export type DiagramComponent =
    */
   | { id: string; kind: 'client'; name: string; node_id?: number | null; flip?: boolean; x: number; y: number; client_code?: string | null; onu_serial?: string | null; segment?: 'residential' | 'business' | 'corporate' | null; rx_dbm?: number | null; rx_at?: string | null }
   /** Rack do POP: de piso ou suspenso (parede), com altura em U (ex.: 44U, 48U). */
-  | { id: string; kind: 'rack'; name: string; mount: RackMountType; units: number; loc?: RackLocation; x: number; y: number };
+  | { id: string; kind: 'rack'; name: string; mount: RackMountType; units: number; loc?: RackLocation; x: number; y: number }
+  /**
+   * Rota do diagrama da CTO/CEO: agrupa os objetos à frente do cabo (cable = "c12") ou de uma fibra dele (fiber = "f3").
+   * Recolhida (open false) vira um cartão em x/y; expandida, os objetos aparecem com uma moldura em volta.
+   */
+  | { id: string; kind: 'route'; name: string; cable: string; fiber?: string | null; open?: boolean; x: number; y: number };
 
 /** Ponta de uma conexão: componente ("c12" = cabo 12, ou id do componente) e porta. */
 export interface End {
