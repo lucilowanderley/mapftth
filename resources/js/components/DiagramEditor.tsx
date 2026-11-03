@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
-import { POWER_COLORS, powerLevel, traceUpstream, type BudgetResult } from '../lib/budget';
+import { POWER_COLORS, clientBudget, powerLevel, traceUpstream, type BudgetResult } from '../lib/budget';
 import { DIO_SIZES, OLT_MODELS, SPLITTER_MODELS, STATUSES, fiberColor, splitterModel, tubeColor } from '../lib/catalog';
 import { cableLetter, curvePath, laneSegment, polylinePath, routeOrthogonal, spliceAnchor, textOn, type Pt } from '../lib/splice';
 import { TRAY_CAPACITIES, cableRows, rowsHeight, trayPorts, type CableRow, pruneTrays, toggleTube, trayOfConnection, trayOfFiber, trayUsage, tubeCount, tubeFibers, tubeKey } from '../lib/tray';
@@ -65,7 +65,24 @@ type Tool = 'fuse' | 'connector' | 'pass';
 
 /** Racks só existem no editor de POP e não entram no diagrama de fusão. */
 type BoxComponent = Exclude<DiagramComponent, { kind: 'rack' }>;
-type Block = { key: string; kind: 'cable'; cable: Cable; x: number; y: number; side: 'left' | 'right'; label: string; letter: string; rows: CableRow[] } | (BoxComponent & { key: string });
+type Block =
+  | {
+      key: string;
+      kind: 'cable';
+      cable: Cable;
+      x: number;
+      y: number;
+      side: 'left' | 'right';
+      label: string;
+      letter: string;
+      rows: CableRow[];
+      /** Cabo drop que vai até um cliente do mapa: desenhado como o objeto Cliente (o drop é a própria linha). */
+      client?: NetNode;
+    }
+  | (BoxComponent & { key: string });
+
+/** Drop até um cliente: ponta do cartão do cliente (porta voltada para o centro do diagrama). */
+const dropHeight = (n: number) => Math.max(CLIENT_H, n * ROW + 16);
 
 interface Port {
   end: End;
@@ -83,10 +100,13 @@ interface Port {
 // Ids de componentes começam com "k" para nunca colidir com cabos ("c{id}").
 const uid = () => `k${Math.random().toString(36).slice(2, 9)}`;
 const sameEnd = (a: End, b: End) => a.c === b.c && a.p === b.p;
+/** Cliente desenhado no diagrama ou cliente do mapa ligado por drop. */
+const isClientBlock = (b: Block) => b.kind === 'client' || (b.kind === 'cable' && !!b.client);
 
 function blockSize(b: Block): { w: number; h: number } {
   switch (b.kind) {
     case 'cable':
+      if (b.client) return { w: CLIENT_W, h: dropHeight(b.cable.fiber_count) };
       return { w: CABLE_W, h: HEADER + rowsHeight(b.rows) + 6 };
     case 'splitter': {
       const n = splitterModel(b.model).outputs;
@@ -109,6 +129,19 @@ function blockPorts(b: Block): Port[] {
       // As fibras ficam na borda voltada para o centro do diagrama.
       // Fibras de tubos vinculados a uma bandeja viram portas da bandeja (não aparecem no cabo).
       const right = b.side === 'left';
+      if (b.client) {
+        // Drop até o cliente: uma porta por fibra na lateral do cartão do cliente.
+        const n = b.cable.fiber_count;
+        const top = b.y + (h - n * ROW) / 2;
+        return Array.from({ length: n }, (_, i) => ({
+          end: { c: b.key, p: `f${i + 1}` },
+          x: right ? b.x + w : b.x,
+          y: top + (i + 0.5) * ROW,
+          dir: (right ? 1 : -1) as 1 | -1,
+          color: fiberColor(i + 1, b.cable.fibers_per_tube).hex,
+          label: n > 1 ? String(i + 1) : '',
+        }));
+      }
       return b.rows.flatMap((r) =>
         r.kind === 'fiber'
           ? [
@@ -214,9 +247,13 @@ interface Props {
   onShowBudget: (title: string, result: BudgetResult) => void;
   /** Acesso de leitura: permite explorar o diagrama, mas não salvar. */
   readOnly?: boolean;
+  /** Exclui o cabo do projeto (some do mapa e de todas as caixas). true quando excluiu. */
+  onDeleteCable?: (cable: Cable) => Promise<boolean>;
+  /** Cliente do mapa alterado direto pelo diagrama (cliente ligado por drop). */
+  onNodeSaved?: (n: NetNode) => void;
 }
 
-export default function DiagramEditor({ node, network, onClose, onSaved, onShowBudget, readOnly }: Props) {
+export default function DiagramEditor({ node, network, onClose, onSaved, onShowBudget, readOnly, onDeleteCable, onNodeSaved }: Props) {
   const [diagram, setDiagram] = useState<Diagram>(() => {
     const d = structuredClone(node.diagram ?? emptyDiagram());
     // Clientes vinculados ao mapa: ID, serial e tipo vêm do cliente do mapa (podem ter sido editados lá).
@@ -243,6 +280,10 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const [jointEdit, setJointEdit] = useState<string | null>(null);
   /** Splitter aberto no editor (duplo clique). */
   const [splitterEdit, setSplitterEdit] = useState<string | null>(null);
+  /** Cabo selecionado para apagar (só emendas ou o cabo inteiro). */
+  const [cableDelete, setCableDelete] = useState<string | null>(null);
+  /** Drop de cliente aberto para editar os dados do cliente do mapa. */
+  const [dropClientEdit, setDropClientEdit] = useState<string | null>(null);
   const [showPower, setShowPower] = useState(true);
   const [tool, setTool] = useState<Tool>('fuse');
   const [route, setRoute] = useState<RouteStyle>(() => {
@@ -264,6 +305,12 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
 
   const cables = useMemo(() => network.cables.filter((c) => c.from_node_id === node.id || c.to_node_id === node.id), [network.cables, node.id]);
   const nodeName = (id: number | null) => network.nodes.find((n) => n.id === id)?.name ?? 'ponta solta';
+  /** Cliente do mapa na outra ponta do cabo (drop): o cartão mostra o cliente, não o cabo. */
+  const dropClientOf = (c: Cable): NetNode | undefined => {
+    const other = c.from_node_id === node.id ? c.to_node_id : c.from_node_id;
+    const n = network.nodes.find((x) => x.id === other);
+    return n?.type === 'client' && c.from_node_id !== c.to_node_id ? n : undefined;
+  };
 
   const remember = (d: Diagram) => {
     past.current = [...past.current.slice(-(HISTORY_MAX - 1)), structuredClone(d)];
@@ -338,11 +385,12 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         label: incoming ? `de ${nodeName(c.from_node_id)}` : `para ${nodeName(c.to_node_id)}`,
         letter: cableLetter(i),
         rows,
+        client: dropClientOf(c),
       };
     });
     return [...cableBlocks, ...diagram.components.filter((c): c is BoxComponent => c.kind !== 'rack').map((c) => ({ ...c, key: c.id }))];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cables, diagram, node.id]);
+  }, [cables, diagram, node.id, network.nodes]);
 
   // Bandeja aberta: as FO dos tubos vinculados viram portas nas laterais da bandeja.
   const trayGeo = useMemo(() => {
@@ -400,8 +448,12 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const clientPower = useMemo(() => {
     const map = new Map<string, BudgetResult>();
     diagram.components.filter((c) => c.kind === 'client').forEach((c) => map.set(c.id, traceUpstream(liveNetwork, node.id, { c: c.id, p: 'in' })));
+    // Clientes do mapa ligados por drop: a potência que chega neles pelo drop.
+    blocks.forEach((b) => {
+      if (b.kind === 'cable' && b.client) map.set(b.key, clientBudget(liveNetwork, b.client));
+    });
     return map;
-  }, [diagram, liveNetwork, node.id]);
+  }, [diagram, liveNetwork, node.id, blocks]);
 
   // Sinal medido × estimado de cada cliente do diagrama: saúde e trecho provável do problema.
   const clientSignal = useMemo(() => {
@@ -414,8 +466,15 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       const key = c.node_id ? `n${c.node_id}` : `d${node.id}:${c.id}`;
       map.set(c.id, analyzeSignal(liveNetwork, { key, measured: c.rx_dbm, measuredAt: c.rx_at, budget }, peers));
     });
+    blocks.forEach((b) => {
+      if (b.kind !== 'cable' || !b.client) return;
+      const budget = clientPower.get(b.key);
+      if (!budget) return;
+      const data = clientDataOf(b.client.attributes);
+      map.set(b.key, analyzeSignal(liveNetwork, { key: `n${b.client.id}`, measured: data.rx_dbm, measuredAt: data.rx_at, budget }, peers));
+    });
     return map;
-  }, [diagram, liveNetwork, clientPower, node.id]);
+  }, [diagram, liveNetwork, clientPower, node.id, blocks]);
 
   // ---------- Interação ----------
   const toWorld = (clientX: number, clientY: number) => {
@@ -533,9 +592,9 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         connections: d.connections.filter((c) => c.a.c !== selected.key && c.b.c !== selected.key),
       }));
     } else {
-      // Cabo: só remove as fusões (o cabo em si é excluído no mapa).
-      if (!confirm('Remover todas as fusões deste cabo nesta caixa?')) return;
-      update((d) => ({ ...d, connections: d.connections.filter((c) => c.a.c !== selected.key && c.b.c !== selected.key) }));
+      // Cabo: pergunta se apaga só as emendas nesta caixa ou o cabo inteiro (do mapa).
+      setCableDelete(selected.key);
+      return;
     }
     setSelected(null);
   }
@@ -776,6 +835,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const describe = (e: End) => {
     const b = blocks.find((x) => x.key === e.c);
     if (!b) return e.p;
+    if (b.kind === 'cable' && b.client) return `Cliente ${b.client.name} (drop${b.cable.fiber_count > 1 ? ` · FO ${e.p.slice(1)}` : ''})`;
     if (b.kind === 'cable') {
       const t = trayOfFiber(diagram, cables, e.c, e.p);
       return `Cabo ${b.letter} · FO ${e.p.slice(1)} ${fiberColor(Number(e.p.slice(1)), b.cable.fibers_per_tube).name}${t ? ` · ${t.name}` : ''}`;
@@ -929,7 +989,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         <IconTool icon={<Copy size={16} />} label="Duplicar splitter (Ctrl+D)" onClick={duplicateSelected} disabled={selBlock?.kind !== 'splitter'} />
         <IconTool
           icon={<Trash2 size={16} />}
-          label={selConn ? (selConn.pass ? 'Apagar passagem (Delete)' : 'Apagar emenda (Delete)') : selBlock?.kind === 'cable' ? 'Apagar as emendas deste cabo (Delete)' : 'Apagar o selecionado (Delete)'}
+          label={selConn ? (selConn.pass ? 'Apagar passagem (Delete)' : 'Apagar emenda (Delete)') : selBlock?.kind === 'cable' ? 'Apagar emendas ou o cabo (Delete)' : 'Apagar o selecionado (Delete)'}
           onClick={removeSelected}
           disabled={!selected}
           danger
@@ -1002,6 +1062,26 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                     <path d={d} fill="none" stroke={isSel ? '#facc15' : '#0f172a'} strokeWidth={isSel ? 6 : 4} strokeOpacity={isSel ? 1 : 0.55} strokeLinejoin="round" />
                     <path d={d} fill="none" stroke={color} strokeWidth={2.4} strokeDasharray={c.pass ? '6 4' : undefined} strokeLinejoin="round" />
                     {splice && (c.joint === 'connector' ? <ConnectorMark x={splice.x} y={splice.y} vertical={splice.vertical} selected={isSel} /> : <SpliceMark x={splice.x} y={splice.y} vertical={splice.vertical} selected={isSel} />)}
+                    {(() => {
+                      // Drop até o cliente do mapa: a própria linha é o drop, com o nome e o comprimento.
+                      const drop = [c.a, c.b].map((e) => cableBlockOf(e.c)).find((x) => x?.client);
+                      if (!drop) return null;
+                      // Rótulo no trecho que chega no cliente (longe das saídas do splitter).
+                      const line = pts ?? [a, b];
+                      const atB = cableBlockOf(c.b.c)?.client !== undefined;
+                      const [p1, p2] = atB ? [line[line.length - 2], line[line.length - 1]] : [line[1], line[0]];
+                      const best = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+                      const text = `${drop.cable.name} · ${Math.round(drop.cable.length_m ?? 0)} m`;
+                      const tw = text.length * 4.6 + 10;
+                      return (
+                        <g pointerEvents="none">
+                          <rect x={best.x - tw / 2} y={best.y - 22} width={tw} height={12} rx={6} fill="#ffffff" stroke={color} strokeWidth={0.8} />
+                          <text x={best.x} y={best.y - 13.5} fontSize={7.5} textAnchor="middle" fill="#0f172a" fontWeight="bold">
+                            {text}
+                          </text>
+                        </g>
+                      );
+                    })()}
                   </g>
                 );
               })}
@@ -1060,9 +1140,9 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   block={b}
                   selected={selected?.kind === 'block' && selected.key === b.key}
                   onPointerDown={(e) => onPointerDown(e, b.key)}
-                  power={b.kind === 'client' ? clientPower.get(b.key) : undefined}
-                  signal={b.kind === 'client' ? clientSignal.get(b.key) : undefined}
-                  powerColor={b.kind === 'client' ? POWER_COLORS[powerLevel(clientPower.get(b.key)?.power ?? null, network.settings)] : undefined}
+                  power={isClientBlock(b) ? clientPower.get(b.key) : undefined}
+                  signal={isClientBlock(b) ? clientSignal.get(b.key) : undefined}
+                  powerColor={isClientBlock(b) ? POWER_COLORS[powerLevel(clientPower.get(b.key)?.power ?? null, network.settings)] : undefined}
                   linkedName={b.kind === 'client' && b.node_id ? network.nodes.find((n) => n.id === b.node_id)?.name : undefined}
                   onDoubleClick={
                     b.kind === 'client' && !readOnly
@@ -1072,7 +1152,9 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                         }
                       : b.kind === 'splitter'
                         ? () => setSplitterEdit(b.key)
-                        : undefined
+                        : b.kind === 'cable' && b.client && !readOnly
+                          ? () => setDropClientEdit(b.key)
+                          : undefined
                   }
                 />
               ))}
@@ -1503,7 +1585,14 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
           });
           const options = network.nodes
             .filter((n) => n.type === 'client')
-            .map((n) => ({ id: n.id, name: n.name, m: distance([node.lat, node.lng], [n.lat, n.lng]), used: used.has(n.id), data: clientDataOf(n.attributes) }))
+            // Cliente com cabo drop no mapa já aparece na caixa pelo drop: não vincula de novo.
+            .map((n) => ({
+              id: n.id,
+              name: n.name,
+              m: distance([node.lat, node.lng], [n.lat, n.lng]),
+              used: used.has(n.id) || network.cables.some((c) => c.from_node_id === n.id || c.to_node_id === n.id),
+              data: clientDataOf(n.attributes),
+            }))
             .sort((a, b) => a.m - b.m);
           return (
             <ClientDialog
@@ -1580,6 +1669,94 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
               onTubes={() => setDialog('trays')}
               onClose={() => setDialog(null)}
             />
+          );
+        })()}
+      {dropClientEdit &&
+        (() => {
+          const blk = blocks.find((b): b is Extract<Block, { kind: 'cable' }> => b.key === dropClientEdit && b.kind === 'cable');
+          const cl = blk?.client;
+          if (!blk || !cl) return null;
+          const serials = new Map<string, string>();
+          liveNetwork.nodes.forEach((n) => {
+            if (n.type === 'client' && n.id !== cl.id) {
+              const sn = clientDataOf(n.attributes).onu_serial;
+              if (sn) serials.set(normalizeSerial(sn), n.name);
+            }
+          });
+          return (
+            <ClientDialog
+              initial={{ id: blk.key, kind: 'client', name: cl.name, node_id: cl.id, x: 0, y: 0, ...clientDataOf(cl.attributes) }}
+              fixed={`Cliente do mapa ligado a esta caixa pelo drop ${blk.cable.name} (${Math.round(blk.cable.length_m ?? 0)} m). As alterações são salvas no cliente do mapa.`}
+              count={0}
+              options={[]}
+              serialsInUse={serials}
+              onClose={() => setDropClientEdit(null)}
+              onSave={async (name, _nodeId, data) => {
+                try {
+                  const r = await api.updateNode(cl.id, { name, attributes: { ...(cl.attributes ?? {}), ...data } });
+                  onNodeSaved?.(r.node);
+                  setDropClientEdit(null);
+                } catch (err) {
+                  setError(errorMessage(err));
+                }
+              }}
+            />
+          );
+        })()}
+      {cableDelete &&
+        (() => {
+          const blk = blocks.find((b): b is Extract<Block, { kind: 'cable' }> => b.key === cableDelete && b.kind === 'cable');
+          if (!blk) return null;
+          const key = blk.key;
+          const splices = diagram.connections.filter((c) => c.a.c === key || c.b.c === key).length;
+          return (
+            <Modal title={`Apagar ${blk.cable.name}`} onClose={() => setCableDelete(null)}>
+              <div className="space-y-3 text-sm">
+                {blk.client ? (
+                  <p className="text-slate-300">
+                    Este é o cliente <b>{blk.client.name}</b> do mapa, ligado a esta caixa pelo drop <b>{blk.cable.name}</b>. O que você quer apagar?
+                  </p>
+                ) : (
+                  <p className="text-slate-300">
+                    Este cartão é um <b>cabo do mapa</b> que chega nesta caixa ({blk.label}). O que você quer apagar?
+                  </p>
+                )}
+                <button
+                  className="w-full text-left rounded-md border border-slate-700 hover:bg-slate-800 px-3 py-2 cursor-pointer disabled:opacity-50"
+                  disabled={!splices}
+                  onClick={() => {
+                    update((d) => ({ ...d, connections: d.connections.filter((c) => c.a.c !== key && c.b.c !== key) }));
+                    setCableDelete(null);
+                    setSelected(null);
+                  }}
+                >
+                  <div className="font-medium">{blk.client ? 'Só a ligação do drop nesta caixa' : 'Só as emendas deste cabo nesta caixa'}</div>
+                  <div className="text-xs text-slate-400">{splices ? `${splices} emenda(s). O cabo continua no mapa.` : 'Este cabo não tem emendas aqui.'}</div>
+                </button>
+                {onDeleteCable && (
+                  <button
+                    className="w-full text-left rounded-md border border-red-800 hover:bg-red-950/50 px-3 py-2 cursor-pointer"
+                    onClick={async () => {
+                      if (!(await onDeleteCable(blk.cable))) return;
+                      // Tira o cabo do diagrama em edição também (o servidor já removeu das caixas salvas).
+                      update((d) => {
+                        const { [key]: _gone, ...cablePos } = d.cablePos;
+                        return { ...d, cablePos, connections: d.connections.filter((c) => c.a.c !== key && c.b.c !== key) };
+                      });
+                      setCableDelete(null);
+                      setSelected(null);
+                    }}
+                  >
+                    <div className="font-medium text-red-300">{blk.client ? 'Excluir o drop do projeto' : 'Excluir o cabo do projeto'}</div>
+                    <div className="text-xs text-slate-400">
+                      {blk.client
+                        ? 'O cabo drop some do mapa e desta caixa. O cliente continua no mapa. Não dá para desfazer com Ctrl+Z.'
+                        : 'Some do mapa e de todas as caixas, com as emendas dele. Não dá para desfazer com Ctrl+Z.'}
+                    </div>
+                  </button>
+                )}
+              </div>
+            </Modal>
           );
         })()}
       {splitterEdit &&
@@ -1766,6 +1943,8 @@ function BlockView({
   powerColor,
   signal,
   linkedName,
+  via,
+  size,
 }: {
   block: Block;
   selected: boolean;
@@ -1779,8 +1958,40 @@ function BlockView({
   signal?: SignalAnalysis;
   /** Cliente: nome do cliente do mapa vinculado. */
   linkedName?: string;
+  /** Cliente do mapa ligado por drop: texto no lugar do vínculo (ex.: "drop 35 m"). */
+  via?: string;
+  /** Tamanho fixo (drop com mais de uma fibra). */
+  size?: { w: number; h: number };
 }) {
-  const { w, h } = blockSize(b);
+  if (b.kind === 'cable' && b.client) {
+    // Drop até um cliente do mapa: o cartão é o próprio cliente (dados do mapa); o drop é a linha.
+    const data = clientDataOf(b.client.attributes);
+    const meters = Math.round(b.cable.length_m ?? 0);
+    return (
+      <BlockView
+        block={{
+          key: b.key,
+          id: b.key,
+          kind: 'client',
+          name: b.client.name,
+          node_id: b.client.id,
+          x: b.x,
+          y: b.y,
+          flip: b.side === 'left',
+          ...data,
+        }}
+        size={blockSize(b)}
+        selected={selected}
+        onPointerDown={onPointerDown}
+        onDoubleClick={onDoubleClick}
+        power={power}
+        powerColor={powerColor}
+        signal={signal}
+        via={`drop ${meters} m`}
+      />
+    );
+  }
+  const { w, h } = size ?? blockSize(b);
   const stroke = selected ? '#eab308' : '#94a3b8';
   const sw = selected ? 2.5 : 1;
 
@@ -1802,7 +2013,7 @@ function BlockView({
     const ix = b.flip ? b.x + 8 : b.x + w - 34;
     const tx = b.flip ? b.x + 42 : b.x + 10;
     const cut = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
-    const kind = linkedName ? `${CLIENT_SEGMENTS[seg]} · ↔ ${linkedName}` : CLIENT_SEGMENTS[seg];
+    const kind = via ? `${CLIENT_SEGMENTS[seg]} · ${via}` : linkedName ? `${CLIENT_SEGMENTS[seg]} · ↔ ${linkedName}` : CLIENT_SEGMENTS[seg];
     return (
       <g onPointerDown={onPointerDown} onDoubleClick={onDoubleClick} className="cursor-move">
         <rect x={b.x} y={b.y} width={w} height={h} rx={6} fill="#f0fdfa" stroke={selected ? '#eab308' : '#0f766e'} strokeWidth={sw} />
@@ -2148,8 +2359,11 @@ function ClientDialog({
   serialsInUse,
   onClose,
   onSave,
+  fixed,
 }: {
   initial?: Extract<DiagramComponent, { kind: 'client' }>;
+  /** Cliente do mapa já definido (ligado por drop): mostra este texto no lugar da escolha. */
+  fixed?: string;
   count: number;
   options: { id: number; name: string; m: number; used: boolean; data: ClientData }[];
   /** Seriais já usados por outros clientes (serial normalizado → nome do cliente). */
@@ -2172,6 +2386,9 @@ function ClientDialog({
   return (
     <Modal title={initial ? 'Editar cliente' : 'Adicionar cliente'} onClose={onClose} width="max-w-sm">
       <div className="space-y-3">
+        {fixed ? (
+          <p className="text-xs text-sky-300">{fixed}</p>
+        ) : (
         <Field label="Cliente do mapa (opcional)">
           <select
             className="input"
@@ -2197,11 +2414,12 @@ function ClientDialog({
             {options.map((o) => (
               <option key={o.id} value={o.id} disabled={o.used}>
                 {o.name} · {fmt(o.m)}
-                {o.used ? ' · já ligado' : ''}
+                {o.used ? ' · já ligado (drop ou outra caixa)' : ''}
               </option>
             ))}
           </select>
         </Field>
+        )}
         <Field label="Nome">
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
@@ -2262,10 +2480,12 @@ function ClientDialog({
         {sn && !dup && !looksLikeGponSerial(sn) && (
           <p className="text-xs text-slate-400">Formato diferente do usual (4 letras do fabricante + 8 dígitos hexadecimais, ex.: HWTC1A2B3C4D).</p>
         )}
+        {!fixed && (
         <p className="text-xs text-slate-400">
           Depois, ligue uma saída de splitter (ou uma fibra) à porta do cliente com Emenda ou Conector. A potência que chega nele aparece no cartão
           {nodeId ? ' e no cliente do mapa. O ID, o serial e o tipo também são gravados no cliente do mapa ao salvar o diagrama' : ''}.
         </p>
+        )}
         <button
           className="btn-primary w-full"
           disabled={!name.trim() || rxBad}
