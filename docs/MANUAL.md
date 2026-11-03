@@ -642,8 +642,9 @@ No diagrama (**bandeja aberta**):
 
 - Quando um tubo é vinculado, o **cabo deixa de mostrar as 12 FO desse tubo** e fica só com a **derivação do tubo
   loose**: uma linha *Tubo 1 Verde · FO 1–12 → Bandeja 1* e uma linha grossa na cor do tubo até a bandeja.
-- As FO do tubo viram **portas da bandeja**: as dos cabos que estão à esquerda ficam no lado esquerdo, as dos
-  cabos à direita no lado direito (ex.: 12 conexões de cada lado).
+- As FO do tubo viram **portas da bandeja**: as dos cabos desenhados à esquerda da bandeja ficam no lado esquerdo,
+  as dos cabos à direita no lado direito (ex.: 12 conexões de cada lado). Arrastar um cabo para o outro lado da
+  bandeja muda o lado das FO dele. Se todos os cabos estiverem do mesmo lado, o mais à esquerda vai para a esquerda.
 - As **emendas dentro da bandeja aparecem no próprio cartão**, com o tubete de fusão (ou o conector). **FO
   cruzadas** (ex.: 3 → 5) aparecem com o traço desviando e a emenda em **amarelo**.
 - O cabeçalho mostra a **ocupação** (*11/12 fusões*: verde, amarela perto de lotar, **vermelha acima da
