@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Crypt;
 
 class NetworkNode extends Model
 {
-    public const TYPES = ['cto', 'ceo', 'pop', 'dc', 'tower', 'pole', 'client', 'condo', 'camera'];
+    public const TYPES = ['cto', 'ceo', 'box', 'pop', 'dc', 'tower', 'pole', 'client', 'condo', 'camera'];
 
     public const STATUSES = ['planned', 'not_deployed', 'deployed', 'certified'];
 

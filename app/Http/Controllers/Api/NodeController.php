@@ -188,6 +188,12 @@ class NodeController extends Controller
                 'attributes.segment' => ['nullable', Rule::in(NetworkNode::CLIENT_SEGMENTS)],
                 'attributes.rx_dbm' => ['nullable', 'numeric', 'between:-60,10'],
                 'attributes.rx_at' => ['nullable', 'date'],
+                // CTO/CEO: fixada num poste, numa parede ou dentro de uma caixa. Caixa: parede/subterrânea, interna/externa.
+                'attributes.fixed_kind' => ['nullable', Rule::in(['pole', 'wall', 'box'])],
+                'attributes.fixed_id' => ['nullable', 'integer'],
+                'attributes.box_kind' => ['nullable', Rule::in(['wall', 'underground'])],
+                'attributes.box_place' => ['nullable', Rule::in(['internal', 'external'])],
+                'attributes.address' => ['nullable', 'string', 'max:500'],
                 // Câmera / DVR
                 'attributes.cam_kind' => ['nullable', Rule::in(['ip', 'analog', 'dvr'])],
                 'attributes.host' => ['nullable', 'string', 'max:253', 'regex:/^(\[?[0-9A-Fa-f:.]+\]?|[A-Za-z0-9.-]+)$/'],
@@ -278,7 +284,7 @@ class NodeController extends Controller
 
     private function prefix(string $type): string
     {
-        return ['cto' => 'CTO', 'ceo' => 'CEO', 'pop' => 'POP', 'dc' => 'DC', 'tower' => 'TR', 'pole' => 'P', 'client' => 'Cliente', 'condo' => 'Cond', 'camera' => 'CAM'][$type];
+        return ['cto' => 'CTO', 'ceo' => 'CEO', 'box' => 'CX', 'pop' => 'POP', 'dc' => 'DC', 'tower' => 'TR', 'pole' => 'P', 'client' => 'Cliente', 'condo' => 'Cond', 'camera' => 'CAM'][$type];
     }
 
     private function nextName(Project $project, string $type): string

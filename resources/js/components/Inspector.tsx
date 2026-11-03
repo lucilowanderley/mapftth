@@ -6,12 +6,14 @@ import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, POWER_LABEL, powerLevel, type BudgetResult } from '../lib/budget';
 import { BOX_TYPES, CABLE_CATEGORIES, CABLE_MODELS, CONDO_KINDS, LINE_STYLES, NODE_TYPES, SLACK_KINDS, STATUSES, effectiveLineStyle, lineDash } from '../lib/catalog';
-import type { CameraAttributes, Cable, CableCategory, CondoAttributes, CondoKind, LatLng, LineStyle, NetNode, Slack, SlackKind, PoleAttributes, Settings, Status, TowerAttributes, TowerKind, TowerRadio } from '../lib/types';
+import type { BoxAttributes, FixAttributes, CameraAttributes, Cable, CableCategory, CondoAttributes, CondoKind, LatLng, LineStyle, NetNode, Slack, SlackKind, PoleAttributes, Settings, Status, TowerAttributes, TowerKind, TowerRadio } from '../lib/types';
 import { RADIO_HOST_TYPES, TOWER_KINDS, radiosOf } from '../lib/tower';
 import RadiosEditor from './RadiosEditor';
 import { CameraDevice, CameraFields } from './CameraEditor';
 import { CAMERA_KINDS, cameraOf } from '../lib/camera';
 import { POLE_MATERIALS } from './PolesModal';
+import { BoxFields, FixationFields } from './FixationEditor';
+import { FIXABLE_TYPES, boxNeedsAddress, fixationIssue, fixedOn } from '../lib/fixation';
 import { cablesNear } from '../lib/analysis';
 import CableLossField, { lossRateText, parseLossRate } from './CableLossField';
 import { Field, formatLength } from './ui';
@@ -52,6 +54,8 @@ interface Props {
   onToggleGroup?: (n: NetNode) => void;
   /** Seleciona outro objeto do mapa (ex.: câmera de um canal do DVR). */
   onSelectNode?: (n: NetNode) => void;
+  /** Lança uma CTO/CEO dentro da caixa. */
+  onAddInBox?: (box: NetNode, type: 'cto' | 'ceo') => void;
 }
 
 /** Foca e seleciona o campo quando focusKey muda (duplo clique no mapa). */
@@ -157,6 +161,7 @@ function NodeForm({
   focusKey,
   onLocate,
   onSelectNode,
+  onAddInBox,
 }: Props & { node: NetNode }) {
   const nameRef = useFocusOn(focusKey);
   const [lat, setLat] = useState(formatCoord(node.lat));
@@ -192,6 +197,15 @@ function NodeForm({
     return { cam_kind: 'ip', ...rest };
   });
   const setCam = (patch: CameraAttributes) => setCamera((c) => ({ ...c, ...patch }));
+  // CTO/CEO: onde está fixada (poste, parede ou caixa). Caixa: tipo, local e endereço.
+  const fixable = FIXABLE_TYPES.includes(node.type);
+  const [fix, setFix] = useState<FixAttributes>(() => {
+    const a = (node.attributes ?? {}) as FixAttributes;
+    return { fixed_kind: a.fixed_kind, fixed_id: a.fixed_id, address: a.address };
+  });
+  const setFx = (patch: FixAttributes) => setFix((f) => ({ ...f, ...patch }));
+  const [box, setBox] = useState<BoxAttributes>(() => ({ box_kind: 'underground', box_place: 'external', ...((node.attributes as BoxAttributes) ?? {}) }));
+  const setBx = (patch: BoxAttributes) => setBox((b) => ({ ...b, ...patch }));
   const [camPassword, setCamPassword] = useState('');
   const [camClear, setCamClear] = useState(false);
   const dec = (v: string) => (v.trim() === '' ? undefined : Math.max(0, Number(v.replace(',', '.')) || 0));
@@ -205,6 +219,12 @@ function NodeForm({
     const pos = parseLatLng(lat, lng);
     if (typeof pos === 'string') return onError(pos);
     const moved = Math.abs(pos[0] - node.lat) > 1e-9 || Math.abs(pos[1] - node.lng) > 1e-9;
+    // Toda CTO/CEO precisa estar fixada (poste, parede ou caixa); parede/caixa em imóvel pede o endereço.
+    if (fixable) {
+      const issue = fixationIssue({ ...node, attributes: { ...(node.attributes ?? {}), ...fix } }, nodes);
+      if (issue) return onError(issue);
+    }
+    if (node.type === 'box' && boxNeedsAddress(box) && !(box.address ?? '').trim()) return onError('Caixa de parede ou interna: informe o endereço do imóvel.');
     setSaving(true);
     try {
       const r = await api.updateNode(node.id, {
@@ -226,6 +246,8 @@ function NodeForm({
               }
             : {}),
           ...(node.type === 'pole' ? pole : {}),
+          ...(fixable ? { fixed_kind: fix.fixed_kind ?? null, fixed_id: fix.fixed_kind === 'wall' ? null : (fix.fixed_id ?? null), address: (fix.address ?? '').trim() || null } : {}),
+          ...(node.type === 'box' ? { ...box, address: (box.address ?? '').trim() || null } : {}),
           ...(node.type === 'condo' ? condo : {}),
           ...(node.type === 'tower' ? tower : {}),
           ...(hasRadios ? { radios } : {}),
@@ -458,6 +480,8 @@ function NodeForm({
               onClearPassword={setCamClear}
             />
           )}
+          {fixable && <FixationFields node={node} nodes={nodes} value={fix} onChange={setFx} />}
+          {node.type === 'box' && <BoxFields node={node} nodes={nodes} value={box} onChange={setBx} onSelect={onSelectNode} onAdd={!readOnly && onAddInBox ? (t) => onAddInBox(node, t) : undefined} />}
           {hasRadios && <RadiosEditor node={node} nodes={nodes} radios={radios} onChange={setRadios} readOnly={readOnly} />}
           {node.type === 'condo' && (
             <>
@@ -544,6 +568,19 @@ function NodeForm({
               <Field label="Distribuidora / proprietário">
                 <input className="input" value={pole.owner ?? ''} onChange={(e) => setP({ owner: e.target.value })} />
               </Field>
+              {fixedOn(node, nodes).length > 0 && (
+                <div className="text-xs text-slate-400">
+                  Fixadas neste poste:{' '}
+                  {fixedOn(node, nodes).map((n, i) => (
+                    <span key={n.id}>
+                      {i > 0 && ', '}
+                      <button type="button" className="text-sky-400 hover:underline cursor-pointer" onClick={() => onSelectNode?.(n)}>
+                        {n.name}
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="text-xs text-slate-400">Cabos neste poste: {cablesHere.length ? cablesHere.map((c) => c.name).join(', ') : 'nenhum'}</div>
             </>
           )}

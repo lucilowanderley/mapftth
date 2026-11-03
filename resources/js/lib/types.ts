@@ -1,4 +1,4 @@
-export type NodeType = 'cto' | 'ceo' | 'pop' | 'dc' | 'tower' | 'pole' | 'client' | 'condo' | 'camera';
+export type NodeType = 'cto' | 'ceo' | 'box' | 'pop' | 'dc' | 'tower' | 'pole' | 'client' | 'condo' | 'camera';
 export type Status = 'planned' | 'not_deployed' | 'deployed' | 'certified';
 export type CableCategory = 'backbone' | 'distribution' | 'drop';
 export type LatLng = [number, number];
@@ -396,6 +396,29 @@ export interface PoleAttributes extends Record<string, unknown> {
   load_dan?: number;
   owner?: string;
   structure?: string;
+}
+
+/** Caixa: de parede ou subterrânea, dentro (interna) ou fora (externa) de um imóvel. */
+export type BoxKind = 'wall' | 'underground';
+export type BoxPlace = 'internal' | 'external';
+
+export interface BoxAttributes extends Record<string, unknown> {
+  box_kind?: BoxKind;
+  box_place?: BoxPlace;
+  /** Modelo / tamanho (ex.: R1, R2, quadro de parede 40x40). */
+  model?: string;
+  address?: string;
+}
+
+/** Onde a CTO/CEO está fixada: num poste, numa parede (de um imóvel) ou dentro de uma caixa. */
+export type FixKind = 'pole' | 'wall' | 'box';
+
+export interface FixAttributes extends Record<string, unknown> {
+  fixed_kind?: FixKind;
+  /** Poste ou caixa onde está fixada (fixed_kind pole/box). */
+  fixed_id?: number;
+  /** Endereço do imóvel (parede, ou caixa dentro de imóvel). */
+  address?: string;
 }
 
 /** Câmera: IP (rede), analógica/HD (ligada a um canal de DVR) ou o próprio gravador DVR/NVR. */

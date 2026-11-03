@@ -15,7 +15,7 @@ class KmlService
     /** Distância máxima (m) para ligar a ponta de um cabo a uma caixa. */
     private const SNAP_METERS = 15;
 
-    private const TYPE_LABELS = ['pop' => 'POPs', 'dc' => 'Datacenters', 'tower' => 'Torres', 'ceo' => 'CEOs', 'cto' => 'CTOs', 'pole' => 'Postes', 'client' => 'Clientes', 'condo' => 'Condomínios', 'camera' => 'Câmeras'];
+    private const TYPE_LABELS = ['pop' => 'POPs', 'dc' => 'Datacenters', 'tower' => 'Torres', 'ceo' => 'CEOs', 'cto' => 'CTOs', 'box' => 'Caixas', 'pole' => 'Postes', 'client' => 'Clientes', 'condo' => 'Condomínios', 'camera' => 'Câmeras'];
 
     private const CATEGORY_LABELS = ['backbone' => 'Cabos backbone', 'distribution' => 'Cabos distribuição', 'drop' => 'Cabos drop'];
 
@@ -140,7 +140,7 @@ class KmlService
         $e = fn ($s) => htmlspecialchars((string) $s, ENT_XML1 | ENT_QUOTES, 'UTF-8');
 
         $styles = '';
-        foreach (['pop' => 'ff7c3aed', 'dc' => 'ff88940d', 'tower' => 'ff5e3ff4', 'ceo' => 'ffe9a50e', 'cto' => 'ff1673f9', 'pole' => 'ffb8a394', 'client' => 'ff5ec522', 'condo' => 'ffef46d9', 'camera' => 'ff08b3ea'] as $type => $abgr) {
+        foreach (['pop' => 'ff7c3aed', 'dc' => 'ff88940d', 'tower' => 'ff5e3ff4', 'ceo' => 'ffe9a50e', 'cto' => 'ff1673f9', 'box' => 'fff16663', 'pole' => 'ffb8a394', 'client' => 'ff5ec522', 'condo' => 'ffef46d9', 'camera' => 'ff08b3ea'] as $type => $abgr) {
             $styles .= "<Style id=\"node-{$type}\"><IconStyle><color>{$abgr}</color><scale>0.9</scale>"
                 .'<Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon></IconStyle></Style>';
         }
@@ -229,6 +229,7 @@ class KmlService
         return match (true) {
             (bool) preg_match('/\bctos?\b|caixa de (atendimento|termina)/', $context) => 'cto',
             (bool) preg_match('/\bceos?\b|emenda/', $context) => 'ceo',
+            (bool) preg_match('/caixa (de )?(passagem|subterr|parede)|\bcx\b|\bcaixas?\b/u', $context) => 'box',
             (bool) preg_match('/data ?cent(er|ro)s?/', $context) => 'dc',
             (bool) preg_match('/\bpops?\b|\bolts?\b/', $context) => 'pop',
             (bool) preg_match('/condom[ií]nio|edif[ií]cio|residencial/iu', $context) => 'condo',

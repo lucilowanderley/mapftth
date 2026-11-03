@@ -3,6 +3,7 @@ import { POWER_COLORS, POWER_LABEL, powerLevel, type BudgetResult, type PowerLev
 import { NODE_TYPES, splitterModel } from '../lib/catalog';
 import type { Cable, NetNode, Settings } from '../lib/types';
 import { Modal, formatLength } from './ui';
+import { fixationIssue } from '../lib/fixation';
 
 export default function NetworkAnalysis({
   nodes,
@@ -43,6 +44,9 @@ export default function NetworkAnalysis({
     });
     return { box: b, total, used };
   });
+
+  // CTO/CEO sem fixação (poste, parede ou caixa) ou sem o endereço do imóvel.
+  const unfixed = nodes.map((n) => ({ node: n, issue: fixationIssue(n, nodes) })).filter((x) => x.issue);
 
   return (
     <Modal title="Análise de rede" onClose={onClose} width="max-w-3xl">
@@ -97,6 +101,22 @@ export default function NetworkAnalysis({
         </tbody>
       </table>
       {clients.length === 0 && <p className="text-sm text-slate-500 mt-3">Nenhum cliente cadastrado.</p>}
+
+      {unfixed.length > 0 && (
+        <>
+          <div className="label mt-6 text-amber-300">CTO/CEO com fixação pendente ({unfixed.length})</div>
+          <div className="grid sm:grid-cols-2 gap-2">
+            {unfixed.map(({ node, issue }) => (
+              <button key={node.id} onClick={() => onFocus(node)} className="rounded-md bg-slate-950 p-2 text-left text-sm cursor-pointer hover:bg-slate-800">
+                <div>
+                  <span className="text-xs text-slate-400">{NODE_TYPES[node.type].label}</span> {node.name}
+                </div>
+                <div className="text-xs text-amber-300/90">{issue}</div>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       <div className="label mt-6">Ocupação das {NODE_TYPES.cto.plural}</div>
       <div className="grid sm:grid-cols-2 gap-2">

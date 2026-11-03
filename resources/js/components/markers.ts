@@ -12,7 +12,12 @@ const SHAPES: Record<NetNode['type'], (fill: string, ring: string) => string> = 
   // Torre: estrutura treliçada com ondas de rádio no topo.
   tower: (f, r) =>
     `<rect x="2" y="2" width="20" height="20" rx="5" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M12 8.5L8.5 19M12 8.5l3.5 10.5M9.6 15.5h4.8M10.6 12.5h2.8M9.2 17.5l5.2-2M14.8 17.5l-5.2-2" stroke="white" stroke-width="1.4" fill="none" stroke-linecap="round"/><circle cx="12" cy="7.5" r="1.3" fill="white"/><path d="M8.6 4.6a4.5 4.5 0 0 0 0 5.8M15.4 4.6a4.5 4.5 0 0 1 0 5.8" stroke="white" stroke-width="1.3" fill="none" stroke-linecap="round"/>`,
-  pole: (f, r) => `<circle cx="12" cy="12" r="6" fill="${f}" stroke="${r}" stroke-width="2.5"/>`,
+  // Poste: haste com cruzeta, isoladores e fios (desenho escuro sobre o fundo cinza, fácil de ver em qualquer mapa).
+  pole: (f, r) =>
+    `<circle cx="12" cy="12" r="10.2" fill="${f}" stroke="${r}" stroke-width="2"/><path d="M12 4.6V19.6M6.4 8h11.2M8.2 11.6h7.6M9.6 19.6h4.8" stroke="#1e293b" stroke-width="2" stroke-linecap="round"/><path d="M7.2 8V6.3M16.8 8V6.3M12 8V6.3" stroke="#1e293b" stroke-width="1.6" stroke-linecap="round"/><path d="M4 7.2q3.2 1.5 3.2-.9M20 7.2q-3.2 1.5-3.2-.9" stroke="#1e293b" stroke-width=".9" fill="none"/>`,
+  // Caixa subterrânea: tampa de ferro com grelha, vista de cima.
+  box: (f, r) =>
+    `<rect x="2.5" y="2.5" width="19" height="19" rx="2" fill="${f}" stroke="${r}" stroke-width="2.5"/><rect x="5.5" y="5.5" width="13" height="13" rx="1" fill="#1e293b"/><path d="M8.5 7.5v9M12 7.5v9M15.5 7.5v9" stroke="white" stroke-width="1.6" stroke-linecap="round"/>`,
   client: (f, r) => `<circle cx="12" cy="12" r="9" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M8 13l4-4 4 4v4H8z" fill="white"/>`,
   // Condomínio de prédios: dois blocos com janelas.
   condo: (f, r) =>
@@ -25,6 +30,10 @@ const SHAPES: Record<NetNode['type'], (fill: string, ring: string) => string> = 
 /** Gravador DVR/NVR: caixa com LEDs e conectores. */
 const CAMERA_DVR = (f: string, r: string) =>
   `<rect x="2" y="2" width="20" height="20" rx="6" fill="${f}" stroke="${r}" stroke-width="2.5"/><rect x="4.5" y="8" width="15" height="8" rx="1.5" fill="white"/><circle cx="7.3" cy="12" r="1" fill="${f}"/><circle cx="10.1" cy="12" r="1" fill="${f}"/><path d="M12.8 12h4.4" stroke="${f}" stroke-width="1.4" stroke-linecap="round"/><path d="M7 18.5v-2.5M17 18.5v-2.5" stroke="white" stroke-width="1.4"/>`;
+
+/** Caixa de parede: caixa com porta e a parede hachurada à esquerda. */
+const BOX_WALL = (f: string, r: string) =>
+  `<rect x="2.5" y="2.5" width="19" height="19" rx="2" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M5.5 5v14M5.5 7.5l-1.5 1.5M5.5 11l-1.5 1.5M5.5 14.5l-1.5 1.5" stroke="white" stroke-width="1.3" stroke-linecap="round"/><rect x="8.5" y="6" width="10" height="12" rx="1" fill="white"/><circle cx="16.3" cy="12" r="1" fill="${f}"/>`;
 
 /** Ponto de situação da câmera (canto superior direito): verde online, vermelho sem resposta. */
 const healthDot = (color: string) =>
@@ -50,7 +59,7 @@ const groupRing = (size: number) => {
 const groupBadge = (count: number) =>
   `<div class="group-badge" style="position:absolute;right:-9px;top:-9px;min-width:17px;height:17px;padding:0 4px;border-radius:9999px;background:#facc15;color:#0f172a;border:1.5px solid #0f172a;font:700 10px/14px system-ui,sans-serif;text-align:center;pointer-events:none;box-shadow:0 1px 2px rgba(0,0,0,.5)">+${count > 999 ? '999' : count}</div>`;
 
-const SIZES: Record<NetNode['type'], number> = { cto: 24, ceo: 24, pop: 30, dc: 32, tower: 30, pole: 14, client: 20, condo: 28, camera: 22 };
+const SIZES: Record<NetNode['type'], number> = { cto: 24, ceo: 24, box: 24, pop: 30, dc: 32, tower: 30, pole: 22, client: 20, condo: 28, camera: 22 };
 
 /**
  * Os ícones ficam em cache: devolver sempre a mesma instância evita que o Leaflet
@@ -70,7 +79,8 @@ export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: strin
   const houses = node.type === 'condo' && node.attributes?.condo_kind === 'houses';
   const seg = node.type === 'client' ? node.attributes?.segment : undefined;
   const dvr = node.type === 'camera' && node.attributes?.cam_kind === 'dvr';
-  const variant = houses ? '-h' : dvr ? '-dvr' : seg === 'business' || seg === 'corporate' ? `-${seg}` : '';
+  const wallBox = node.type === 'box' && node.attributes?.box_kind === 'wall';
+  const variant = houses ? '-h' : dvr ? '-dvr' : wallBox ? '-wall' : seg === 'business' || seg === 'corporate' ? `-${seg}` : '';
   const group = opts.group;
   const key = `${node.type}${variant}|${fill}|${ring}|${opts.selected ? 1 : 0}|${group ?? ''}|${opts.dot ?? ''}`;
   const hit = cache.get(key);
@@ -78,7 +88,7 @@ export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: strin
   const glow = opts.selected ? 'filter:drop-shadow(0 0 6px #facc15);' : 'filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));';
   const icon = L.divIcon({
     className: 'node-marker',
-    html: `${group !== undefined ? groupRing(size) : ''}<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}${group !== undefined ? 'position:relative;' : ''}">${(houses ? CONDO_HOUSES : dvr ? CAMERA_DVR : variant === '-business' ? CLIENT_BUSINESS : variant === '-corporate' ? CLIENT_CORPORATE : SHAPES[node.type])(fill, ring)}</svg>${group !== undefined ? groupBadge(group) : ''}${opts.dot ? healthDot(opts.dot) : ''}`,
+    html: `${group !== undefined ? groupRing(size) : ''}<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}${group !== undefined ? 'position:relative;' : ''}">${(houses ? CONDO_HOUSES : dvr ? CAMERA_DVR : wallBox ? BOX_WALL : variant === '-business' ? CLIENT_BUSINESS : variant === '-corporate' ? CLIENT_CORPORATE : SHAPES[node.type])(fill, ring)}</svg>${group !== undefined ? groupBadge(group) : ''}${opts.dot ? healthDot(opts.dot) : ''}`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
