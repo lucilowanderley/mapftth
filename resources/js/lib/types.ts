@@ -171,6 +171,18 @@ export interface Diagram {
   connections: Connection[];
   /** true quando os cards já foram organizados pelo editor de POP. */
   popLayout?: boolean;
+  /** Bandejas de emenda da CEO/CTO, com os tubos loose vinculados a cada uma. */
+  trays?: SpliceTray[];
+}
+
+/** Bandeja de emenda: capacidade em fusões e tubos loose vinculados ("c12:t2" = cabo 12, tubo 2). */
+export interface SpliceTray {
+  id: string;
+  name: string;
+  capacity: number;
+  tubes: string[];
+  x: number;
+  y: number;
 }
 
 export interface NetNode {
