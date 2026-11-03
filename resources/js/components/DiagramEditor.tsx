@@ -32,12 +32,14 @@ import { POWER_COLORS, powerLevel, traceUpstream, type BudgetResult } from '../l
 import { DIO_SIZES, OLT_MODELS, SPLITTER_MODELS, STATUSES, fiberColor, splitterModel, tubeColor } from '../lib/catalog';
 import { cableLetter, curvePath, laneSegment, polylinePath, routeOrthogonal, spliceAnchor, textOn, type Pt } from '../lib/splice';
 import { TRAY_CAPACITIES, cableRows, rowsHeight, trayPorts, type CableRow, pruneTrays, toggleTube, trayOfConnection, trayOfFiber, trayUsage, tubeCount, tubeFibers, tubeKey } from '../lib/tray';
-import type { Cable, Connection, Diagram, DiagramComponent, End, NetNode, Network, SpliceTray, Status } from '../lib/types';
+import type { Cable, Connection, Diagram, DiagramComponent, End, NetNode, Network, Settings, SpliceTray, Status } from '../lib/types';
 import { distance } from '../lib/geo';
 import { HEALTH_COLORS, HEALTH_LABEL, analyzeSignal, measuredClients, type SignalAnalysis } from '../lib/signal';
 import SignalHealthBox from './SignalHealthBox';
 import { CLIENT_SEGMENTS, SEGMENT_GLYPH, clientDataOf, looksLikeGponSerial, normalizeSerial, type ClientData, type ClientSegment } from '../lib/client';
 import { Field, Modal } from './ui';
+import JointForm from './JointForm';
+import { formatDb, jointLoss, jointName, jointLossSource } from '../lib/joints';
 
 const ROW = 14;
 const HEADER = 34;
@@ -237,6 +239,8 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const [trayFocus, setTrayFocus] = useState<string | null>(null);
   /** Cliente em edição na janela de cliente (null = novo cliente). */
   const [clientEdit, setClientEdit] = useState<string | null>(null);
+  /** Emenda aberta no editor de tipo e perda. */
+  const [jointEdit, setJointEdit] = useState<string | null>(null);
   const [showPower, setShowPower] = useState(true);
   const [tool, setTool] = useState<Tool>('fuse');
   const [route, setRoute] = useState<RouteStyle>(() => {
@@ -290,6 +294,11 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     setDirty(true);
     setSelected(null);
     setHistoryTick((t) => t + 1);
+  }
+
+  /** Troca uma emenda pela versão editada (tipo, conector, perda). */
+  function updateConnection(next: Connection) {
+    update((d) => ({ ...d, connections: d.connections.map((c) => (c.id === next.id ? next : c)) }));
   }
 
   function resetLane(id: string) {
@@ -980,7 +989,13 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                       e.stopPropagation();
                       setSelected({ kind: 'conn', key: c.id });
                     }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      setSelected({ kind: 'conn', key: c.id });
+                      if (!c.pass) setJointEdit(c.id);
+                    }}
                   >
+                    <title>{c.pass ? 'Passagem (sem perda)' : `${jointName(c)} · ${formatDb(jointLoss(c, network.settings))} (duplo clique para editar)`}</title>
                     <path d={d} fill="none" stroke="transparent" strokeWidth={10} />
                     <path d={d} fill="none" stroke={isSel ? '#facc15' : '#0f172a'} strokeWidth={isSel ? 6 : 4} strokeOpacity={isSel ? 1 : 0.55} strokeLinejoin="round" />
                     <path d={d} fill="none" stroke={color} strokeWidth={2.4} strokeDasharray={c.pass ? '6 4' : undefined} strokeLinejoin="round" />
@@ -1105,7 +1120,13 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                       e.stopPropagation();
                       setSelected({ kind: 'conn', key: c.id });
                     }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      setSelected({ kind: 'conn', key: c.id });
+                      if (!c.pass) setJointEdit(c.id);
+                    }}
                   >
+                    <title>{c.pass ? 'Passagem (sem perda)' : `${jointName(c)} · ${formatDb(jointLoss(c, network.settings))} (duplo clique para editar)`}</title>
                     <path d={d} fill="none" stroke="transparent" strokeWidth={8} />
                     <path d={d} fill="none" stroke={isSel ? '#facc15' : '#0f172a'} strokeWidth={isSel ? 5 : 3.6} strokeOpacity={isSel ? 1 : 0.5} strokeLinejoin="round" />
                     <path d={d} fill="none" stroke={left.color} strokeWidth={2} strokeDasharray={c.pass ? '5 3' : undefined} strokeLinejoin="round" />
@@ -1253,6 +1274,19 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
             <div className="mt-1">{describe(selConn.a)}</div>
             <div className="text-slate-400 text-xs">↕</div>
             <div>{describe(selConn.b)}</div>
+            {!selConn.pass && (
+              <div className="mt-1 text-xs">
+                <span className="text-slate-400">{jointName(selConn)} · perda </span>
+                <b className="font-mono">{formatDb(jointLoss(selConn, network.settings))}</b>
+                <span className="text-slate-500">
+                  {' '}
+                  ({jointLossSource(selConn) === 'manual' ? 'informada' : jointLossSource(selConn) === 'type' ? 'típica do tipo' : 'padrão do projeto'})
+                </span>{' '}
+                <button className="text-sky-400 hover:underline cursor-pointer" onClick={() => setJointEdit(selConn.id)}>
+                  {readOnly ? 'Detalhes…' : 'Tipo e perda…'}
+                </button>
+              </div>
+            )}
             {!readOnly && (
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
                 {(
@@ -1273,7 +1307,8 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                           ...d,
                           connections: d.connections.map((c) => {
                             if (c.id !== selConn.id) return c;
-                            const { pass: _p, joint: _j, ...rest } = c;
+                            if ((k === 'connector') === (c.joint === 'connector') && !c.pass && k !== 'pass') return c;
+                            const { pass: _p, joint: _j, spec: _s, loss_db: _l, ...rest } = c;
                             return k === 'pass' ? { ...rest, pass: true } : k === 'connector' ? { ...rest, joint: 'connector' as const } : rest;
                           }),
                         }))
@@ -1514,12 +1549,14 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                 update((d) => ({ ...d, connections: [...d.connections, { id: uid(), a, b, ...(joint === 'connector' ? { joint: 'connector' as const } : {}) }] }))
               }
               onRemove={(id) => update((d) => ({ ...d, connections: d.connections.filter((c) => c.id !== id) }))}
+              settings={network.settings}
+              onChangeConn={updateConnection}
               onToggleJoint={(id) =>
                 update((d) => ({
                   ...d,
                   connections: d.connections.map((c) => {
                     if (c.id !== id) return c;
-                    const { joint: _j, pass: _p, ...rest } = c;
+                    const { joint: _j, pass: _p, spec: _s, loss_db: _l, ...rest } = c;
                     return c.joint === 'connector' ? rest : { ...rest, joint: 'connector' as const };
                   }),
                 }))
@@ -1539,6 +1576,24 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
               onTubes={() => setDialog('trays')}
               onClose={() => setDialog(null)}
             />
+          );
+        })()}
+      {jointEdit &&
+        (() => {
+          const conn = diagram.connections.find((c) => c.id === jointEdit);
+          if (!conn) return null;
+          return (
+            <Modal title={conn.joint === 'connector' ? 'Conector / acoplador' : 'Emenda'} onClose={() => setJointEdit(null)}>
+              <div className="text-xs text-slate-400 mb-3">
+                {describe(conn.a)} ↔ {describe(conn.b)}
+              </div>
+              <JointForm conn={conn} settings={network.settings} readOnly={readOnly} onChange={(next) => updateConnection(next)} />
+              <div className="flex justify-end mt-4">
+                <button className="btn-primary" onClick={() => setJointEdit(null)}>
+                  Pronto
+                </button>
+              </div>
+            </Modal>
           );
         })()}
       {dialog === 'trays' && (
@@ -2227,6 +2282,8 @@ function TrayEditDialog({
   readOnly,
   onConnect,
   onRemove,
+  settings,
+  onChangeConn,
   onToggleJoint,
   onAuto,
   onClear,
@@ -2241,6 +2298,8 @@ function TrayEditDialog({
   readOnly?: boolean;
   onConnect: (a: End, b: End, joint: 'fusion' | 'connector') => void;
   onRemove: (id: string) => void;
+  settings: Settings;
+  onChangeConn: (c: Connection) => void;
   onToggleJoint: (id: string) => void;
   onAuto: () => void;
   onClear: () => void;
@@ -2376,6 +2435,11 @@ function TrayEditDialog({
           >
             Apagar emenda
           </button>
+        </div>
+      )}
+      {selConn && !selConn.pass && (
+        <div className="mt-3 border-t border-slate-800 pt-3">
+          <JointForm conn={selConn} settings={settings} readOnly={readOnly} onChange={onChangeConn} />
         </div>
       )}
     </Modal>

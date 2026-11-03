@@ -207,6 +207,10 @@ export interface Connection {
   pass?: boolean;
   /** Tipo de emenda no diagrama da CTO/CEO: fusão (padrão) ou conector/acoplador (soma a perda de conector). */
   joint?: 'fusion' | 'connector';
+  /** Tipo do conector/acoplador (ex.: "SC/APC") ou método da fusão ("core", "cladding", "mechanical"). */
+  spec?: string;
+  /** Perda informada para esta emenda (dB). Sem valor, usa a do tipo ou a padrão do projeto. */
+  loss_db?: number;
   /** Posição x da pista vertical da fibra no diagrama (ajuste manual do traçado em 90°). */
   lane?: number;
 }
