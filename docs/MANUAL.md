@@ -96,6 +96,9 @@ A tela tem quatro partes:
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
 
+A barra de ferramentas e o painel de camadas podem ser arrastados para outro lugar destravando o **cadeado** (veja
+**Cadeado** mais abaixo).
+
 **Mapa base** (painel da direita): clique em **Satélite**, **Ruas** ou **Relevo**. Abaixo dos botões aparece o
 **motor** de mapas em uso. O motor é escolhido em **Configurações** ([seção 21](#21-configurações-do-projeto)) e o
 padrão é o **OpenStreetMap**. O sistema lembra o último estilo e o último motor escolhidos neste navegador, mesmo
@@ -128,6 +131,15 @@ desliga **Datacenters, POPs, Torres, CEOs, CTOs, Condomínios, Postes, Clientes*
 drop**, **Áreas**, **Enlaces wireless**, **Rótulos** (nomes) e **Confirmar ao mover**. Os nomes das caixas aparecem a partir do zoom 17 (o POP
 aparece sempre).
 
+**Cadeado (mover as caixas)**: a barra de ferramentas e o painel da direita têm um **cadeado** no canto superior
+direito. Com o cadeado **fechado** (padrão) a caixa fica fixa. Clique nele para **abrir**: o cadeado fica amarelo, a
+borda da caixa também, e você pode **arrastar a caixa** para outro lugar do mapa (segure em qualquer ponto dela,
+até sobre um botão, e arraste). Clique de novo para fechar e fixar na nova posição. Ao lado do cadeado aparece
+a **seta circular** (Posição padrão), que devolve a caixa ao lugar original. A posição e o cadeado ficam salvos
+neste navegador (valem para todos os projetos), e a caixa nunca sai da área do mapa, mesmo ao diminuir a janela.
+Quando a barra de ferramentas é movida, os avisos e os campos que aparecem logo abaixo dela vão junto. Se o painel
+da direita for levado para a metade de baixo da tela, a lista de **Elementos** abre para cima.
+
 **Buscar** (barra lateral): digite parte do nome de uma caixa, cliente ou cabo e clique no resultado; o mapa vai
 até ele e já o seleciona. Também aceita coordenadas, como `-8.0476, -34.8770` (formato do Google Maps) ou
 `8°03'12"S 34°52'37"W`: clique em **Ir para coordenada** e o ponto fica marcado no mapa (**Limpar marcação** tira).
@@ -137,11 +149,11 @@ até ele e já o seleciona. Também aceita coordenadas, como `-8.0476, -34.8770`
 
 ### Agrupar objetos no mapa
 
-Para deixar o mapa mais limpo, você pode **recolher tudo o que está à frente de um objeto** (a jusante) e mostrar
+Para deixar o mapa mais limpo, você pode **recolher tudo o que está à frente de um objeto** e mostrar
 só ele:
 
 1. Com **Selecionar**, clique no POP, CEO, CTO (ou outro objeto) no mapa.
-2. No painel do objeto, clique em **Agrupar objetos a jusante**.
+2. No painel do objeto, clique em **Agrupar objetos à frente**.
 3. Somem do mapa todos os objetos e cabos que vêm depois dele pelos **cabos de saída e derivações** (CTOs, CEOs,
    clientes, drops, reservas e enlaces desses objetos). O cabo que **chega** no objeto continua visível.
 4. O ícone do objeto ganha um **anel amarelo tracejado** e um **selo** com a quantidade de objetos ocultos
@@ -150,10 +162,10 @@ só ele:
 Para mostrar tudo de novo, selecione o objeto agrupado e clique em **Desagrupar** (o botão mostra quantos estão
 ocultos). O ícone volta ao normal e os objetos voltam a ser desenhados.
 
-- O sentido "a jusante" é calculado pelos cabos a partir do POP, Datacenter ou Torre mais próximo, então não importa
+- O que fica "à frente" é calculado pelos cabos a partir do POP, Datacenter ou Torre mais próximo, então não importa
   o sentido em que o cabo foi desenhado. Em anel, o grupo não volta para o lado de cima. Numa rede ainda sem POP,
   o cabo de chegada é o que **termina** no objeto.
-- Os membros não ficam gravados: o que você ligar depois a jusante entra no grupo sozinho.
+- Os membros não ficam gravados: o que você ligar depois à frente entra no grupo sozinho.
 - Dá para ter vários grupos ao mesmo tempo, inclusive um dentro do outro.
 - Agrupar muda só a visualização: nada é apagado e não aparece no histórico. Fica salvo **neste navegador**, por
   projeto (outro computador ou outro usuário vê o mapa sem os grupos).
