@@ -165,15 +165,32 @@ export const DIO_TRAY = 12;
 export const ACTIVE_TYPES = ['Switch', 'Roteador', 'BNG / Concentrador', 'Servidor', 'Multiplex DWDM', 'Multiplex CWDM', 'Firewall', 'Nobreak / UPS', 'Patch panel UTP', 'Outro'];
 
 /** Tipos de porta de ativos (grupos de portas). */
-export const PORT_TYPES = ['RJ45', 'SFP', 'SFP+', 'SFP28', 'QSFP+', 'QSFP28', 'QSFP-DD', 'XFP', 'Canal DWDM', 'Canal CWDM', 'Linha / COM', 'Monitor', 'Console', 'Gerência (MGMT)', 'E1 / TDM', 'Outro'];
+/**
+ * Tipos de porta por categoria, com a capacidade típica (Gbps) sugerida ao escolher o tipo
+ * (null = sem capacidade de tráfego definida, como console).
+ */
+export const PORT_TYPE_GROUPS: { label: string; types: [string, number | null][] }[] = [
+  {
+    label: 'Ethernet (cobre)',
+    types: [['RJ45', 1], ['ETH 10/100', 0.1], ['RJ45 2.5G', 2.5], ['RJ45 5G', 5], ['RJ45 10G', 10], ['RJ45 PoE', 1]],
+  },
+  {
+    label: 'Óptico (módulos)',
+    types: [['SFP', 1], ['SFP+', 10], ['SFP28', 25], ['SFP56', 50], ['XFP', 10], ['QSFP+', 40], ['QSFP28', 100], ['QSFP56', 200], ['QSFP-DD', 400], ['OSFP', 800], ['CFP / CFP2', 100]],
+  },
+  { label: 'PON', types: [['GPON', 2.5], ['XG-PON', 10], ['XGS-PON', 10], ['Combo PON', 10], ['EPON', 1], ['10G-EPON', 10]] },
+  { label: 'WDM / transporte', types: [['Canal DWDM', 100], ['Canal CWDM', 10], ['Linha / COM', null], ['Monitor', null], ['Expansão / Upgrade', null], ['E1 / TDM', null]] },
+  { label: 'Gerência e outros', types: [['Gerência (MGMT)', 1], ['Console', null], ['USB', null], ['Outro', null]] },
+];
+
+/** Todos os tipos de porta da lista. */
+export const PORT_TYPES = PORT_TYPE_GROUPS.flatMap((g) => g.types.map(([t]) => t));
 
 /** Capacidades comuns por porta (Gbps). */
-export const PORT_SPEEDS = [0.1, 1, 2.5, 10, 25, 40, 100, 200, 400];
+export const PORT_SPEEDS = [0.1, 1, 2.5, 5, 10, 25, 40, 50, 100, 200, 400, 800];
 
 /** Capacidade típica por tipo de porta (Gbps), sugerida ao escolher o tipo. */
-export const PORT_TYPE_SPEED: Record<string, number> = {
-  RJ45: 1, SFP: 1, 'SFP+': 10, SFP28: 25, 'QSFP+': 40, QSFP28: 100, 'QSFP-DD': 400, XFP: 10, 'Canal DWDM': 100, 'Canal CWDM': 10, 'Gerência (MGMT)': 1,
-};
+export const PORT_TYPE_SPEED: Record<string, number | null> = Object.fromEntries(PORT_TYPE_GROUPS.flatMap((g) => g.types));
 
 /** Protocolos de gerência e a porta padrão de cada um. */
 export const MGMT_PROTOS: Record<MgmtProto, number> = { SSH: 22, HTTPS: 443, HTTP: 80, Telnet: 23, SNMP: 161, Winbox: 8291, API: 8728 };

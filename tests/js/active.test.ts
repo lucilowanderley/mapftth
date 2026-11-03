@@ -80,3 +80,16 @@ describe('gerência', () => {
     expect(mgmtLabel({})).toBe('');
   });
 });
+
+describe('tipos de porta', () => {
+  it('lista completa por categoria, com capacidade sugerida', async () => {
+    const { PORT_TYPES, PORT_TYPE_SPEED, PORT_TYPE_GROUPS } = await import('../../resources/js/lib/catalog');
+    for (const t of ['RJ45', 'ETH 10/100', 'SFP', 'SFP+', 'SFP28', 'QSFP+', 'QSFP28', 'GPON', 'XGS-PON', 'Console', 'Gerência (MGMT)', 'Canal DWDM']) expect(PORT_TYPES).toContain(t);
+    expect(new Set(PORT_TYPES).size).toBe(PORT_TYPES.length);
+    expect(PORT_TYPE_GROUPS.map((g) => g.label)).toContain('PON');
+    expect(PORT_TYPE_SPEED['SFP+']).toBe(10);
+    expect(PORT_TYPE_SPEED.GPON).toBe(2.5);
+    expect(PORT_TYPE_SPEED['ETH 10/100']).toBe(0.1);
+    expect(PORT_TYPE_SPEED.Console).toBeNull();
+  });
+});
