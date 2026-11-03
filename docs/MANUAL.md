@@ -446,9 +446,13 @@ cadastrou. Para cadastrar, clique em **Cadastrar** e preencha:
 - **Fabricante** e **Modelo**;
 - **OLT**: **Slots**, **PON/slot**, **Uplinks** e **TX dBm**; **DIO**: **Portas**; **Ativo**: **Tipo** e **Portas**;
 - **Altura (U)**: quantas unidades de rack o equipamento ocupa;
-- **Ativo**: **Grupos de portas** (opcional). Clique em **+ Grupo** e informe o **Tipo** de porta (RJ45, SFP, SFP+,
-  SFP28, QSFP28, Canal DWDM, Linha / COM, Gerência (MGMT)...), a **Qtd.** e a **Capacidade** de cada porta (100M,
-  1G, 10G, 25G, 100G...). Com grupos, o total de portas é a soma deles e a lista mostra, por exemplo,
+- **Ativo**: **Grupos de portas** (opcional). Clique em **+ Grupo** e escolha o **Tipo** de porta na lista, separada
+  por categoria: **Ethernet (cobre)** (RJ45, ETH 10/100, RJ45 2.5G/5G/10G, RJ45 PoE), **Óptico** (SFP, SFP+, SFP28,
+  SFP56, XFP, QSFP+, QSFP28, QSFP56, QSFP-DD, OSFP, CFP), **PON** (GPON, XG-PON, XGS-PON, Combo PON, EPON, 10G-EPON),
+  **WDM / transporte** (Canal DWDM, Canal CWDM, Linha / COM, Monitor, Expansão, E1 / TDM) e **Gerência e outros**
+  (Gerência (MGMT), Console, USB). Ao escolher o tipo, a **Capacidade** típica dele é preenchida (SFP+ 10G, GPON
+  2,5G...) e ainda pode ser trocada (100M a 800G). Para um tipo que não está na lista, escolha **Outro (digitar)...**
+  e escreva o nome. Informe também a **Qtd.**. Com grupos, o total de portas é a soma deles e a lista mostra, por exemplo,
   *48×RJ45 1G + 4×SFP+ 10G*.
 
 Os tipos de ativo são Switch, Roteador, BNG / Concentrador, **Servidor**, **Multiplex DWDM**, **Multiplex CWDM**,

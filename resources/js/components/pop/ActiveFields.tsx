@@ -1,6 +1,6 @@
 import { Layers, Plus, Tags, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { MGMT_PROTOS, PORT_SPEEDS, PORT_TYPES, PORT_TYPE_SPEED } from '../../lib/catalog';
+import { MGMT_PROTOS, PORT_SPEEDS, PORT_TYPE_GROUPS, PORT_TYPES, PORT_TYPE_SPEED } from '../../lib/catalog';
 import { formatVlanList, interfacesOf, lagPortSets, parseVlanList, validVlan, vlanIssues, vlanMembers, VLAN_MODES, type NetHost } from '../../lib/netcfg';
 import { groupsTotal, lagIssues, portsCapacity, speedLabel, uid, validMgmtHost } from '../../lib/pop';
 import type { MgmtAccess, MgmtProto, PortGroup, PortLag, PortVlan, Vlan, VlanMode } from '../../lib/types';
@@ -41,14 +41,9 @@ export function PortGroupsEditor({ groups, onChange, max = 576 }: { groups: Port
           </div>
           {groups.map((g, i) => (
             <div key={i} className="grid grid-cols-[minmax(0,1fr)_64px_84px_20px] gap-1.5 items-center">
-              <input
-                className="input !px-2 !py-1 text-xs"
-                list="port-types"
+              <PortTypeField
                 value={g.type}
-                onChange={(e) => {
-                  const type = e.target.value;
-                  set(i, { type, ...(PORT_TYPE_SPEED[type] !== undefined ? { speed: PORT_TYPE_SPEED[type] } : {}) });
-                }}
+                onChange={(type) => set(i, { type, ...(type in PORT_TYPE_SPEED ? { speed: PORT_TYPE_SPEED[type] } : {}) })}
               />
               <input type="number" min={1} max={max} className="input !px-2 !py-1 text-xs" value={g.count} onChange={(e) => set(i, { count: Math.min(max, int(e.target.value, 1)) })} />
               <select className="input !px-1 !py-1 text-xs" value={g.speed ?? ''} onChange={(e) => set(i, { speed: e.target.value === '' ? null : Number(e.target.value) })}>
@@ -68,12 +63,45 @@ export function PortGroupsEditor({ groups, onChange, max = 576 }: { groups: Port
           ))}
         </div>
       )}
-      <datalist id="port-types">
-        {PORT_TYPES.map((t) => (
-          <option key={t} value={t} />
-        ))}
-      </datalist>
     </div>
+  );
+}
+
+/** Tipo de porta: lista completa por categoria, ou um nome digitado ("Outro (digitar)..."). */
+function PortTypeField({ value, onChange }: { value: string; onChange: (t: string) => void }) {
+  const known = PORT_TYPES.includes(value);
+  const [typing, setTyping] = useState(!known && value !== '');
+  if (typing)
+    return (
+      <div className="flex gap-1 min-w-0">
+        <input autoFocus className="input !px-2 !py-1 text-xs min-w-0" placeholder="Nome do tipo" value={value} onChange={(e) => onChange(e.target.value)} />
+        <button type="button" title="Escolher da lista" className="text-[10px] text-emerald-400 hover:text-emerald-300 cursor-pointer shrink-0" onClick={() => setTyping(false)}>
+          lista
+        </button>
+      </div>
+    );
+  return (
+    <select
+      className="input !px-1 !py-1 text-xs min-w-0"
+      value={known ? value : ''}
+      onChange={(e) => {
+        if (e.target.value === '__custom') return setTyping(true);
+        onChange(e.target.value);
+      }}
+    >
+      {!known && <option value="">{value || '—'}</option>}
+      {PORT_TYPE_GROUPS.map((g) => (
+        <optgroup key={g.label} label={g.label}>
+          {g.types.map(([t, sp]) => (
+            <option key={t} value={t}>
+              {t}
+              {sp ? ` · ${speedLabel(sp)}` : ''}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+      <option value="__custom">Outro (digitar)...</option>
+    </select>
   );
 }
 
