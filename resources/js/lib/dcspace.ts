@@ -255,7 +255,7 @@ export function rackTargets(spaces: DcSpace[]): { id: string; label: string; cod
 // ---------- Layout no canvas ----------
 
 /** Medidas dos cartões de espaço (unidades do canvas). */
-export const SP = { HEAD: 44, PAD: 18, GAP: 28, CW: 300, CH: 112, EMPTY_H: 70 };
+export const SP = { HEAD: 44, PAD: 18, GAP: 28, CW: 340, CH: 112, EMPTY_H: 70 };
 
 /** Direção em que cada nível expandido arruma o que tem dentro. */
 const FLOW: Record<DcSpaceKind, 'down' | 'right'> = { site: 'down', floor: 'right', room: 'down', row: 'right' };

@@ -423,16 +423,17 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     setDirty(true);
   }
 
-  function onPointerUp() {
+  function onPointerUp(e?: React.PointerEvent) {
     const d = drag.current;
     drag.current = null;
     setPanning(false);
     // Rack solto arrastado para cima de uma fileira: entra nela, na próxima posição livre.
     const dropped = d?.moved && d.key ? diagram.components.find((c): c is Rack => c.id === d.key && isRack(c) && !c.space) : undefined;
-    if (dropped) {
-      const { w, h } = rackSize(dropped);
-      const cx = dropped.x + w / 2;
-      const cy = dropped.y + Math.min(h / 2, 120);
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (dropped && e && rect) {
+      // Onde o mouse soltou, no sistema do canvas.
+      const cx = (e.clientX - rect.left - view.x) / view.k;
+      const cy = (e.clientY - rect.top - view.y) / view.k;
       const row = [...layout.order].reverse().map((id) => spaces.find((x) => x.id === id)!).find((sp) => {
         const b = sp?.kind === 'row' ? layout.boxes.get(sp.id) : undefined;
         return b && cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h;
@@ -544,7 +545,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     const oldCode = rackCode(r.loc);
     update((d) =>
       openPath(
-        { ...d, components: d.components.map((c) => (c.id === r.id && isRack(c) ? { ...c, space: sid, loc, name: !oldCode || c.name === oldCode ? rackCode(loc) || c.name : c.name } : c)) },
+        { ...d, components: d.components.map((c) => (c.id === r.id && isRack(c) ? { ...c, space: sid, loc, name: oldCode && c.name === oldCode ? rackCode(loc) || c.name : c.name } : c)) },
         sid,
       ),
     );
@@ -2091,10 +2092,12 @@ function SpaceCard({ space: sp, box: b, code, stats, loose, highlight, readOnly,
         <span style={{ color: col }} className="shrink-0">
           {SPACE_ICON[sp.kind]}
         </span>
-        <span className="text-[10px] font-semibold uppercase tracking-wide shrink-0" style={{ color: col }}>
-          {meta.label}
-        </span>
-        <span className="text-sm font-semibold truncate" title={spaceTitle(sp)}>
+        {!b.open && (
+          <span className="text-[10px] font-semibold uppercase tracking-wide shrink-0" style={{ color: col }}>
+            {meta.label}
+          </span>
+        )}
+        <span className="text-sm font-semibold truncate" title={`${meta.label}: ${spaceTitle(sp)}`}>
           {spaceTitle(sp)}
         </span>
         {code && <span className="font-mono text-[11px] font-semibold text-emerald-300 shrink-0">{code}</span>}
