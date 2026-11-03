@@ -241,6 +241,8 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const [clientEdit, setClientEdit] = useState<string | null>(null);
   /** Emenda aberta no editor de tipo e perda. */
   const [jointEdit, setJointEdit] = useState<string | null>(null);
+  /** Splitter aberto no editor (duplo clique). */
+  const [splitterEdit, setSplitterEdit] = useState<string | null>(null);
   const [showPower, setShowPower] = useState(true);
   const [tool, setTool] = useState<Tool>('fuse');
   const [route, setRoute] = useState<RouteStyle>(() => {
@@ -1068,7 +1070,9 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                           setClientEdit(b.key);
                           setDialog('client');
                         }
-                      : undefined
+                      : b.kind === 'splitter'
+                        ? () => setSplitterEdit(b.key)
+                        : undefined
                   }
                 />
               ))}
@@ -1578,6 +1582,41 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
             />
           );
         })()}
+      {splitterEdit &&
+        (() => {
+          const sp = diagram.components.find((c): c is Extract<DiagramComponent, { kind: 'splitter' }> => c.id === splitterEdit && c.kind === 'splitter');
+          if (!sp) return null;
+          const used = [
+            ...new Set(
+              diagram.connections
+                .flatMap((c) => [c.a, c.b])
+                .filter((e) => e.c === sp.id && /^o\d+$/.test(e.p))
+                .map((e) => Number(e.p.slice(1))),
+            ),
+          ].sort((x, y) => x - y);
+          return (
+            <SplitterEditDialog
+              splitter={sp}
+              usedOutputs={used}
+              readOnly={readOnly}
+              onClose={() => setSplitterEdit(null)}
+              onSave={(model, name) => {
+                const outs = splitterModel(model).outputs;
+                const gone = (e: End) => e.c === sp.id && /^o\d+$/.test(e.p) && Number(e.p.slice(1)) > outs;
+                update((d) => ({
+                  ...d,
+                  components: d.components.map((c) => {
+                    if (c.id !== sp.id || c.kind !== 'splitter') return c;
+                    const { name: _n, ...rest } = c;
+                    return name ? { ...rest, model, name } : { ...rest, model };
+                  }),
+                  connections: d.connections.filter((c) => !gone(c.a) && !gone(c.b)),
+                }));
+                setSplitterEdit(null);
+              }}
+            />
+          );
+        })()}
       {jointEdit &&
         (() => {
           const conn = diagram.connections.find((c) => c.id === jointEdit);
@@ -1814,7 +1853,8 @@ function BlockView({
     const lx = vertical ? g.box.x + g.box.w + 10 + labelW / 2 : g.cx;
     const ly = vertical ? g.cy - 6.5 : g.box.y + g.box.h + 4;
     return (
-      <g onPointerDown={onPointerDown} className="cursor-move">
+      <g onPointerDown={onPointerDown} onDoubleClick={onDoubleClick} className="cursor-move">
+        <title>{`${b.name || m.name} · duplo clique para editar ou trocar o tipo`}</title>
         {selected && <rect x={g.box.x - 8} y={g.box.y - 8} width={g.box.w + 16} height={g.box.h + 16} rx={6} fill="#fef9c3" stroke="#eab308" strokeDasharray="4 3" />}
         <g transform={g.rot ? `rotate(${g.rot} ${g.cx} ${g.cy})` : undefined}>
           {/* Splitter conectorizado: leque da base até os conectores das saídas. */}
@@ -1931,6 +1971,101 @@ export function SplitterDialog({ onClose, onPick }: { onClose: () => void; onPic
           </li>
         ))}
       </ul>
+    </Modal>
+  );
+}
+
+/**
+ * Editar um splitter do diagrama: nome e troca do modelo (balanceado/desbalanceado, RF/APC/UPC).
+ * Se o novo modelo tiver menos saídas, as ligações das saídas que deixam de existir são apagadas.
+ */
+function SplitterEditDialog({
+  splitter,
+  usedOutputs,
+  readOnly,
+  onClose,
+  onSave,
+}: {
+  splitter: Extract<DiagramComponent, { kind: 'splitter' }>;
+  /** Saídas (1, 2, 3...) com fibra ligada. */
+  usedOutputs: number[];
+  readOnly?: boolean;
+  onClose: () => void;
+  onSave: (model: string, name: string) => void;
+}) {
+  const current = splitterModel(splitter.model);
+  const [model, setModel] = useState(current.id);
+  const [balanced, setBalanced] = useState(current.balanced);
+  const [name, setName] = useState(splitter.name ?? '');
+  const picked = splitterModel(model);
+  const lost = usedOutputs.filter((n) => n > picked.outputs);
+  return (
+    <Modal title="Editar splitter" onClose={onClose} width="max-w-md">
+      <div className="space-y-3">
+        <Field label="Nome (opcional)">
+          <input className="input" value={name} disabled={readOnly} placeholder={picked.name} onChange={(e) => setName(e.target.value)} aria-label="Nome do splitter" />
+        </Field>
+        <div className="text-xs text-slate-400">
+          Atual: <b className="text-slate-200">{current.name}</b> · {current.outputs} saídas
+          {usedOutputs.length > 0 && ` · ${usedOutputs.length} em uso`}
+        </div>
+        <div className="flex rounded-md bg-slate-950 p-1">
+          {[true, false].map((v) => (
+            <button
+              key={String(v)}
+              type="button"
+              onClick={() => setBalanced(v)}
+              className={`flex-1 rounded py-1.5 text-sm cursor-pointer ${balanced === v ? 'bg-emerald-600' : ''}`}
+            >
+              {v ? 'Balanceado' : 'Desbalanceado'}
+            </button>
+          ))}
+        </div>
+        <ul className="max-h-72 overflow-y-auto divide-y divide-slate-800" role="listbox" aria-label="Modelo do splitter">
+          {SPLITTER_MODELS.filter((m) => m.balanced === balanced).map((m) => (
+            <li key={m.id}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={m.id === model}
+                disabled={readOnly}
+                onClick={() => setModel(m.id)}
+                className={`w-full flex justify-between px-2 py-2 text-sm rounded cursor-pointer ${m.id === model ? 'bg-emerald-700/40 ring-1 ring-emerald-500' : 'hover:bg-slate-800'}`}
+              >
+                <span>
+                  {m.id === model ? '✓ ' : ''}
+                  {m.name}
+                  {m.id === current.id && <span className="text-slate-500 text-xs"> (atual)</span>}
+                </span>
+                <span className="text-slate-400 text-xs">
+                  {m.outputs} saídas · {m.balanced ? `${m.losses[0]} dB` : `${m.losses[0]} / ${m.losses[1]} dB`}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {lost.length > 0 && (
+          <p className="text-xs text-amber-300">
+            O {picked.name} tem só {picked.outputs} saídas: as ligações da{lost.length > 1 ? 's' : ''} saída{lost.length > 1 ? 's' : ''} {lost.join(', ')} serão apagadas
+            (dá para desfazer com Ctrl+Z).
+          </p>
+        )}
+        {model !== current.id && picked.connectorized !== current.connectorized && (
+          <p className="text-xs text-sky-300">
+            {picked.connectorized ? 'Saídas conectorizadas: cada saída soma a perda de conector.' : 'Saídas sem conector (RF): a perda de conector das saídas deixa de contar.'}
+          </p>
+        )}
+        {!readOnly && (
+          <div className="flex justify-end gap-2 pt-1">
+            <button className="btn-ghost" onClick={onClose}>
+              Cancelar
+            </button>
+            <button className="btn-primary" onClick={() => onSave(model, name.trim())}>
+              Salvar
+            </button>
+          </div>
+        )}
+      </div>
     </Modal>
   );
 }
