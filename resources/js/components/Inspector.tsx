@@ -1,4 +1,5 @@
-import { Activity, Copy, Crosshair, History, Link2, Network, Radar, Trash2, X } from 'lucide-react';
+import { Activity, Building2, Copy, Crosshair, History, Home, Link2, Network, Radar, Store, Trash2, X } from 'lucide-react';
+import { CLIENT_SEGMENTS, clientDataOf, normalizeSerial, type ClientSegment } from '../lib/client';
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, POWER_LABEL, powerLevel, type BudgetResult } from '../lib/budget';
@@ -152,6 +153,11 @@ function NodeForm({
   const [status, setStatus] = useState<Status>(node.status);
   const [notes, setNotes] = useState(node.notes ?? '');
   const [address, setAddress] = useState((node.attributes?.address as string) ?? '');
+  // Cliente: dados para integração (ID no sistema de gestão, serial da ONU/ONT e tipo).
+  const initialClient = clientDataOf(node.attributes);
+  const [clientCode, setClientCode] = useState(initialClient.client_code ?? '');
+  const [onuSerial, setOnuSerial] = useState(initialClient.onu_serial ?? '');
+  const [segment, setSegment] = useState<ClientSegment | null>(initialClient.segment ?? null);
   const [pole, setPole] = useState<PoleAttributes>((node.attributes as PoleAttributes) ?? {});
   const setP = (patch: PoleAttributes) => setPole((p) => ({ ...p, ...patch }));
   const [condo, setCondo] = useState<CondoAttributes>(() => ({ condo_kind: 'buildings', ...((node.attributes as CondoAttributes) ?? {}) }));
@@ -180,7 +186,9 @@ function NodeForm({
         notes: notes || null,
         attributes: {
           ...(node.attributes ?? {}),
-          ...(node.type === 'client' ? { address } : {}),
+          ...(node.type === 'client'
+            ? { address, client_code: clientCode.trim() || null, onu_serial: normalizeSerial(onuSerial) || null, segment }
+            : {}),
           ...(node.type === 'pole' ? pole : {}),
           ...(node.type === 'condo' ? condo : {}),
           ...(node.type === 'tower' ? tower : {}),
@@ -289,6 +297,46 @@ function NodeForm({
             <Field label="Endereço">
               <input className="input" value={address} onChange={(e) => setAddress(e.target.value)} />
             </Field>
+          )}
+          {node.type === 'client' && (
+            <>
+              <Field label="Tipo de cliente">
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(Object.keys(CLIENT_SEGMENTS) as ClientSegment[]).map((k) => {
+                    const Icon = k === 'residential' ? Home : k === 'business' ? Store : Building2;
+                    const on = segment === k;
+                    return (
+                      <button
+                        key={k}
+                        type="button"
+                        aria-pressed={on}
+                        disabled={readOnly}
+                        onClick={() => setSegment(on ? null : k)}
+                        className={`flex flex-col items-center gap-1 rounded-md border py-1.5 text-[11px] cursor-pointer ${on ? 'border-emerald-500 bg-emerald-600/20 text-emerald-300' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
+                      >
+                        <Icon size={16} />
+                        {CLIENT_SEGMENTS[k]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="ID do cliente">
+                  <input className="input" maxLength={64} value={clientCode} onChange={(e) => setClientCode(e.target.value)} />
+                </Field>
+                <Field label="Serial ONU/ONT">
+                  <input
+                    className="input font-mono uppercase"
+                    maxLength={64}
+                    placeholder="HWTC1A2B3C4D"
+                    value={onuSerial}
+                    onChange={(e) => setOnuSerial(e.target.value)}
+                    onBlur={() => setOnuSerial(normalizeSerial(onuSerial))}
+                  />
+                </Field>
+              </div>
+            </>
           )}
           {node.type === 'tower' && (
             <>

@@ -370,4 +370,34 @@ KML;
         $this->assertStringContainsString('<name>CX-01</name>', $exported);
         $this->assertStringContainsString('Cabos backbone', $exported);
     }
+
+    public function test_client_in_box_diagram_syncs_integration_data_to_map_client(): void
+    {
+        $user = User::factory()->create();
+        $project = $this->project($user);
+        $cto = $project->nodes()->create(['type' => 'cto', 'name' => 'CTO-1', 'lat' => -2.44, 'lng' => -54.71]);
+        $client = $project->nodes()->create(['type' => 'client', 'name' => 'Maria', 'lat' => -2.4401, 'lng' => -54.7101, 'attributes' => ['address' => 'Rua A, 10']]);
+        $other = $this->project($user)->nodes()->create(['type' => 'client', 'name' => 'Outro projeto', 'lat' => 0, 'lng' => 0]);
+
+        $diagram = ['components' => [
+            ['id' => 'kc1', 'kind' => 'client', 'name' => 'Maria', 'node_id' => $client->id, 'x' => 0, 'y' => 0,
+                'client_code' => 'CLI-0042', 'onu_serial' => 'hwtc 1a2b3c4d', 'segment' => 'business'],
+            // Cliente de outro projeto: ignorado.
+            ['id' => 'kc2', 'kind' => 'client', 'name' => 'X', 'node_id' => $other->id, 'x' => 0, 'y' => 0, 'client_code' => 'NAO'],
+        ], 'cablePos' => [], 'connections' => []];
+
+        $this->actingAs($user)->putJson("/api/nodes/{$cto->id}", ['diagram' => $diagram])
+            ->assertOk()
+            ->assertJsonCount(1, 'clients')
+            ->assertJsonPath('clients.0.attributes.onu_serial', 'HWTC1A2B3C4D');
+
+        $client->refresh();
+        $this->assertSame('CLI-0042', $client->attributes['client_code']);
+        $this->assertSame('business', $client->attributes['segment']);
+        $this->assertSame('Rua A, 10', $client->attributes['address']);
+        $this->assertArrayNotHasKey('client_code', $other->fresh()->attributes ?? []);
+
+        // Tipo inválido direto no cliente do mapa é recusado.
+        $this->actingAs($user)->putJson("/api/nodes/{$client->id}", ['attributes' => ['segment' => 'vip']])->assertUnprocessable();
+    }
 }

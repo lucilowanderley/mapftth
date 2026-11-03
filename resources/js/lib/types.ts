@@ -185,9 +185,10 @@ export type DiagramComponent =
   /**
    * Cliente (assinante) no diagrama da CTO/CEO: recebe a fibra (porta "in"), normalmente de uma saída de splitter.
    * node_id = cliente do mapa vinculado (o orçamento dele no mapa usa este caminho quando não há cabo drop).
-   * flip = porta do lado direito do cartão.
+   * flip = porta do lado direito do cartão. client_code / onu_serial / segment: dados para integração
+   * (ID do cliente, serial da ONU/ONT e tipo), copiados para o cliente do mapa vinculado ao salvar.
    */
-  | { id: string; kind: 'client'; name: string; node_id?: number | null; flip?: boolean; x: number; y: number }
+  | { id: string; kind: 'client'; name: string; node_id?: number | null; flip?: boolean; x: number; y: number; client_code?: string | null; onu_serial?: string | null; segment?: 'residential' | 'business' | 'corporate' | null }
   /** Rack do POP: de piso ou suspenso (parede), com altura em U (ex.: 44U, 48U). */
   | { id: string; kind: 'rack'; name: string; mount: RackMountType; units: number; loc?: RackLocation; x: number; y: number };
 

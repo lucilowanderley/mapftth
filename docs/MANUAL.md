@@ -155,7 +155,9 @@ os dois campos são preenchidos.
 - **Posição**: latitude e longitude do elemento. Digite os valores exatos (mesmos formatos aceitos acima) e salve
   para reposicionar com precisão. O ícone de mira centraliza o mapa no elemento e o ícone de copiar copia
   `latitude, longitude` para colar em outro programa.
-- **Cliente**: campo **Endereço**, potência na ONU e os botões de drop e OTDR ([seção 9](#9-ligar-o-cliente-e-ver-o-sinal)).
+- **Cliente**: campo **Endereço**, **Tipo de cliente** (residencial, empresarial ou corporativo, com ícone de casa,
+  loja ou prédio no mapa), **ID do cliente** e **Serial ONU/ONT** (para integração com outros sistemas), potência na
+  ONU e os botões de drop e OTDR ([seção 9](#9-ligar-o-cliente-e-ver-o-sinal)).
 - **Poste**: **Código / plaqueta**, **Material**, **Altura (m)**, **Esforço (daN)**, **Distribuidora / proprietário**
   e a lista de **cabos neste poste**.
 - **Condomínio**: **Tipo** (*Casas* ou *Prédios*), número de **Casas** ou **Apartamentos**, **Quadras** ou
@@ -677,7 +679,13 @@ remove só as emendas desse cabo nesta caixa (o cabo em si se exclui no mapa).
 4. O cartão mostra a **potência que chega no cliente** (dBm, na cor do nível: OK, atenção, crítico ou sinal alto).
    Clique no cliente para ver a perda total e a porta PON de origem. Use **Editar** (ou duplo clique) para
    trocar o nome ou o vínculo, e **Trocar lado da porta** (tecla **R**) para virar a porta para o outro lado.
-5. Quando o cliente do mapa **não tem cabo drop**, a potência dele no mapa (painel do cliente, análise de rede)
+5. **Dados para integração:** na mesma janela informe o **tipo de cliente** (**Residencial** = casa,
+   **Empresarial** = loja, **Corporativo** = prédio), o **ID do cliente** (código no sistema de gestão) e o
+   **serial da ONU/ONT** (ex.: *HWTC1A2B3C4D*; o sistema tira espaços, põe em maiúsculas, avisa se o formato não
+   for o usual e se o serial já estiver em outro cliente). O ícone do cartão muda conforme o tipo.
+   Com o cliente vinculado ao mapa, esses dados são gravados também no cliente do mapa ao salvar o diagrama
+   (o ícone dele no mapa também muda: casa, loja ou prédio). No mapa, os mesmos campos ficam no painel do cliente.
+6. Quando o cliente do mapa **não tem cabo drop**, a potência dele no mapa (painel do cliente, análise de rede)
    passa a ser calculada por este caminho do diagrama.
 
 **Bandejas de emenda e tubos loose**

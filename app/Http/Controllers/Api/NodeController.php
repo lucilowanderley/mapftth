@@ -95,9 +95,10 @@ class NodeController extends Controller
         if ($changed) {
             ActivityLog::record($node->project, 'node', $node, $changed['action'], $changed['fields']);
         }
+        $clients = array_key_exists('diagram', $data) ? $this->syncDiagramClients($node) : collect();
         $node->project->touch();
 
-        return response()->json(['node' => $node, 'cables' => $cables->values()]);
+        return response()->json(['node' => $node, 'cables' => $cables->values(), 'clients' => $clients->values()]);
     }
 
     public function destroy(Request $request, NetworkNode $node): JsonResponse
@@ -107,6 +108,49 @@ class NodeController extends Controller
         $node->delete();
 
         return response()->json(null, 204);
+    }
+
+    /**
+     * Clientes desenhados no diagrama da caixa e vinculados a um cliente do mapa: o ID, o serial da ONU/ONT e o
+     * tipo (residencial/empresarial/corporativo) passam para os atributos desse cliente, que é onde a integração
+     * com outros sistemas lê. Devolve os clientes alterados.
+     */
+    private function syncDiagramClients(NetworkNode $node): \Illuminate\Support\Collection
+    {
+        $updated = collect();
+        foreach ($node->diagram['components'] ?? [] as $c) {
+            if (($c['kind'] ?? null) !== 'client' || empty($c['node_id'])) {
+                continue;
+            }
+            $client = NetworkNode::where('project_id', $node->project_id)->where('type', 'client')->find((int) $c['node_id']);
+            if (! $client) {
+                continue;
+            }
+            $attrs = $client->attributes ?? [];
+            $next = $attrs;
+            foreach (['client_code', 'onu_serial'] as $k) {
+                $v = isset($c[$k]) && is_scalar($c[$k]) ? trim(mb_substr((string) $c[$k], 0, 64)) : '';
+                if ($v === '') {
+                    unset($next[$k]);
+                } else {
+                    $next[$k] = $k === 'onu_serial' ? strtoupper(preg_replace('/\s+/', '', $v)) : $v;
+                }
+            }
+            $seg = $c['segment'] ?? null;
+            if (in_array($seg, NetworkNode::CLIENT_SEGMENTS, true)) {
+                $next['segment'] = $seg;
+            } else {
+                unset($next['segment']);
+            }
+            if ($next != $attrs) {
+                $client->attributes = $next;
+                $client->save();
+                ActivityLog::record($node->project, 'node', $client, 'updated', ['client' => "dados do cliente pelo diagrama de {$node->name}"]);
+                $updated->push($client);
+            }
+        }
+
+        return $updated;
     }
 
     private function validated(Request $request, bool $partial = false): array
@@ -123,6 +167,15 @@ class NodeController extends Controller
             'attributes' => ['nullable', 'array'],
             'diagram' => ['nullable', 'array'],
         ]);
+        if (array_key_exists('attributes', $data)) {
+            // Cliente: dados para integração (ID no sistema de gestão, serial da ONU/ONT e tipo). Validados à parte
+            // para o restante de `attributes` (livre) continuar sendo gravado inteiro.
+            $request->validate([
+                'attributes.client_code' => ['nullable', 'string', 'max:64'],
+                'attributes.onu_serial' => ['nullable', 'string', 'max:64'],
+                'attributes.segment' => ['nullable', Rule::in(NetworkNode::CLIENT_SEGMENTS)],
+            ]);
+        }
         // Mesma precisão da coluna (7 casas ≈ 1 cm) para pontas de cabo e objeto coincidirem.
         foreach (['lat', 'lng'] as $k) {
             if (isset($data[$k])) {

@@ -1763,8 +1763,8 @@ export default function MapPage() {
           network={network}
           readOnly={readOnly}
           onClose={() => setDiagramNodeId(null)}
-          onSaved={(n) => {
-            mergeNodes([n]);
+          onSaved={(n, clients) => {
+            mergeNodes([n, ...(clients ?? [])]);
             notify('Diagrama salvo');
           }}
           onShowBudget={(title, result) => setBudget({ title, result })}

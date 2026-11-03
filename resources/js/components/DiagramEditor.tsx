@@ -16,6 +16,9 @@ import {
   SquareStack,
   Trash2,
   Triangle,
+  Building2,
+  Home,
+  Store,
   Undo2,
   UserRound,
   Wand2,
@@ -31,12 +34,13 @@ import { cableLetter, curvePath, laneSegment, polylinePath, routeOrthogonal, spl
 import { TRAY_CAPACITIES, cableRows, rowsHeight, trayPorts, type CableRow, pruneTrays, toggleTube, trayOfConnection, trayOfFiber, trayUsage, tubeCount, tubeFibers, tubeKey } from '../lib/tray';
 import type { Cable, Connection, Diagram, DiagramComponent, End, NetNode, Network, SpliceTray, Status } from '../lib/types';
 import { distance } from '../lib/geo';
+import { CLIENT_SEGMENTS, SEGMENT_GLYPH, clientDataOf, looksLikeGponSerial, normalizeSerial, type ClientData, type ClientSegment } from '../lib/client';
 import { Field, Modal } from './ui';
 
 const ROW = 14;
 const HEADER = 34;
-const CLIENT_W = 150;
-const CLIENT_H = 46;
+const CLIENT_W = 180;
+const CLIENT_H = 70;
 const CABLE_W = 150;
 const BOX_W = 130;
 const SPLIT_W = 56;
@@ -201,14 +205,27 @@ interface Props {
   node: NetNode;
   network: Network;
   onClose: () => void;
-  onSaved: (n: NetNode) => void;
+  /** clients = clientes do mapa atualizados com os dados dos clientes do diagrama (ID, serial, tipo). */
+  onSaved: (n: NetNode, clients?: NetNode[]) => void;
   onShowBudget: (title: string, result: BudgetResult) => void;
   /** Acesso de leitura: permite explorar o diagrama, mas não salvar. */
   readOnly?: boolean;
 }
 
 export default function DiagramEditor({ node, network, onClose, onSaved, onShowBudget, readOnly }: Props) {
-  const [diagram, setDiagram] = useState<Diagram>(() => structuredClone(node.diagram ?? emptyDiagram()));
+  const [diagram, setDiagram] = useState<Diagram>(() => {
+    const d = structuredClone(node.diagram ?? emptyDiagram());
+    // Clientes vinculados ao mapa: ID, serial e tipo vêm do cliente do mapa (podem ter sido editados lá).
+    d.components = d.components.map((c) => {
+      if (c.kind !== 'client' || !c.node_id) return c;
+      const n = network.nodes.find((x) => x.id === c.node_id && x.type === 'client');
+      if (!n) return c;
+      const cd = clientDataOf(n.attributes);
+      // O cliente do mapa é a referência (o diagrama grava nele ao salvar); o tipo sem valor continua residencial.
+      return { ...c, client_code: cd.client_code, onu_serial: cd.onu_serial, segment: cd.segment ?? c.segment };
+    });
+    return d;
+  });
   const [status, setStatus] = useState<Status>(node.status);
   const [dirty, setDirty] = useState(false);
   const [view, setView] = useState({ x: 40, y: 40, k: 1 });
@@ -612,7 +629,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     try {
       const trays = diagram.trays?.length ? pruneTrays(diagram.trays, cables) : undefined;
       const r = await api.updateNode(node.id, { diagram: { ...diagram, connections: validConnections, trays }, status });
-      onSaved(r.node);
+      onSaved(r.node, r.clients);
       setDirty(false);
       if (close) onClose();
     } catch (e) {
@@ -1271,6 +1288,10 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
               return (
                 <>
                   {linked && <div className="text-xs text-sky-300">Vinculado ao cliente do mapa: {linked.name}</div>}
+                  <div className="text-xs text-slate-300 mt-1">
+                    {CLIENT_SEGMENTS[selBlock.segment ?? 'residential']} · ID {selBlock.client_code || '—'} · ONU/ONT{' '}
+                    <span className="font-mono">{selBlock.onu_serial || '—'}</span>
+                  </div>
                   {r?.ok ? (
                     <div className="text-xs mt-1">
                       <span className="font-semibold" style={{ color: POWER_COLORS[powerLevel(r.power, network.settings)] }}>
@@ -1409,30 +1430,38 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       {dialog === 'client' &&
         (() => {
           const editing = diagram.components.find((c): c is Extract<DiagramComponent, { kind: 'client' }> => c.id === clientEdit && c.kind === 'client');
-          // Clientes do mapa já vinculados a outro cliente de diagrama (nesta ou em outra caixa).
+          // Clientes do mapa já vinculados a outro cliente de diagrama (nesta ou em outra caixa) e seriais em uso.
           const used = new Set<number>();
-          liveNetwork.nodes.forEach((n) =>
+          const serials = new Map<string, string>();
+          liveNetwork.nodes.forEach((n) => {
+            if (n.type === 'client') {
+              const sn = clientDataOf(n.attributes).onu_serial;
+              if (sn && n.id !== editing?.node_id) serials.set(normalizeSerial(sn), n.name);
+            }
             n.diagram?.components.forEach((c) => {
-              if (c.kind === 'client' && c.node_id && c.id !== editing?.id) used.add(c.node_id);
-            }),
-          );
+              if (c.kind !== 'client' || c.id === editing?.id) return;
+              if (c.node_id) used.add(c.node_id);
+              if (c.onu_serial) serials.set(normalizeSerial(c.onu_serial), `${c.name} (${n.name})`);
+            });
+          });
           const options = network.nodes
             .filter((n) => n.type === 'client')
-            .map((n) => ({ id: n.id, name: n.name, m: distance([node.lat, node.lng], [n.lat, n.lng]), used: used.has(n.id) }))
+            .map((n) => ({ id: n.id, name: n.name, m: distance([node.lat, node.lng], [n.lat, n.lng]), used: used.has(n.id), data: clientDataOf(n.attributes) }))
             .sort((a, b) => a.m - b.m);
           return (
             <ClientDialog
               initial={editing}
               count={diagram.components.filter((c) => c.kind === 'client').length}
               options={options}
+              serialsInUse={serials}
               onClose={() => setDialog(null)}
-              onSave={(name, nodeId) => {
+              onSave={(name, nodeId, data) => {
                 if (editing) {
-                  update((d) => ({ ...d, components: d.components.map((c) => (c.id === editing.id && c.kind === 'client' ? { ...c, name, node_id: nodeId } : c)) }));
+                  update((d) => ({ ...d, components: d.components.map((c) => (c.id === editing.id && c.kind === 'client' ? { ...c, name, node_id: nodeId, ...data } : c)) }));
                   setDialog(null);
                 } else {
                   const id = uid();
-                  addComponent({ id, kind: 'client', name, node_id: nodeId, x: 0, y: 0 });
+                  addComponent({ id, kind: 'client', name, node_id: nodeId, ...data, x: 0, y: 0 });
                   setSelected({ kind: 'block', key: id });
                 }
               }}
@@ -1644,15 +1673,20 @@ function BlockView({
     const name = b.name.length > 20 ? `${b.name.slice(0, 19)}…` : b.name;
     const ok = power?.ok && power.power !== null;
     const sub = ok ? `${power!.power!.toFixed(2)} dBm` : power?.steps.length ? 'sem sinal da OLT' : 'sem fibra ligada';
-    // Ícone da casa do lado oposto ao da porta.
-    const ix = b.flip ? b.x + 8 : b.x + w - 30;
-    const tx = b.flip ? b.x + 36 : b.x + 10;
+    // Ícone do tipo (casa, loja ou prédio) do lado oposto ao da porta, com o nome do tipo embaixo.
+    const seg = b.segment ?? 'residential';
+    const ix = b.flip ? b.x + 8 : b.x + w - 34;
+    const tx = b.flip ? b.x + 42 : b.x + 10;
+    const cut = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
+    const kind = linkedName ? `${CLIENT_SEGMENTS[seg]} · ↔ ${linkedName}` : CLIENT_SEGMENTS[seg];
     return (
       <g onPointerDown={onPointerDown} onDoubleClick={onDoubleClick} className="cursor-move">
         <rect x={b.x} y={b.y} width={w} height={h} rx={6} fill="#f0fdfa" stroke={selected ? '#eab308' : '#0f766e'} strokeWidth={sw} />
-        <g transform={`translate(${ix} ${b.y + 11})`}>
-          <path d="M2 11 L11 3 L20 11 L20 22 L2 22 Z" fill="#ccfbf1" stroke="#0f766e" strokeWidth={1.4} strokeLinejoin="round" />
-          <rect x={8.5} y={14} width={5} height={8} fill="#0f766e" />
+        <g transform={`translate(${ix} ${b.y + 8})`}>
+          <rect x={-1} y={-1} width={28} height={28} rx={5} fill="#ccfbf1" />
+          <g transform="translate(1 1)">
+            <path d={SEGMENT_GLYPH[seg]} fill="none" stroke="#0f766e" strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round" />
+          </g>
         </g>
         <text x={tx} y={b.y + 16} fontSize={10.5} fontWeight="bold" fill="#0f172a">
           {name}
@@ -1661,7 +1695,13 @@ function BlockView({
           {sub}
         </text>
         <text x={tx} y={b.y + 40} fontSize={8} fill="#0369a1">
-          {linkedName ? `↔ mapa: ${linkedName.length > 18 ? `${linkedName.slice(0, 17)}…` : linkedName}` : 'Cliente'}
+          {cut(kind, 28)}
+        </text>
+        <text x={tx} y={b.y + 52} fontSize={7.5} fill="#475569" fontFamily="ui-monospace, monospace">
+          ID {cut(b.client_code || '—', 18)}
+        </text>
+        <text x={tx} y={b.y + 63} fontSize={7.5} fill="#475569" fontFamily="ui-monospace, monospace">
+          ONU {cut(b.onu_serial || '—', 18)}
         </text>
       </g>
     );
@@ -1866,23 +1906,36 @@ function OltDialog({
   );
 }
 
-/** Novo cliente no diagrama (ou edição): nome e, se quiser, o cliente do mapa ao qual ele corresponde. */
+const SEGMENT_ICON: Record<ClientSegment, typeof Home> = { residential: Home, business: Store, corporate: Building2 };
+
+/**
+ * Novo cliente no diagrama (ou edição): nome, cliente do mapa ao qual ele corresponde (opcional) e os dados para
+ * integração com outros sistemas: ID, serial da ONU/ONT e tipo (residencial, empresarial ou corporativo).
+ */
 function ClientDialog({
   initial,
   count,
   options,
+  serialsInUse,
   onClose,
   onSave,
 }: {
   initial?: Extract<DiagramComponent, { kind: 'client' }>;
   count: number;
-  options: { id: number; name: string; m: number; used: boolean }[];
+  options: { id: number; name: string; m: number; used: boolean; data: ClientData }[];
+  /** Seriais já usados por outros clientes (serial normalizado → nome do cliente). */
+  serialsInUse: Map<string, string>;
   onClose: () => void;
-  onSave: (name: string, nodeId: number | null) => void;
+  onSave: (name: string, nodeId: number | null, data: ClientData) => void;
 }) {
   const [name, setName] = useState(initial?.name ?? `Cliente ${count + 1}`);
   const [nodeId, setNodeId] = useState<number | null>(initial?.node_id ?? null);
+  const [code, setCode] = useState(initial?.client_code ?? '');
+  const [serial, setSerial] = useState(initial?.onu_serial ?? '');
+  const [segment, setSegment] = useState<ClientSegment | null>(initial?.segment ?? 'residential');
   const fmt = (m: number) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`);
+  const sn = normalizeSerial(serial);
+  const dup = sn ? serialsInUse.get(sn) : undefined;
   return (
     <Modal title={initial ? 'Editar cliente' : 'Adicionar cliente'} onClose={onClose} width="max-w-sm">
       <div className="space-y-3">
@@ -1894,7 +1947,13 @@ function ClientDialog({
               const id = e.target.value ? Number(e.target.value) : null;
               setNodeId(id);
               const o = options.find((x) => x.id === id);
-              if (o) setName(o.name);
+              if (o) {
+                setName(o.name);
+                // Traz os dados que o cliente do mapa já tem (sem apagar o que foi digitado aqui).
+                if (o.data.client_code) setCode(o.data.client_code);
+                if (o.data.onu_serial) setSerial(o.data.onu_serial);
+                if (o.data.segment) setSegment(o.data.segment);
+              }
             }}
           >
             <option value="">— Nenhum (só no diagrama) —</option>
@@ -1909,11 +1968,54 @@ function ClientDialog({
         <Field label="Nome">
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
+        <Field label="Tipo de cliente">
+          <div className="grid grid-cols-3 gap-1.5">
+            {(Object.keys(CLIENT_SEGMENTS) as ClientSegment[]).map((k) => {
+              const Icon = SEGMENT_ICON[k];
+              const on = segment === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setSegment(k)}
+                  className={`flex flex-col items-center gap-1 rounded-md border py-2 text-xs cursor-pointer ${on ? 'border-emerald-500 bg-emerald-600/20 text-emerald-300' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
+                >
+                  <Icon size={18} />
+                  {CLIENT_SEGMENTS[k]}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="ID do cliente">
+            <input className="input" placeholder="ex.: 104523" maxLength={64} value={code} onChange={(e) => setCode(e.target.value)} />
+          </Field>
+          <Field label="Serial da ONU/ONT">
+            <input
+              className="input font-mono uppercase"
+              placeholder="HWTC1A2B3C4D"
+              maxLength={64}
+              value={serial}
+              onChange={(e) => setSerial(e.target.value)}
+              onBlur={() => setSerial(normalizeSerial(serial))}
+            />
+          </Field>
+        </div>
+        {dup && <p className="text-xs text-amber-400">Este serial já está no cliente {dup}.</p>}
+        {sn && !dup && !looksLikeGponSerial(sn) && (
+          <p className="text-xs text-slate-400">Formato diferente do usual (4 letras do fabricante + 8 dígitos hexadecimais, ex.: HWTC1A2B3C4D).</p>
+        )}
         <p className="text-xs text-slate-400">
           Depois, ligue uma saída de splitter (ou uma fibra) à porta do cliente com Emenda ou Conector. A potência que chega nele aparece no cartão
-          {nodeId ? ' e no cliente do mapa' : ''}.
+          {nodeId ? ' e no cliente do mapa. O ID, o serial e o tipo também são gravados no cliente do mapa ao salvar o diagrama' : ''}.
         </p>
-        <button className="btn-primary w-full" disabled={!name.trim()} onClick={() => onSave(name.trim(), nodeId)}>
+        <button
+          className="btn-primary w-full"
+          disabled={!name.trim()}
+          onClick={() => onSave(name.trim(), nodeId, { client_code: code.trim() || null, onu_serial: sn || null, segment })}
+        >
           {initial ? 'Salvar' : 'Adicionar cliente'}
         </button>
       </div>
