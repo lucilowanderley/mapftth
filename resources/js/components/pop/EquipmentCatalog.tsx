@@ -5,6 +5,8 @@ import { ACTIVE_TYPES, BUILTIN_EQUIPMENT, EQUIPMENT_KINDS, equipmentLabel } from
 import type { EquipmentModel } from '../../lib/types';
 import { Field } from '../ui';
 import { PopDialog } from './dialogs';
+import { PortGroupsEditor } from './ActiveFields';
+import { groupsTotal, speedLabel } from '../../lib/pop';
 
 type Kind = EquipmentModel['kind'];
 
@@ -81,7 +83,11 @@ export default function EquipmentCatalog({
   }
 
   const detail = (m: EquipmentModel) =>
-    m.kind === 'olt' ? `${m.slots ?? 1}×${m.ports} PON · ${m.uplinks ?? 0} uplinks` : m.kind === 'dio' ? `${m.ports} portas` : `${m.type ?? 'Ativo'} · ${m.ports} portas`;
+    m.kind === 'olt'
+      ? `${m.slots ?? 1}×${m.ports} PON · ${m.uplinks ?? 0} uplinks`
+      : m.kind === 'dio'
+        ? `${m.ports} portas`
+        : `${m.type ?? 'Ativo'} · ${m.port_groups?.length ? m.port_groups.map((g) => `${g.count}×${g.type}${g.speed ? ` ${speedLabel(g.speed)}` : ''}`).join(' + ') : `${m.ports} portas`}`;
 
   return (
     <PopDialog icon={<BookOpen size={18} />} title="Cadastro de equipamentos" subtitle="Fabricante, modelo, portas e quantas U de rack ocupa" onClose={onClose} width="max-w-2xl">
@@ -174,7 +180,14 @@ export default function EquipmentCatalog({
               </Field>
             )}
             <Field label={kind === 'olt' ? 'PON/slot' : 'Portas'}>
-              <input type="number" min={1} className="input px-2" value={form.ports ?? 1} onChange={(e) => set({ ports: int(e.target.value, 1) })} />
+              <input
+                type="number"
+                min={1}
+                className="input px-2"
+                disabled={kind === 'active' && !!form.port_groups?.length}
+                value={kind === 'active' && form.port_groups?.length ? groupsTotal(form.port_groups) : (form.ports ?? 1)}
+                onChange={(e) => set({ ports: int(e.target.value, 1) })}
+              />
             </Field>
             {kind === 'olt' && (
               <Field label="Uplinks">
@@ -190,6 +203,12 @@ export default function EquipmentCatalog({
               </Field>
             )}
           </div>
+          {kind === 'active' && (
+            <PortGroupsEditor
+              groups={form.port_groups ?? []}
+              onChange={(g) => set({ port_groups: g.length ? g : null, ...(g.length ? { ports: Math.max(1, groupsTotal(g)) } : {}) })}
+            />
+          )}
           {error && <div className="text-xs text-red-400">{error}</div>}
           <div className="flex gap-2 justify-end">
             <button className="btn-ghost" onClick={() => setForm(null)}>

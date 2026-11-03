@@ -44,6 +44,12 @@ import {
   partner,
   pruneConnections,
   rackCode,
+  activeCapacity,
+  activePortLabel,
+  lagOf,
+  mgmtLabel,
+  portGroupOf,
+  speedLabel,
   rackConflicts,
   duplicateRackCodes,
   searchRacks,
@@ -63,8 +69,9 @@ import {
 import type { Cable, Diagram, DiagramComponent, End, NetNode, Network, Status } from '../../lib/types';
 import { ActiveDialog, DioDialog, LinkDialog, MountDialog, OltDialog, RackDialog, useCableItems } from './dialogs';
 import FusionMatrix from './FusionMatrix';
-import { G, RACK, anySize, cardPorts, cardSize, portBox, rackSize, rackStrip, rackUTop, rowLabels, textOn, type PopComp } from './geometry';
+import { G, RACK, anySize, cardPorts, cardSize, labelW, portBox, rackSize, rackStrip, rackUTop, rowLabels, textOn, type PopComp } from './geometry';
 import EquipmentCatalog, { useEquipmentModels } from './EquipmentCatalog';
+import { LAG_COLORS } from './ActiveFields';
 import ManobraView from './ManobraView';
 
 type Olt = Extract<DiagramComponent, { kind: 'olt' }>;
@@ -300,7 +307,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
       case 'olt':
         return `${c.name} · ${oltPortLabel(c, e.p)}`;
       case 'active':
-        return `${c.name} · porta ${e.p.slice(1)}`;
+        return `${c.name} · ${activePortLabel(c, e.p)}`;
       case 'splitter':
         return `Splitter · ${e.p === 'in' ? 'entrada' : `saída ${e.p.slice(1)}`}`;
       case 'rack':
@@ -645,7 +652,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         `<rect x="${c.x}" y="${c.y}" width="${cw}" height="${ch}" rx="8" fill="#ffffff" stroke="#94a3b8"/>`,
         `<text x="${c.x + 12}" y="${c.y + 25}" font-size="13" font-weight="bold" fill="#0f172a">${esc(c.name)} <tspan font-size="10" fill="#64748b">${esc(tag)}</tspan></text>`,
       );
-      rowLabels(c).forEach((r) => parts.push(`<text x="${c.x + G.PAD + 12}" y="${c.y + r.y + 18}" font-size="10" font-weight="bold" fill="#475569" text-anchor="middle">${r.label}</text>`));
+      rowLabels(c).forEach((r) => parts.push(`<text x="${c.x + G.PAD + (labelW(c) - 6) / 2}" y="${c.y + r.y + 18}" font-size="${r.label.length > 5 ? 8 : 10}" font-weight="bold" fill="#475569" text-anchor="middle">${esc(r.label)}</text>`));
       cardPorts(c).forEach((p) => {
         const b = portBox(c, p);
         const n = Number(p.slice(1));
@@ -654,7 +661,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         const cable = src && cableMap.get(src.cable);
         const fiberHex = src && cable ? fiberColor(src.fiber, cable.fibers_per_tube).hex : undefined;
         const fill = fiberHex ?? (patched ? (c.kind === 'dio' ? PORT_FILL.dio : c.kind === 'active' ? PORT_FILL.active : p.startsWith('u') ? PORT_FILL.up : PORT_FILL.olt) : '#f8fafc');
-        const label = c.kind === 'olt' && !p.startsWith('u') ? ((n - 1) % c.ports) + 1 : n;
+        const label = c.kind === 'olt' && !p.startsWith('u') ? ((n - 1) % c.ports) + 1 : c.kind === 'active' ? (portGroupOf(c, p)?.index ?? n) : n;
         parts.push(
           `<rect x="${c.x + b.x}" y="${c.y + b.y}" width="${G.PORT}" height="${G.PORT}" rx="4" fill="${fill}" stroke="#94a3b8"/>`,
           `<text x="${c.x + b.x + G.PORT / 2}" y="${c.y + b.y + 18}" font-size="10" text-anchor="middle" fill="${patched || fiberHex ? textOn(fill) : '#64748b'}">${label}</text>`,
@@ -1448,9 +1455,17 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
   const anyUsed = cardPorts(c).some((p) => usedEnds.has(`${c.id}:${p}`)) || fusedCount > 0;
   const icon = c.kind === 'olt' ? <Server size={15} className="text-violet-400" /> : c.kind === 'dio' ? <Box size={15} className="text-sky-400" /> : <NetIcon size={15} className="text-emerald-400" />;
   const tag = [c.modelName, c.kind === 'olt' ? `${c.slots}×${c.ports}` : c.kind === 'dio' ? `${c.ports}P` : c.type].filter(Boolean).join(' · ');
-  const footLeft =
-    c.kind === 'dio' ? `${trays(c.ports)} bandeja${trays(c.ports) > 1 ? 's' : ''}` : c.kind === 'olt' ? `${c.slots} slot${c.slots > 1 ? 's' : ''} · TX ${c.tx_dbm} dBm` : `${c.ports} portas`;
-  const footRight = c.kind === 'dio' ? `${fusedCount}/${c.ports} fusões` : c.kind === 'olt' ? 'GPON' : 'ETH';
+  const mgmt = c.kind === 'dio' ? '' : mgmtLabel(c.mgmt);
+  const cap = c.kind === 'active' ? activeCapacity(c) : 0;
+  const footLeft = mgmt
+    ? mgmt
+    : c.kind === 'dio'
+      ? `${trays(c.ports)} bandeja${trays(c.ports) > 1 ? 's' : ''}`
+      : c.kind === 'olt'
+        ? `${c.slots} slot${c.slots > 1 ? 's' : ''} · TX ${c.tx_dbm} dBm`
+        : `${c.ports} portas${cap ? ` · ${speedLabel(cap)}` : ''}`;
+  const footRight =
+    c.kind === 'dio' ? `${fusedCount}/${c.ports} fusões` : c.kind === 'olt' ? 'GPON' : c.lags?.length ? `${c.lags.length} LAG` : c.groups?.length ? `${c.groups.length} grupo(s)` : 'ETH';
 
   return (
     <div
@@ -1462,8 +1477,12 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
       <div className="absolute inset-x-0 top-0 flex items-center gap-2 px-2.5 border-b border-slate-800 cursor-move" style={{ height: G.HEADER }} onPointerDown={onDrag}>
         <span className={`w-2.5 h-2.5 rounded-full ${anyUsed ? 'bg-emerald-400' : 'bg-slate-600'}`} />
         {icon}
-        <span className="text-sm font-semibold truncate">{c.name}</span>
-        <span className="text-[10px] text-slate-500 shrink-0">{tag}</span>
+        <span className="text-sm font-semibold truncate min-w-[3rem]" title={c.name}>
+          {c.name}
+        </span>
+        <span className="text-[10px] text-slate-500 truncate min-w-0 shrink-[4]" title={tag}>
+          {tag}
+        </span>
         <div className="ml-auto flex items-center">
           {onCollapse && (
             <CardBtn title="Recolher no rack" onClick={onCollapse}>
@@ -1519,8 +1538,9 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
       {rowLabels(c).map((r, i) => (
         <div
           key={i}
-          className={`absolute flex items-center justify-center rounded text-[10px] font-bold ${r.label === 'UP' ? 'text-amber-400' : c.kind === 'dio' ? 'text-sky-400' : 'text-slate-400'}`}
-          style={{ left: G.PAD, top: r.y, width: G.LABEL - 6, height: G.PORT, background: '#0f172a' }}
+          className={`absolute flex items-center justify-center rounded font-bold leading-tight text-center overflow-hidden ${r.label.length > 5 ? 'text-[8px]' : 'text-[10px]'} ${r.label === 'UP' ? 'text-amber-400' : c.kind === 'dio' ? 'text-sky-400' : 'text-slate-400'}`}
+          title={r.label}
+          style={{ left: G.PAD, top: r.y, width: labelW(c) - 6, height: G.PORT, background: '#0f172a' }}
         >
           {r.label}
         </div>
@@ -1541,11 +1561,14 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
         const isPending = !!pending && sameEnd(pending, end);
         const isSel = !!selConn && (sameEnd(selConn.a, end) || sameEnd(selConn.b, end));
         const hot = lit(end) || (c.kind === 'dio' && lit({ c: c.id, p: `a${n}` }));
-        const label = c.kind === 'olt' ? (p.startsWith('u') ? String(n) : String(((n - 1) % c.ports) + 1)) : String(n);
+        const label = c.kind === 'olt' ? (p.startsWith('u') ? String(n) : String(((n - 1) % c.ports) + 1)) : c.kind === 'active' ? String(portGroupOf(c, p)?.index ?? n) : String(n);
+        const lag = c.kind === 'active' ? lagOf(c, p) : undefined;
+        const lagColor = lag ? LAG_COLORS[(c.kind === 'active' ? (c.lags ?? []).indexOf(lag) : 0) % LAG_COLORS.length] : undefined;
         const partnerEnd = diagram.connections.find((k) => sameEnd(k.a, end) || sameEnd(k.b, end));
         const other = partnerEnd ? (sameEnd(partnerEnd.a, end) ? partnerEnd.b : partnerEnd.a) : null;
         const tip = [
           endLabel(end),
+          lag ? `Agregação: ${lag.name} (${lag.mode === 'lacp' ? 'LACP' : 'estática'})` : null,
           src && dotCable ? `Fusão: ${dotCable.name} · fibra ${src.fiber} (${fiberColor(src.fiber, dotCable.fibers_per_tube).name})${src.splitter ? ' via splitter' : ''}` : null,
           other ? `Cordão: ${endLabel(other)}` : 'Frente livre',
         ]
@@ -1573,9 +1596,11 @@ function EquipmentCard({ comp: c, onCollapse, rack, rackConflict, diagram, cable
                 ? `0 0 10px ${VFL}, inset 0 0 6px ${VFL}`
                 : isPending || isSel
                   ? '0 0 0 2px #facc15'
-                  : frontPatched
-                    ? 'inset 0 -3px 0 #e2e8f0'
-                    : undefined,
+                  : lagColor
+                    ? `inset 0 -4px 0 ${lagColor}`
+                    : frontPatched
+                      ? 'inset 0 -3px 0 #e2e8f0'
+                      : undefined,
             }}
           >
             {label}

@@ -61,10 +61,38 @@ export interface EquipmentModel {
   uplinks?: number | null;
   tx_dbm?: number | null;
   height_u: number;
+  /** Ativo: grupos de portas (tipo, quantidade, capacidade). Sem grupos = `ports` portas Ethernet. */
+  port_groups?: PortGroup[] | null;
   notes?: string | null;
   /** Cadastrado por quem está usando (pode editar/excluir). */
   own?: boolean;
   builtin?: boolean;
+}
+
+/** Grupo de portas de um ativo: tipo (RJ45, SFP+...), quantidade e capacidade de cada porta (Gbps). */
+export interface PortGroup {
+  type: string;
+  count: number;
+  /** Capacidade de tráfego por porta, em Gbps (ex.: 1, 10, 100). */
+  speed?: number | null;
+}
+
+/** Agregação de portas (LAG / port-channel / bond) de um ativo. */
+export interface PortLag {
+  id: string;
+  name: string;
+  mode: 'lacp' | 'static';
+  /** Portas do ativo ("e1", "e5"...). */
+  ports: string[];
+}
+
+export type MgmtProto = 'SSH' | 'HTTPS' | 'HTTP' | 'Telnet' | 'SNMP' | 'Winbox' | 'API';
+
+/** Endereço de gerência do equipamento. */
+export interface MgmtAccess {
+  ip?: string;
+  port?: number;
+  proto?: MgmtProto;
 }
 
 /** Fabricante e modelo do cadastro usados no equipamento (para exibir no card). */
@@ -111,11 +139,11 @@ export type DiagramComponent =
   /** rot: rotação em graus (0, 90, 180, 270), pelo botão Girar do diagrama da CTO. */
   | { id: string; kind: 'splitter'; model: string; name?: string; dio?: string; rot?: number; x: number; y: number }
   /** Portas PON "p1..pN" (slot a slot) e uplinks "u1..uN". */
-  | ({ id: string; kind: 'olt'; name: string; model: string; slots: number; ports: number; uplinks?: number; tx_dbm: number; x: number; y: number } & RackMount & ModelRef)
+  | ({ id: string; kind: 'olt'; name: string; model: string; slots: number; ports: number; uplinks?: number; tx_dbm: number; mgmt?: MgmtAccess; x: number; y: number } & RackMount & ModelRef)
   /** Lado "a" = fusão com o cabo; lado "b" = conector frontal (patch). cables = cabos vinculados ("c12"). */
   | ({ id: string; kind: 'dio'; name: string; ports: number; cables?: string[]; model?: string; x: number; y: number } & RackMount & ModelRef)
   /** Equipamento ativo (switch, roteador, BNG...). Portas "e1..eN", só cordões. */
-  | ({ id: string; kind: 'active'; name: string; type: string; ports: number; model?: string; x: number; y: number } & RackMount & ModelRef)
+  | ({ id: string; kind: 'active'; name: string; type: string; ports: number; groups?: PortGroup[]; lags?: PortLag[]; mgmt?: MgmtAccess; model?: string; x: number; y: number } & RackMount & ModelRef)
   /** Rack do POP: de piso ou suspenso (parede), com altura em U (ex.: 44U, 48U). */
   | { id: string; kind: 'rack'; name: string; mount: RackMountType; units: number; loc?: RackLocation; x: number; y: number };
 

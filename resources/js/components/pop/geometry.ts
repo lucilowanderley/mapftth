@@ -1,4 +1,5 @@
 import { DIO_TRAY } from '../../lib/catalog';
+import { activeGroups, portGroupOf } from '../../lib/pop';
 import type { DiagramComponent } from '../../lib/types';
 
 /** Medidas dos cards do editor de POP (unidades do canvas, antes do zoom). */
@@ -44,14 +45,34 @@ function grid(c: PopComp): { cols: number; rows: number; top: number } {
       return { cols: DIO_TRAY, rows: Math.max(1, Math.ceil(c.ports / DIO_TRAY)), top: G.HEADER + G.CHIPS + G.PAD };
     case 'olt':
       return { cols: Math.max(c.ports, c.uplinks ?? 0, 8), rows: c.slots + ((c.uplinks ?? 0) > 0 ? 1 : 0), top: G.HEADER + G.PAD };
-    case 'active':
-      return { cols: Math.max(4, Math.min(c.ports, 12)), rows: Math.max(1, Math.ceil(c.ports / 12)), top: G.HEADER + G.PAD };
+    case 'active': {
+      // Cada grupo de portas começa numa linha nova (12 portas por linha).
+      const groups = activeGroups(c);
+      const rows = groups.reduce((a, g) => a + Math.max(1, Math.ceil(g.count / ACTIVE_PER_ROW)), 0);
+      return { cols: Math.max(c.groups?.length ? 6 : 4, Math.min(Math.max(...groups.map((g) => g.count)), ACTIVE_PER_ROW)), rows: Math.max(1, rows), top: G.HEADER + G.PAD };
+    }
   }
+}
+
+/** Portas por linha no card do ativo. */
+const ACTIVE_PER_ROW = 12;
+
+/** Largura da coluna de rótulos: o ativo com grupos usa rótulos maiores ("SFP+", "Canal DWDM"). */
+export const labelW = (c: PopComp) => (c.kind === 'active' && c.groups?.length ? 62 : G.LABEL);
+
+/** Linha inicial de cada grupo de portas do ativo. */
+function groupRows(c: Extract<PopComp, { kind: 'active' }>): number[] {
+  let r = 0;
+  return activeGroups(c).map((g) => {
+    const start = r;
+    r += Math.max(1, Math.ceil(g.count / ACTIVE_PER_ROW));
+    return start;
+  });
 }
 
 export function cardSize(c: PopComp): { w: number; h: number } {
   const g = grid(c);
-  return { w: G.PAD * 2 + G.LABEL + rowW(g.cols), h: g.top + rowsH(g.rows) + G.PAD + G.FOOT };
+  return { w: G.PAD * 2 + labelW(c) + rowW(g.cols), h: g.top + rowsH(g.rows) + G.PAD + G.FOOT };
 }
 
 /** Canto superior esquerdo de uma porta, relativo ao card. */
@@ -60,10 +81,14 @@ export function portBox(c: PopComp, port: string): { x: number; y: number } {
   const n = Number(port.slice(1));
   let row = 0;
   let col = 0;
-  if (c.kind === 'dio' || c.kind === 'active') {
-    const per = c.kind === 'dio' ? DIO_TRAY : 12;
-    row = Math.floor((n - 1) / per);
-    col = (n - 1) % per;
+  if (c.kind === 'active') {
+    const pg = portGroupOf(c, port);
+    const i = (pg?.index ?? n) - 1;
+    row = (pg ? groupRows(c)[pg.gi] : 0) + Math.floor(i / ACTIVE_PER_ROW);
+    col = i % ACTIVE_PER_ROW;
+  } else if (c.kind === 'dio') {
+    row = Math.floor((n - 1) / DIO_TRAY);
+    col = (n - 1) % DIO_TRAY;
   } else if (port.startsWith('u')) {
     row = c.slots;
     col = n - 1;
@@ -71,7 +96,7 @@ export function portBox(c: PopComp, port: string): { x: number; y: number } {
     row = Math.floor((n - 1) / c.ports);
     col = (n - 1) % c.ports;
   }
-  return { x: G.PAD + G.LABEL + col * (G.PORT + G.GAP), y: g.top + row * (G.PORT + G.ROWGAP) };
+  return { x: G.PAD + labelW(c) + col * (G.PORT + G.GAP), y: g.top + row * (G.PORT + G.ROWGAP) };
 }
 
 /** Rótulo de cada linha (bandeja, slot, uplink). */
@@ -79,7 +104,11 @@ export function rowLabels(c: PopComp): { y: number; label: string }[] {
   const g = grid(c);
   const y = (r: number) => g.top + r * (G.PORT + G.ROWGAP);
   if (c.kind === 'dio') return Array.from({ length: g.rows }, (_, r) => ({ y: y(r), label: `T${r + 1}` }));
-  if (c.kind === 'active') return Array.from({ length: g.rows }, (_, r) => ({ y: y(r), label: r === 0 ? 'ETH' : '' }));
+  if (c.kind === 'active') {
+    const groups = activeGroups(c);
+    const starts = groupRows(c);
+    return groups.map((gr, i) => ({ y: y(starts[i]), label: gr.type }));
+  }
   const rows = Array.from({ length: c.slots }, (_, r) => ({ y: y(r), label: `S${r + 1}` }));
   if ((c.uplinks ?? 0) > 0) rows.push({ y: y(c.slots), label: 'UP' });
   return rows;

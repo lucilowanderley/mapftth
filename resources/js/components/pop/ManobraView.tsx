@@ -2,7 +2,7 @@ import { Box, Server } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import type { BudgetResult } from '../../lib/budget';
 import { fiberColor } from '../../lib/catalog';
-import { endKey, fusionSource, oltPortLabel, partner } from '../../lib/pop';
+import { activePortLabel, endKey, fusionSource, oltPortLabel, partner } from '../../lib/pop';
 import type { Cable, Diagram, DiagramComponent, End } from '../../lib/types';
 
 interface Props {
@@ -29,7 +29,7 @@ export default function ManobraView({ diagram, cables, focus, readOnly, powerAt,
   const ponOptions = olts.flatMap((o) =>
     Array.from({ length: o.slots * o.ports }, (_, i) => ({ end: { c: o.id, p: `p${i + 1}` }, label: `${o.name} · ${oltPortLabel(o, `p${i + 1}`)}` })),
   );
-  const activeOptions = actives.flatMap((a) => Array.from({ length: a.ports }, (_, i) => ({ end: { c: a.id, p: `e${i + 1}` }, label: `${a.name} · porta ${i + 1}` })));
+  const activeOptions = actives.flatMap((a) => Array.from({ length: a.ports }, (_, i) => ({ end: { c: a.id, p: `e${i + 1}` }, label: `${a.name} · ${activePortLabel(a, `e${i + 1}`)}` })));
 
   function PatchSelect({ from, options }: { from: End; options: { end: End; label: string }[] }) {
     const current = usedBy.get(endKey(from)) ?? '';
