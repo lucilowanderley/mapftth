@@ -899,7 +899,7 @@ cliente continua no mapa). Um cliente que já tem drop não pode ser vinculado d
    for o usual e se o serial já estiver em outro cliente). O ícone do cartão muda conforme o tipo.
    Com o cliente vinculado ao mapa, esses dados são gravados também no cliente do mapa ao salvar o diagrama
    (o ícone dele no mapa também muda: casa, loja ou prédio). No mapa, os mesmos campos ficam no painel do cliente.
-6. **Sinal medido e saúde do cliente:** em **Sinal medido na ONU/ONT (dBm)** informe o valor lido na ONU/ONT
+6. **Sinal medido e saúde do cliente:** em **Sinal medido na ONU/ONT (dBm)** (no painel do mapa: **Sinal medido (dBm)**) informe o valor lido na ONU/ONT
    (no futuro ele virá do FiberControl pelo serial). O sistema compara com o sinal **estimado** pelo orçamento
    óptico e mostra a **saúde** no cartão e ao clicar no cliente:
    - **Saudável**: dentro do estimado (até 2 dB abaixo) e dentro dos limites da ONU;
@@ -1013,6 +1013,16 @@ não salvas, o sistema pergunta antes.
 | Cinza | **Sem sinal** | o caminho não chega a uma OLT |
 
 O ícone do cliente no mapa fica com a mesma cor.
+
+O quadro **Potência na ONU** junta, num cartão só, a potência **Estimada** (orçamento óptico) e a **Medida** na
+ONU/ONT, com a saúde do sinal (**Saudável**, **Atenção**, **Problema**) no canto. Se não houver estimativa, o motivo
+aparece uma vez só, logo abaixo dos valores. No painel do cliente, o campo **Sinal medido (dBm)** fica ao lado do
+**ID do cliente**, e o **Serial ONU/ONT** ocupa a linha inteira.
+
+**Painel de propriedades compacto:** o painel do objeto mostra **Nome** e **Status** lado a lado e os campos mais
+baixos, para caber quase tudo sem rolar. Quando ainda precisa rolar (tela baixa ou objeto com muitos campos),
+o título do objeto fica fixo no topo e os botões **Excluir / Histórico / Salvar alterações** ficam fixos embaixo,
+e só o meio rola, com uma barra fina e discreta nas cores do painel (vale também para as janelas e listas do app).
 
 ---
 

@@ -1,10 +1,10 @@
-import { Activity, Building2, Layers, Layers2, Copy, Crosshair, History, Home, Link2, Network, Radar, Store, Trash2, X } from 'lucide-react';
+import { Building2, Layers, Layers2, Copy, Crosshair, History, Home, Link2, Network, Radar, Store, Trash2, X } from 'lucide-react';
 import type { SignalAnalysis } from '../lib/signal';
-import SignalHealthBox from './SignalHealthBox';
+import { ClientSignalCard } from './SignalHealthBox';
 import { CLIENT_SEGMENTS, clientDataOf, normalizeSerial, type ClientSegment } from '../lib/client';
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
-import { POWER_COLORS, POWER_LABEL, powerLevel, type BudgetResult } from '../lib/budget';
+import { powerLevel, type BudgetResult } from '../lib/budget';
 import { BOX_TYPES, CABLE_CATEGORIES, CABLE_MODELS, CONDO_KINDS, LINE_STYLES, NODE_TYPES, SLACK_KINDS, STATUSES, effectiveLineStyle, lineDash } from '../lib/catalog';
 import type { BoxAttributes, FixAttributes, CameraAttributes, Cable, CableCategory, CondoAttributes, CondoKind, LatLng, LineStyle, NetNode, Slack, SlackKind, PoleAttributes, Settings, Status, TowerAttributes, TowerKind, TowerRadio } from '../lib/types';
 import { RADIO_HOST_TYPES, TOWER_KINDS, radiosOf } from '../lib/tower';
@@ -73,7 +73,8 @@ function useFocusOn(focusKey?: number) {
 
 export default function Inspector(props: Props) {
   return (
-    <div className={`absolute top-3 left-3 z-[1000] panel ${props.node?.type === 'camera' ? 'w-80' : 'w-72'} max-h-[calc(100%-1.5rem)] overflow-y-auto`}>
+    // inspector: campos mais compactos (app.css); cabeçalho e botões de salvar ficam fixos enquanto o meio rola.
+    <div className="inspector absolute top-3 left-3 z-[1000] panel w-80 max-h-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain">
       {props.node ? <NodeForm {...props} node={props.node} /> : props.cable ? <CableForm {...props} cable={props.cable} /> : null}
     </div>
   );
@@ -81,9 +82,9 @@ export default function Inspector(props: Props) {
 
 function Header({ title, subtitle, onClose }: { title: string; subtitle: string; onClose: () => void }) {
   return (
-    <div className="flex items-start justify-between px-4 py-3 border-b border-slate-800">
-      <div>
-        <div className="font-semibold">{title}</div>
+    <div className="sticky top-0 z-10 flex items-start justify-between px-4 py-2.5 border-b border-slate-800 bg-slate-900 rounded-t-xl">
+      <div className="min-w-0">
+        <div className="font-semibold truncate">{title}</div>
         <div className="text-xs text-slate-400">{subtitle}</div>
       </div>
       <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer" aria-label="Fechar">
@@ -119,7 +120,7 @@ function Actions({
   onHistory?: () => void;
 }) {
   return (
-    <div className="flex gap-2">
+    <div className="sticky bottom-0 z-10 -mx-4 -mb-3 flex gap-2 border-t border-slate-800 bg-slate-900 px-4 py-2.5 rounded-b-xl">
       {!readOnly && (
         <button className="btn-danger" onClick={onRemove} title="Excluir">
           <Trash2 size={16} />
@@ -287,7 +288,7 @@ function NodeForm({
   return (
     <>
       <Header title={node.name} subtitle={`${node.type === 'camera' ? CAMERA_KINDS[cameraOf(node).cam_kind ?? 'ip'].label : NODE_TYPES[node.type].label} · ${node.lat.toFixed(6)}, ${node.lng.toFixed(6)}`} onClose={onClose} />
-      <div className="p-4 space-y-3">
+      <div className="px-4 pt-3 pb-3 space-y-2.5">
         {hasDiagram && (
           <button className="btn-primary w-full" onClick={() => onOpenDiagram(node)}>
             <Network size={16} /> {node.type === 'pop' ? 'Editor do POP' : node.type === 'dc' ? 'Editor do Datacenter' : node.type === 'tower' ? 'Shelter da torre (racks)' : 'Diagrama de fusão'}
@@ -304,23 +305,7 @@ function NodeForm({
             {group?.active ? `Desagrupar (${group.count} ${group.count === 1 ? 'oculto' : 'ocultos'})` : 'Agrupar objetos à frente'}
           </button>
         )}
-        {node.type === 'client' && budget && level && (
-          <button
-            onClick={() => onShowBudget(node)}
-            className="w-full rounded-md border px-3 py-2 text-left cursor-pointer"
-            style={{ borderColor: POWER_COLORS[level] }}
-          >
-            <div className="flex items-center justify-between text-xs text-slate-400">
-              <span className="flex items-center gap-1">
-                <Activity size={12} /> Potência na ONU
-              </span>
-              <span style={{ color: POWER_COLORS[level] }}>{POWER_LABEL[level]}</span>
-            </div>
-            <div className="text-lg font-mono font-semibold">{budget.power !== null ? `${budget.power.toFixed(2)} dBm` : '—'}</div>
-            {budget.error && <div className="text-xs text-slate-400">{budget.error}</div>}
-          </button>
-        )}
-        {node.type === 'client' && signal && <SignalHealthBox analysis={signal} />}
+        {node.type === 'client' && <ClientSignalCard budget={budget} level={level} signal={signal} onOpen={budget ? () => onShowBudget(node) : undefined} />}
         {node.type === 'camera' && (
           <CameraDevice
             node={node}
@@ -343,16 +328,18 @@ function NodeForm({
           </button>
         )}
         {/* fieldset desabilitado: quem tem acesso de leitura só visualiza os campos */}
-        <fieldset disabled={readOnly} className="min-w-0 space-y-3">
-          <Field label="Nome">
-            <input ref={nameRef} className="input" value={name} onChange={(e) => setName(e.target.value)} />
-          </Field>
-          <Field label="Status">
-            <StatusSelect value={status} onChange={setStatus} />
-          </Field>
+        <fieldset disabled={readOnly} className="min-w-0 space-y-2.5">
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Nome">
+              <input ref={nameRef} className="input" value={name} onChange={(e) => setName(e.target.value)} />
+            </Field>
+            <Field label="Status">
+              <StatusSelect value={status} onChange={setStatus} />
+            </Field>
+          </div>
           <div>
             <div className="label flex items-center justify-between">
-              <span>Posição (graus decimais ou GMS)</span>
+              <span title="Graus decimais (-6.4825918) ou GMS (6°28'57&quot;S)">Posição (decimal ou GMS)</span>
               <span className="flex gap-2 normal-case">
                 {onLocate && (
                   <button type="button" className="text-slate-400 hover:text-white cursor-pointer" title="Centralizar no mapa" onClick={() => onLocate([node.lat, node.lng])}>
@@ -406,9 +393,9 @@ function NodeForm({
                         aria-pressed={on}
                         disabled={readOnly}
                         onClick={() => setSegment(on ? null : k)}
-                        className={`flex flex-col items-center gap-1 rounded-md border py-1.5 text-[11px] cursor-pointer ${on ? 'border-emerald-500 bg-emerald-600/20 text-emerald-300' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
+                        className={`flex items-center justify-center gap-1 rounded-md border py-1 text-[11px] cursor-pointer ${on ? 'border-emerald-500 bg-emerald-600/20 text-emerald-300' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
                       >
-                        <Icon size={16} />
+                        <Icon size={13} className="shrink-0" />
                         {CLIENT_SEGMENTS[k]}
                       </button>
                     );
@@ -419,19 +406,19 @@ function NodeForm({
                 <Field label="ID do cliente">
                   <input className="input" maxLength={64} value={clientCode} onChange={(e) => setClientCode(e.target.value)} />
                 </Field>
-                <Field label="Serial ONU/ONT">
-                  <input
-                    className="input font-mono uppercase"
-                    maxLength={64}
-                    placeholder="HWTC1A2B3C4D"
-                    value={onuSerial}
-                    onChange={(e) => setOnuSerial(e.target.value)}
-                    onBlur={() => setOnuSerial(normalizeSerial(onuSerial))}
-                  />
+                <Field label="Sinal medido (dBm)">
+                  <input className="input font-mono" inputMode="decimal" placeholder="ex.: -21,4" title="Sinal medido na ONU/ONT, em dBm" value={rx} onChange={(e) => setRx(e.target.value)} />
                 </Field>
               </div>
-              <Field label="Sinal medido na ONU/ONT (dBm)">
-                <input className="input font-mono" inputMode="decimal" placeholder="ex.: -21,4" value={rx} onChange={(e) => setRx(e.target.value)} />
+              <Field label="Serial ONU/ONT">
+                <input
+                  className="input font-mono uppercase"
+                  maxLength={64}
+                  placeholder="HWTC1A2B3C4D"
+                  value={onuSerial}
+                  onChange={(e) => setOnuSerial(e.target.value)}
+                  onBlur={() => setOnuSerial(normalizeSerial(onuSerial))}
+                />
               </Field>
               {rxBad && <p className="text-xs text-red-400">Informe um valor entre -60 e 10 dBm.</p>}
             </>
@@ -658,8 +645,8 @@ function CableForm({ cable, nodes, settings, readOnly, onClose, onCableSaved, on
   return (
     <>
       <Header title={cable.name} subtitle={`${from?.name ?? 'Ponta solta'} → ${to?.name ?? 'Ponta solta'}`} onClose={onClose} />
-      <div className="p-4 space-y-3">
-        <fieldset disabled={readOnly} className="space-y-3">
+      <div className="px-4 pt-3 pb-3 space-y-2.5">
+        <fieldset disabled={readOnly} className="space-y-2.5">
           <Field label="Modelo do catálogo">
             <select className="input" value={form.model} onChange={(e) => pickModel(e.target.value)}>
               <option value="">Personalizado</option>
