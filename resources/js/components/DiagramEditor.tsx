@@ -10,6 +10,7 @@ import {
   MoveHorizontal,
   Redo2,
   RotateCw,
+  Route,
   Save,
   Server,
   Spline,
@@ -41,6 +42,7 @@ import { CLIENT_SEGMENTS, SEGMENT_GLYPH, clientDataOf, looksLikeGponSerial, norm
 import { Field, Modal } from './ui';
 import JointForm from './JointForm';
 import { formatDb, jointLoss, jointName, jointLossSource } from '../lib/joints';
+import { routeMembers, routeName, type RouteComp, type RouteEnv } from '../lib/route';
 
 const ROW = 14;
 const HEADER = 34;
@@ -57,6 +59,10 @@ const TRAY_W = 230;
 /** Topo das portas da bandeja (abaixo do cabeçalho e da barra de ocupação). */
 const TRAY_TOP = HEADER + 12;
 const TRAY_FOOT = 22;
+/** Cartão da Rota recolhida e cor da rota (cartão, moldura e portas). */
+const ROTA_W = 210;
+const ROTA_COLOR = '#4338ca';
+const ROTA_LIST = 5;
 
 /** Altura do cartão da bandeja aberta: uma linha por FO do lado com mais fibras, mais o rodapé com o resumo. */
 const trayHeightFor = (nLeft: number, nRight: number) => TRAY_TOP + Math.max(1, nLeft, nRight) * ROW + TRAY_FOOT;
@@ -64,8 +70,8 @@ const trayHeightFor = (nLeft: number, nRight: number) => TRAY_TOP + Math.max(1, 
 type RouteStyle = 'ortho' | 'curve';
 type Tool = 'fuse' | 'connector' | 'pass';
 
-/** Racks só existem no editor de POP e não entram no diagrama de fusão. */
-type BoxComponent = Exclude<DiagramComponent, { kind: 'rack' }>;
+/** Racks só existem no editor de POP; a Rota é desenhada à parte (cartão recolhido ou moldura). */
+type BoxComponent = Exclude<DiagramComponent, { kind: 'rack' | 'route' }>;
 type Block =
   | {
       key: string;
@@ -306,7 +312,17 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const [, setHistoryTick] = useState(0);
   const svgRef = useRef<SVGSVGElement>(null);
   const contentRef = useRef<SVGGElement>(null);
-  const drag = useRef<{ key?: string; lane?: string; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
+  const drag = useRef<{
+    key?: string;
+    lane?: string;
+    /** Rota expandida: arrasta todos os objetos do grupo juntos (posições de partida). */
+    group?: { key: string; x: number; y: number; side?: 'left' | 'right'; cable: boolean }[];
+    sx: number;
+    sy: number;
+    ox: number;
+    oy: number;
+    moved: boolean;
+  } | null>(null);
 
   const cables = useMemo(() => network.cables.filter((c) => c.from_node_id === node.id || c.to_node_id === node.id), [network.cables, node.id]);
   const nodeName = (id: number | null) => network.nodes.find((n) => n.id === id)?.name ?? 'ponta solta';
@@ -393,7 +409,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         client: dropClientOf(c),
       };
     });
-    return [...cableBlocks, ...diagram.components.filter((c): c is BoxComponent => c.kind !== 'rack').map((c) => ({ ...c, key: c.id }))];
+    return [...cableBlocks, ...diagram.components.filter((c): c is BoxComponent => c.kind !== 'rack' && c.kind !== 'route').map((c) => ({ ...c, key: c.id }))];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cables, diagram, node.id, network.nodes]);
 
@@ -429,6 +445,100 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const portOf = (e: End) => ports.find((p) => sameEnd(p.end, e));
   const validConnections = diagram.connections.filter((c) => portOf(c.a) && portOf(c.b));
   const connectedTo = (e: End) => validConnections.find((c) => sameEnd(c.a, e) || sameEnd(c.b, e));
+
+  // ---------- Rotas: grupos com tudo o que vem à frente de um cabo (ou de uma fibra) ----------
+  const rotaComps = diagram.components.filter((c): c is RouteComp => c.kind === 'route');
+  const rotaEnv: RouteEnv = useMemo(
+    () => ({
+      kindOf: (key) => {
+        const b = blocks.find((x) => x.key === key);
+        if (!b) return undefined;
+        if (b.kind === 'cable') return b.client ? 'drop' : 'cable';
+        return b.kind === 'splitter' || b.kind === 'client' ? b.kind : 'other';
+      },
+      outputs: (key) => {
+        const b = blocks.find((x) => x.key === key);
+        return b?.kind === 'splitter' ? splitterModel(b.model).outputs : 0;
+      },
+    }),
+    [blocks],
+  );
+  /** Caixa ocupada pelos objetos (para a moldura da rota expandida e para onde o cartão aparece). */
+  const groupBox = (keys: string[]) => {
+    let x1 = Infinity;
+    let y1 = Infinity;
+    let x2 = -Infinity;
+    let y2 = -Infinity;
+    keys.forEach((k) => {
+      const b = blocks.find((x) => x.key === k);
+      if (!b) return;
+      const box = b.kind === 'splitter' ? (({ box: bx }) => ({ ...bx, h: bx.h + 18 }))(splitterFrame(b)) : { x: b.x, y: b.y, ...blockSize(b) };
+      x1 = Math.min(x1, box.x);
+      y1 = Math.min(y1, box.y);
+      x2 = Math.max(x2, box.x + box.w);
+      y2 = Math.max(y2, box.y + box.h);
+    });
+    if (x1 === Infinity) return null;
+    const pad = 14;
+    return { x: x1 - pad, y: y1 - pad, w: x2 - x1 + pad * 2, h: y2 - y1 + pad * 2 };
+  };
+  const rotaGeo = useMemo(() => {
+    const valid = diagram.connections.filter((c) => portOf(c.a) && portOf(c.b));
+    /** Objeto escondido -> rota recolhida que o contém (o primeiro grupo ganha). */
+    const hidden = new Map<string, string>();
+    const geo = new Map<
+      string,
+      { r: RouteComp; members: string[]; box: { x: number; y: number; w: number; h: number } | null; ports: Map<string, Port>; internal: Set<string> }
+    >();
+    for (const r of rotaComps) {
+      const members = routeMembers({ connections: valid }, r, rotaEnv);
+      const ports = new Map<string, Port>();
+      const internal = new Set<string>();
+      if (r.open) {
+        geo.set(r.id, { r, members, box: groupBox(members), ports, internal });
+        continue;
+      }
+      const mine = new Set(members.filter((k) => !hidden.has(k)));
+      mine.forEach((k) => hidden.set(k, r.id));
+      const left: { id: string; y: number }[] = [];
+      const right: { id: string; y: number }[] = [];
+      valid.forEach((c) => {
+        const a = mine.has(c.a.c);
+        const b = mine.has(c.b.c);
+        if (a && b) internal.add(c.id);
+        else if (a || b) {
+          const out = portOf(a ? c.b : c.a)!;
+          (out.x < r.x + ROTA_W / 2 ? left : right).push({ id: c.id, y: out.y });
+        }
+      });
+      // Resumo + pior sinal + lista (até ROTA_LIST) + "+ N objeto(s)".
+      const lines = 2 + Math.max(1, Math.min(members.length, ROTA_LIST)) + (members.length > ROTA_LIST ? 1 : 0);
+      const h = Math.max(HEADER + lines * 12 + 12, HEADER + 8 + Math.max(left.length, right.length) * ROW);
+      const place = (list: { id: string; y: number }[], side: -1 | 1) => {
+        const top = r.y + (h - list.length * ROW) / 2;
+        list
+          .sort((p, q) => p.y - q.y)
+          .forEach((q, i) =>
+            ports.set(q.id, { end: { c: r.id, p: `v${i}` }, x: side < 0 ? r.x : r.x + ROTA_W, y: top + (i + 0.5) * ROW, dir: side, color: ROTA_COLOR, label: '' }),
+          );
+      };
+      place(left, -1);
+      place(right, 1);
+      geo.set(r.id, { r, members, box: { x: r.x, y: r.y, w: ROTA_W, h }, ports, internal });
+    }
+    return { geo, hidden };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diagram, blocks, ports, rotaEnv]);
+  const rotaHidden = rotaGeo.hidden;
+  /** Ponta desenhada da ligação: a porta real ou, se o objeto está numa rota recolhida, a porta no cartão da rota. */
+  const dispPort = (c: Connection, e: End): Port | undefined => {
+    const rid = rotaHidden.get(e.c);
+    return rid ? rotaGeo.geo.get(rid)?.ports.get(c.id) : portOf(e);
+  };
+  const rotaInternal = (c: Connection) => {
+    const rid = rotaHidden.get(c.a.c);
+    return !!rid && rid === rotaHidden.get(c.b.c);
+  };
 
   // Rede com o diagrama em edição, para calcular potência em tempo real.
   const liveNetwork: Network = useMemo(
@@ -490,8 +600,16 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   function onPointerDown(e: React.PointerEvent, key?: string) {
     if (e.button !== 0) return;
     e.stopPropagation();
-    const b = key ? (blocks.find((x) => x.key === key) ?? diagram.trays?.find((t) => t.id === key)) : undefined;
-    drag.current = { key, sx: e.clientX, sy: e.clientY, ox: b ? b.x : view.x, oy: b ? b.y : view.y, moved: false };
+    const b = key ? (blocks.find((x) => x.key === key) ?? diagram.trays?.find((t) => t.id === key) ?? rotaComps.find((r) => r.id === key)) : undefined;
+    const rota = key ? rotaGeo.geo.get(key) : undefined;
+    const group =
+      rota?.r.open && !readOnly
+        ? rota.members.flatMap((k) => {
+            const m = blocks.find((x) => x.key === k);
+            return m ? [{ key: k, x: m.x, y: m.y, side: m.kind === 'cable' ? m.side : undefined, cable: m.kind === 'cable' }] : [];
+          })
+        : undefined;
+    drag.current = { key, group, sx: e.clientX, sy: e.clientY, ox: b ? b.x : view.x, oy: b ? b.y : view.y, moved: false };
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
   }
 
@@ -514,6 +632,27 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     }
     if (!d.key) {
       setView((v) => ({ ...v, x: d.ox + dx, y: d.oy + dy }));
+      return;
+    }
+    if (d.group) {
+      const ox = Math.round(dx / view.k / 2) * 2;
+      const oy = Math.round(dy / view.k / 2) * 2;
+      const start = new Map(d.group.map((g) => [g.key, g]));
+      setDiagram((dg) => {
+        const cablePos = { ...dg.cablePos };
+        d.group!.forEach((g) => {
+          if (g.cable) cablePos[g.key] = { ...dg.cablePos[g.key], side: g.side, x: g.x + ox, y: g.y + oy };
+        });
+        return {
+          ...dg,
+          cablePos,
+          components: dg.components.map((c) => {
+            const g = start.get(c.id);
+            return g ? { ...c, x: g.x + ox, y: g.y + oy } : c.id === d.key ? { ...c, x: d.ox + ox, y: d.oy + oy } : c;
+          }),
+        };
+      });
+      setDirty(true);
       return;
     }
     const nx = Math.round((d.ox + dx / view.k) / 2) * 2;
@@ -630,6 +769,57 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     const copy = { ...c, id: uid(), name: undefined, x: c.x + 30, y: c.y + blockSize({ ...c, key: c.id }).h + 30 };
     update((d) => ({ ...d, components: [...d.components, copy] }));
     setSelected({ kind: 'block', key: copy.id });
+  }
+
+  /** Fibra (do cabo) de onde parte a rota, se o selecionado é uma emenda; o cabo inteiro, se é o cabo. */
+  function rotaRoots(): { cable: string; fiber: string | null }[] {
+    if (selBlock?.kind === 'cable' && !selBlock.client) return [{ cable: selBlock.key, fiber: null }];
+    if (!selConn) return [];
+    return [selConn.a, selConn.b].filter((e) => e.p.startsWith('f') && cableBlockOf(e.c) && !cableBlockOf(e.c)!.client).map((e) => ({ cable: e.c, fiber: e.p }));
+  }
+
+  /** Criar rota: tudo o que vem à frente do cabo (ou da fibra da emenda selecionada) vai para um cartão recolhido. */
+  function createRota() {
+    const roots = rotaRoots();
+    if (!roots.length) {
+      setError('Selecione um cabo (ou a emenda de uma fibra dele) para criar a rota.');
+      return;
+    }
+    const existing = rotaComps.find((r) => roots.some((x) => x.cable === r.cable && x.fiber === (r.fiber ?? null)));
+    if (existing) {
+      setSelected({ kind: 'block', key: existing.id });
+      toggleRota(existing.id);
+      return;
+    }
+    const pick = roots.map((x) => ({ ...x, members: routeMembers({ connections: validConnections }, x, rotaEnv) })).find((x) => x.members.length);
+    if (!pick) {
+      setError('Nada ligado à frente desse cabo: faça as fusões até os splitters e clientes antes de criar a rota.');
+      return;
+    }
+    const box = groupBox(pick.members)!;
+    const cable = cableBlockOf(pick.cable)!;
+    const r: RouteComp = { id: uid(), kind: 'route', name: routeName(cable.cable.name, pick.fiber), cable: pick.cable, fiber: pick.fiber, open: false, x: box.x, y: box.y };
+    update((d) => ({ ...d, components: [...d.components, r] }));
+    setSelected({ kind: 'block', key: r.id });
+    setPending(null);
+    setError('');
+  }
+
+  /** Expandir / recolher: ao recolher, o cartão aparece onde estava o grupo. */
+  function toggleRota(id: string) {
+    const g = rotaGeo.geo.get(id);
+    if (!g) return;
+    const box = g.r.open ? groupBox(g.members) : null;
+    setSelected({ kind: 'block', key: id });
+    setPending(null);
+    update((d) => ({
+      ...d,
+      components: d.components.map((c) => (c.id === id && c.kind === 'route' ? { ...c, open: !c.open, ...(box ? { x: box.x, y: box.y } : {}) } : c)),
+    }));
+  }
+
+  function renameRota(id: string, name: string) {
+    update((d) => ({ ...d, components: d.components.map((c) => (c.id === id && c.kind === 'route' ? { ...c, name } : c)) }));
   }
 
   function clearConnections() {
@@ -778,6 +968,10 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       else if (e.key === 'c' || e.key === 'C') setTool('connector');
       else if (e.key === 's' || e.key === 'S') setDialog('splitter');
       else if (e.key === 'b' || e.key === 'B') setDialog('trays');
+      else if ((e.key === 'o' || e.key === 'O') && !isPop) {
+        if (selRota) toggleRota(selRota.r.id);
+        else createRota();
+      }
       else if ((e.key === 'k' || e.key === 'K') && !isPop) {
         setClientEdit(null);
         setDialog('client');
@@ -836,6 +1030,30 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const isPop = node.type === 'pop';
   const selBlock = selected?.kind === 'block' ? blocks.find((b) => b.key === selected.key) : undefined;
   const selConn = selected?.kind === 'conn' ? validConnections.find((c) => c.id === selected.key) : undefined;
+  const selRota = selected?.kind === 'block' ? rotaGeo.geo.get(selected.key) : undefined;
+  const rotaFrom = (r: RouteComp) => {
+    const cb = blocks.find((b): b is Extract<Block, { kind: 'cable' }> => b.kind === 'cable' && b.key === r.cable);
+    if (!cb) return 'cabo removido';
+    return `Cabo ${cb.letter}${r.fiber ? ` · FO ${r.fiber.slice(1)} ${fiberColor(Number(r.fiber.slice(1)), cb.cable.fibers_per_tube).name}` : ` · ${cb.cable.name}`}`;
+  };
+  /** Resumo do grupo: quantos splitters e clientes e o pior sinal estimado (ou medido) nos clientes. */
+  const rotaSummary = (members: string[]) => {
+    const items = members.map((k) => blocks.find((b) => b.key === k)).filter((b): b is Block => !!b);
+    const splitters = items.filter((b) => b.kind === 'splitter').length;
+    const clients = items.filter(isClientBlock);
+    const powers = clients.map((b) => clientSignal.get(b.key)?.measured ?? clientPower.get(b.key)?.power ?? null).filter((v): v is number => v !== null);
+    const worst = powers.length ? Math.min(...powers) : null;
+    const list = items.map((b) =>
+      b.kind === 'splitter'
+        ? `◁ ${b.name || splitterModel(b.model).name}`
+        : b.kind === 'cable' && b.client
+          ? `⌂ ${b.client.name}`
+          : b.kind === 'client'
+            ? `⌂ ${b.name}`
+            : b.key,
+    );
+    return { splitters, clients: clients.length, worst, worstColor: POWER_COLORS[powerLevel(worst, network.settings)], list };
+  };
   const isCablePort = (p: Port) => p.end.c.startsWith('c') && p.end.p.startsWith('f') && !diagram.components.some((c) => c.id === p.end.c);
   const describe = (e: End) => {
     const b = blocks.find((x) => x.key === e.c);
@@ -883,7 +1101,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const tubeLinks = (() => {
     const reqs: { id: string; color: string; fan: Pt; ports: Port[]; a: { x: number; y: number; dir: 1 | -1 }; b: { x: number; y: number; dir: 1 | -1 } }[] = [];
     blocks.forEach((b) => {
-      if (b.kind !== 'cable') return;
+      if (b.kind !== 'cable' || rotaHidden.has(b.key)) return;
       b.rows.forEach((r) => {
         if (r.kind !== 'tube') return;
         const g = trayGeo.get(r.tray.id);
@@ -929,15 +1147,17 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const routes = useMemo(() => {
     if (route !== 'ortho') return new Map<string, Pt[]>();
     return routeOrthogonal(
-      validConnections.map((c) => {
-        const a = portOf(c.a)!;
-        const b = portOf(c.b)!;
-        return { id: c.id, a: { x: a.x, y: a.y, dir: a.dir, vdir: a.vdir }, b: { x: b.x, y: b.y, dir: b.dir, vdir: b.vdir }, lane: c.lane };
-      }),
+      validConnections
+        .filter((c) => !rotaInternal(c))
+        .map((c) => {
+          const a = dispPort(c, c.a)!;
+          const b = dispPort(c, c.b)!;
+          return { id: c.id, a: { x: a.x, y: a.y, dir: a.dir, vdir: a.vdir }, b: { x: b.x, y: b.y, dir: b.dir, vdir: b.vdir }, lane: c.lane };
+        }),
       { stub: 16, gap: 6 },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route, ports, diagram.connections]);
+  }, [route, ports, diagram.connections, rotaGeo]);
 
   return (
     <div className="fixed inset-0 z-[1500] flex flex-col bg-slate-900">
@@ -979,6 +1199,19 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         )}
         {isPop && <IconTool icon={<Server size={16} />} label="Adicionar OLT" text="OLT" onClick={() => setDialog('olt')} />}
         {isPop && <IconTool icon={<SquareStack size={16} />} label="Adicionar DIO" text="DIO" onClick={() => setDialog('dio')} />}
+        {!isPop && !readOnly && (
+          <IconTool
+            icon={<Route size={16} />}
+            label={
+              selRota
+                ? `${selRota.r.open ? 'Recolher' : 'Expandir'} a rota (O)`
+                : 'Criar rota (O): com um cabo ou a emenda de uma fibra selecionada, junta tudo o que vem à frente dele (splitters, clientes, drops) num objeto Rota recolhido'
+            }
+            text={selRota ? (selRota.r.open ? 'Recolher rota' : 'Expandir rota') : 'Rota'}
+            onClick={() => (selRota ? toggleRota(selRota.r.id) : createRota())}
+            disabled={!selRota && !rotaRoots().length}
+          />
+        )}
         <IconTool icon={<Wand2 size={16} />} label="Auto-fusão: funde as fibras em sequência entre dois cabos" onClick={() => setDialog('auto')} />
         <IconTool
           icon={<Layers size={16} />}
@@ -994,7 +1227,17 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         <IconTool icon={<Copy size={16} />} label="Duplicar splitter (Ctrl+D)" onClick={duplicateSelected} disabled={selBlock?.kind !== 'splitter'} />
         <IconTool
           icon={<Trash2 size={16} />}
-          label={selConn ? (selConn.pass ? 'Apagar passagem (Delete)' : 'Apagar emenda (Delete)') : selBlock?.kind === 'cable' ? 'Apagar emendas ou o cabo (Delete)' : 'Apagar o selecionado (Delete)'}
+          label={
+            selConn
+              ? selConn.pass
+                ? 'Apagar passagem (Delete)'
+                : 'Apagar emenda (Delete)'
+              : selBlock?.kind === 'cable'
+                ? 'Apagar emendas ou o cabo (Delete)'
+                : selRota
+                  ? 'Desfazer a rota (Delete): os objetos continuam no diagrama'
+                  : 'Apagar o selecionado (Delete)'
+          }
           onClick={removeSelected}
           disabled={!selected}
           danger
@@ -1034,11 +1277,26 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
           <rect width="100%" height="100%" fill="url(#grid)" />
           <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
             <g ref={contentRef}>
+              {/* Rotas expandidas: moldura em volta dos objetos, com a aba para recolher e arrastar o grupo. */}
+              {[...rotaGeo.geo.values()].map((g) =>
+                !g.r.open || !g.box ? null : (
+                  <RotaFrame
+                    key={g.r.id}
+                    rota={g.r}
+                    box={g.box}
+                    count={g.members.length}
+                    selected={selected?.kind === 'block' && selected.key === g.r.id}
+                    onPointerDown={(e) => onPointerDown(e, g.r.id)}
+                    onToggle={() => toggleRota(g.r.id)}
+                  />
+                ),
+              )}
+
               {/* Conexões */}
               {validConnections.map((c) => {
-                if (internalTray(c)) return null;
-                const a = portOf(c.a)!;
-                const b = portOf(c.b)!;
+                if (internalTray(c) || rotaInternal(c)) return null;
+                const a = dispPort(c, c.a)!;
+                const b = dispPort(c, c.b)!;
                 const aCable = isCablePort(a);
                 const cablePort = aCable ? a : isCablePort(b) ? b : undefined;
                 const color = cablePort?.color ?? '#334155';
@@ -1070,7 +1328,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                     {(() => {
                       // Drop até o cliente do mapa: a própria linha é o drop, com o nome e o comprimento.
                       const drop = [c.a, c.b].map((e) => cableBlockOf(e.c)).find((x) => x?.client);
-                      if (!drop) return null;
+                      if (!drop || rotaHidden.has(drop.key)) return null;
                       // Rótulo no trecho que chega no cliente (longe das saídas do splitter).
                       const line = pts ?? [a, b];
                       const atB = cableBlockOf(c.b.c)?.client !== undefined;
@@ -1145,8 +1403,8 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                 );
               })}
 
-              {/* Blocos */}
-              {blocks.map((b) => (
+              {/* Blocos (os que estão numa rota recolhida ficam dentro do cartão dela) */}
+              {blocks.filter((b) => !rotaHidden.has(b.key)).map((b) => (
                 <BlockView
                   key={b.key}
                   showTubes={trays.length > 0}
@@ -1241,8 +1499,25 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                 );
               })}
 
+              {/* Rotas recolhidas: cartão com o resumo; as fibras que entram e saem chegam nas laterais. */}
+              {[...rotaGeo.geo.values()].map((g) =>
+                g.r.open || !g.box ? null : (
+                  <RotaCard
+                    key={g.r.id}
+                    rota={g.r}
+                    h={g.box.h}
+                    ports={[...g.ports.values()]}
+                    from={rotaFrom(g.r)}
+                    summary={rotaSummary(g.members)}
+                    selected={selected?.kind === 'block' && selected.key === g.r.id}
+                    onPointerDown={(e) => onPointerDown(e, g.r.id)}
+                    onToggle={() => toggleRota(g.r.id)}
+                  />
+                ),
+              )}
+
               {/* Portas */}
-              {ports.map((p) => {
+              {ports.filter((p) => !rotaHidden.has(p.end.c)).map((p) => {
                 const isPending = pending && sameEnd(pending, p.end);
                 const linked = !!connectedTo(p.end);
                 const cablePort = isCablePort(p);
@@ -1303,7 +1578,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   if (!r.ok) return null;
                   const [c, p] = key.split(':');
                   const port = portOf({ c, p });
-                  if (!port) return null;
+                  if (!port || rotaHidden.has(c)) return null;
                   const color = POWER_COLORS[powerLevel(r.power, network.settings)];
                   const vx = port.vdir ? port.x - 4 : port.x + port.dir * 17;
                   const vy = port.vdir ? port.y + port.vdir * 9 + (port.vdir > 0 ? 3 : 0) : port.y - 3;
@@ -1431,6 +1706,67 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
             )}
           </div>
         )}
+        {selRota && !pendingPort && (
+          <div className="absolute left-3 bottom-3 panel px-4 py-3 text-sm w-80 max-h-[70%] overflow-y-auto">
+            <div className="text-xs text-slate-400">Rota {selRota.r.open ? '(expandida)' : '(recolhida)'}</div>
+            {readOnly ? (
+              <div className="font-semibold">{selRota.r.name}</div>
+            ) : (
+              <input
+                key={selRota.r.id}
+                className="input mt-1 w-full font-semibold"
+                defaultValue={selRota.r.name}
+                aria-label="Nome da rota"
+                onBlur={(e) => {
+                  const v = e.target.value.trim();
+                  if (v && v !== selRota.r.name) renameRota(selRota.r.id, v);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                }}
+              />
+            )}
+            <div className="text-xs text-sky-300 mt-1">À frente de {rotaFrom(selRota.r)}</div>
+            {(() => {
+              const sm = rotaSummary(selRota.members);
+              return (
+                <>
+                  <div className="text-xs text-slate-300 mt-1">
+                    {sm.splitters} splitter(s) · {sm.clients} cliente(s)
+                    {sm.worst !== null && (
+                      <>
+                        {' '}
+                        · pior sinal{' '}
+                        <b className="font-mono" style={{ color: sm.worstColor }}>
+                          {sm.worst.toFixed(2)} dBm
+                        </b>
+                      </>
+                    )}
+                  </div>
+                  {sm.list.length ? (
+                    <ul className="mt-1 text-xs text-slate-400 space-y-0.5">
+                      {sm.list.map((t, i) => (
+                        <li key={i}>{t}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="text-xs text-amber-400 mt-1">Nada ligado à frente desse cabo ainda.</div>
+                  )}
+                </>
+              );
+            })()}
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+              <button className="text-emerald-400 hover:underline cursor-pointer" onClick={() => toggleRota(selRota.r.id)}>
+                {selRota.r.open ? 'Recolher' : 'Expandir'}
+              </button>
+              {!readOnly && (
+                <button className="text-red-400 hover:underline cursor-pointer" onClick={removeSelected}>
+                  Desfazer rota
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {selBlock?.kind === 'client' && !selConn && !pendingPort && (
           <div className="absolute left-3 bottom-3 panel px-4 py-3 text-sm max-w-md max-h-[70%] overflow-y-auto">
             <div className="text-xs text-slate-400">Cliente</div>
@@ -1499,6 +1835,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   ['S', 'Adicionar splitter'],
                   ['B', 'Bandejas e tubos loose'],
                   ['K', 'Adicionar cliente'],
+                  ['O', 'Criar rota do cabo selecionado / expandir ou recolher'],
                   ['R', 'Girar o selecionado'],
                   ['Ctrl+D', 'Duplicar splitter'],
                   ['Delete', 'Apagar o selecionado'],
@@ -1881,6 +2218,133 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
 }
 
 /** Botão da barra de ferramentas (ícone com dica; texto opcional em telas largas). */
+/** Rota recolhida: cartão com o nome, de onde parte, o resumo e a lista dos objetos (como os ativos num rack). */
+function RotaCard({
+  rota,
+  h,
+  ports,
+  from,
+  summary,
+  selected,
+  onPointerDown,
+  onToggle,
+}: {
+  rota: RouteComp;
+  h: number;
+  ports: Port[];
+  from: string;
+  summary: { splitters: number; clients: number; worst: number | null; worstColor: string; list: string[] };
+  selected: boolean;
+  onPointerDown: (e: React.PointerEvent) => void;
+  onToggle: () => void;
+}) {
+  const { x, y } = rota;
+  const cut = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
+  const list = summary.list.slice(0, ROTA_LIST);
+  const more = summary.list.length - list.length;
+  let ly = y + HEADER + 10;
+  return (
+    <g onPointerDown={onPointerDown} onDoubleClick={onToggle} className="cursor-move">
+      <title>{`${rota.name} · duplo clique para expandir`}</title>
+      <rect x={x} y={y} width={ROTA_W} height={h} rx={7} fill="#eef2ff" stroke={selected ? '#eab308' : ROTA_COLOR} strokeWidth={selected ? 2.5 : 1.4} />
+      <rect x={x} y={y} width={ROTA_W} height={HEADER - 6} rx={7} fill={ROTA_COLOR} />
+      <rect x={x} y={y + HEADER - 13} width={ROTA_W} height={7} fill={ROTA_COLOR} />
+      <path d={`M${x + 12},${y + 19} c4,-10 8,6 12,-4 s6,-2 8,-6`} fill="none" stroke="#ffffff" strokeWidth={1.6} strokeLinecap="round" />
+      <circle cx={x + 12} cy={y + 19} r={2} fill="#ffffff" />
+      <circle cx={x + 32} cy={y + 9} r={2} fill="#ffffff" />
+      <text x={x + 40} y={y + 13} fontSize={10.5} fontWeight="bold" fill="#ffffff">
+        {cut(rota.name, 24)}
+      </text>
+      <text x={x + 40} y={y + 23} fontSize={7.5} fill="#c7d2fe">
+        {cut(from, 34)}
+      </text>
+      {/* Expandir */}
+      <g
+        className="cursor-pointer"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+      >
+        <title>Expandir a rota</title>
+        <rect x={x + ROTA_W - 24} y={y + 6} width={18} height={16} rx={4} fill="#ffffff" fillOpacity={0.18} />
+        <path d={`M${x + ROTA_W - 19},${y + 12} l4,4 l4,-4`} fill="none" stroke="#ffffff" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+      </g>
+      <text x={x + 12} y={ly} fontSize={8.5} fill="#1e1b4b" fontWeight="bold">
+        {summary.splitters} splitter(s) · {summary.clients} cliente(s)
+      </text>
+      {summary.worst !== null && (
+        <text x={x + 12} y={(ly += 12)} fontSize={8.5} fill={summary.worstColor} fontWeight="bold">
+          pior sinal {summary.worst.toFixed(2)} dBm
+        </text>
+      )}
+      {list.map((t, i) => (
+        <text key={i} x={x + 14} y={(ly += 12)} fontSize={8} fill="#475569">
+          {cut(t, 34)}
+        </text>
+      ))}
+      {more > 0 && (
+        <text x={x + 14} y={(ly += 12)} fontSize={8} fill="#6366f1">
+          + {more} objeto(s)
+        </text>
+      )}
+      {summary.list.length === 0 && (
+        <text x={x + 12} y={(ly += 12)} fontSize={8} fill="#b45309">
+          nada ligado à frente do cabo
+        </text>
+      )}
+      {ports.map((p, i) => (
+        <rect key={i} x={p.x - 3.5} y={p.y - 3.5} width={7} height={7} rx={1.5} fill={ROTA_COLOR} stroke="#ffffff" strokeWidth={1} className="pointer-events-none" />
+      ))}
+    </g>
+  );
+}
+
+/** Rota expandida: moldura tracejada em volta dos objetos e aba com o nome (arrasta o grupo; o botão recolhe). */
+function RotaFrame({
+  rota,
+  box,
+  count,
+  selected,
+  onPointerDown,
+  onToggle,
+}: {
+  rota: RouteComp;
+  box: { x: number; y: number; w: number; h: number };
+  count: number;
+  selected: boolean;
+  onPointerDown: (e: React.PointerEvent) => void;
+  onToggle: () => void;
+}) {
+  const label = `${rota.name} · ${count} objeto(s)`;
+  const tw = Math.min(Math.max(box.w, 120), label.length * 5.4 + 40);
+  return (
+    <g>
+      <rect x={box.x} y={box.y} width={box.w} height={box.h} rx={10} fill={ROTA_COLOR} fillOpacity={0.04} stroke={selected ? '#eab308' : ROTA_COLOR} strokeWidth={selected ? 2 : 1.3} strokeDasharray="7 4" className="pointer-events-none" />
+      <g onPointerDown={onPointerDown} onDoubleClick={onToggle} className="cursor-move">
+        <title>{`${rota.name}: arraste para mover o grupo · duplo clique para recolher`}</title>
+        <rect x={box.x} y={box.y - 18} width={tw} height={18} rx={5} fill={selected ? '#eab308' : ROTA_COLOR} />
+        <text x={box.x + 24} y={box.y - 5.5} fontSize={9} fontWeight="bold" fill="#ffffff">
+          {label}
+        </text>
+      </g>
+      <g
+        className="cursor-pointer"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+      >
+        <title>Recolher a rota</title>
+        <rect x={box.x + 3} y={box.y - 15} width={16} height={12} rx={3} fill="#ffffff" fillOpacity={0.2} />
+        <path d={`M${box.x + 7},${box.y - 7} l4,-4 l4,4`} fill="none" stroke="#ffffff" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+      </g>
+    </g>
+  );
+}
+
 function IconTool({
   icon,
   label,

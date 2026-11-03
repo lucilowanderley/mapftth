@@ -174,6 +174,7 @@ export function pruneConnections(d: Diagram, validCables: Set<string>): Connecti
       case 'splitter':
         return e.p === 'in' || (n >= 1 && n <= splitterModel(c.model).outputs);
       case 'rack':
+      case 'route':
         return false;
     }
   };
