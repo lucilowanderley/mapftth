@@ -6,9 +6,11 @@ import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { POWER_COLORS, POWER_LABEL, powerLevel, type BudgetResult } from '../lib/budget';
 import { BOX_TYPES, CABLE_CATEGORIES, CABLE_MODELS, CONDO_KINDS, LINE_STYLES, NODE_TYPES, SLACK_KINDS, STATUSES, effectiveLineStyle, lineDash } from '../lib/catalog';
-import type { Cable, CableCategory, CondoAttributes, CondoKind, LatLng, LineStyle, NetNode, Slack, SlackKind, PoleAttributes, Settings, Status, TowerAttributes, TowerKind, TowerRadio } from '../lib/types';
+import type { CameraAttributes, Cable, CableCategory, CondoAttributes, CondoKind, LatLng, LineStyle, NetNode, Slack, SlackKind, PoleAttributes, Settings, Status, TowerAttributes, TowerKind, TowerRadio } from '../lib/types';
 import { RADIO_HOST_TYPES, TOWER_KINDS, radiosOf } from '../lib/tower';
 import RadiosEditor from './RadiosEditor';
+import { CameraDevice, CameraFields } from './CameraEditor';
+import { CAMERA_KINDS, cameraOf } from '../lib/camera';
 import { POLE_MATERIALS } from './PolesModal';
 import { cablesNear } from '../lib/analysis';
 import CableLossField, { lossRateText, parseLossRate } from './CableLossField';
@@ -48,6 +50,8 @@ interface Props {
   group?: { active: boolean; count: number };
   /** Agrupa (esconde o que está a jusante) ou desagrupa o objeto. */
   onToggleGroup?: (n: NetNode) => void;
+  /** Seleciona outro objeto do mapa (ex.: câmera de um canal do DVR). */
+  onSelectNode?: (n: NetNode) => void;
 }
 
 /** Foca e seleciona o campo quando focusKey muda (duplo clique no mapa). */
@@ -65,7 +69,7 @@ function useFocusOn(focusKey?: number) {
 
 export default function Inspector(props: Props) {
   return (
-    <div className="absolute top-3 left-3 z-[1000] panel w-72 max-h-[calc(100%-1.5rem)] overflow-y-auto">
+    <div className={`absolute top-3 left-3 z-[1000] panel ${props.node?.type === 'camera' ? 'w-80' : 'w-72'} max-h-[calc(100%-1.5rem)] overflow-y-auto`}>
       {props.node ? <NodeForm {...props} node={props.node} /> : props.cable ? <CableForm {...props} cable={props.cable} /> : null}
     </div>
   );
@@ -152,6 +156,7 @@ function NodeForm({
   onOtdr,
   focusKey,
   onLocate,
+  onSelectNode,
 }: Props & { node: NetNode }) {
   const nameRef = useFocusOn(focusKey);
   const [lat, setLat] = useState(formatCoord(node.lat));
@@ -181,6 +186,14 @@ function NodeForm({
   const setT = (patch: TowerAttributes) => setTower((t) => ({ ...t, ...patch }));
   const [radios, setRadios] = useState<TowerRadio[]>(() => radiosOf(node));
   const hasRadios = RADIO_HOST_TYPES.includes(node.type);
+  // Câmera / DVR: atributos editáveis (sem a situação do último teste, que vem do servidor) e senha nova.
+  const [camera, setCamera] = useState<CameraAttributes>(() => {
+    const { cam_status: _s, ...rest } = cameraOf(node);
+    return { cam_kind: 'ip', ...rest };
+  });
+  const setCam = (patch: CameraAttributes) => setCamera((c) => ({ ...c, ...patch }));
+  const [camPassword, setCamPassword] = useState('');
+  const [camClear, setCamClear] = useState(false);
   const dec = (v: string) => (v.trim() === '' ? undefined : Math.max(0, Number(v.replace(',', '.')) || 0));
   const num = (v: string) => (v === '' ? undefined : Math.max(0, Math.round(Number(v)) || 0));
   const cablesHere = cablesNear([node.lat, node.lng], cables ?? []);
@@ -216,9 +229,22 @@ function NodeForm({
           ...(node.type === 'condo' ? condo : {}),
           ...(node.type === 'tower' ? tower : {}),
           ...(hasRadios ? { radios } : {}),
+          ...(node.type === 'camera'
+            ? {
+                ...camera,
+                cam_status: cameraOf(node).cam_status,
+                ...(camPassword ? { password: camPassword } : {}),
+                ...(camClear && !camPassword ? { password_clear: true } : {}),
+              }
+            : {}),
         },
       });
       onNodeSaved(r.node, r.cables);
+      if (node.type === 'camera') {
+        setCamPassword('');
+        setCamClear(false);
+        setCam({ cam_has_password: !!cameraOf(r.node).cam_has_password });
+      }
       if (moved) onLocate?.([r.node.lat, r.node.lng]);
     } catch (e) {
       onError(errorMessage(e));
@@ -238,14 +264,14 @@ function NodeForm({
 
   return (
     <>
-      <Header title={node.name} subtitle={`${NODE_TYPES[node.type].label} · ${node.lat.toFixed(6)}, ${node.lng.toFixed(6)}`} onClose={onClose} />
+      <Header title={node.name} subtitle={`${node.type === 'camera' ? CAMERA_KINDS[cameraOf(node).cam_kind ?? 'ip'].label : NODE_TYPES[node.type].label} · ${node.lat.toFixed(6)}, ${node.lng.toFixed(6)}`} onClose={onClose} />
       <div className="p-4 space-y-3">
         {hasDiagram && (
           <button className="btn-primary w-full" onClick={() => onOpenDiagram(node)}>
             <Network size={16} /> {node.type === 'pop' ? 'Editor do POP' : node.type === 'dc' ? 'Editor do Datacenter' : node.type === 'tower' ? 'Shelter da torre (racks)' : 'Diagrama de fusão'}
           </button>
         )}
-        {node.type !== 'client' && onToggleGroup && (
+        {node.type !== 'client' && node.type !== 'camera' && onToggleGroup && (
           <button
             type="button"
             className={group?.active ? 'btn-primary w-full' : 'btn-ghost w-full'}
@@ -273,6 +299,17 @@ function NodeForm({
           </button>
         )}
         {node.type === 'client' && signal && <SignalHealthBox analysis={signal} />}
+        {node.type === 'camera' && (
+          <CameraDevice
+            node={node}
+            nodes={nodes}
+            readOnly={readOnly}
+            onNodeSaved={(n) => onNodeSaved(n, [])}
+            onError={onError}
+            onUseInfo={setCam}
+            onSelect={onSelectNode}
+          />
+        )}
         {node.type === 'client' && budget && budget.power !== null && onOtdr && (
           <button type="button" className="btn-ghost w-full" onClick={() => onOtdr(node)}>
             <Radar size={16} /> Simular OTDR / localizar evento
@@ -408,6 +445,18 @@ function NodeForm({
                 Tem shelter / abrigo com racks
               </label>
             </>
+          )}
+          {node.type === 'camera' && (
+            <CameraFields
+              node={node}
+              nodes={nodes}
+              value={camera}
+              onChange={setCam}
+              password={camPassword}
+              onPassword={setCamPassword}
+              clearPassword={camClear}
+              onClearPassword={setCamClear}
+            />
           )}
           {hasRadios && <RadiosEditor node={node} nodes={nodes} radios={radios} onChange={setRadios} readOnly={readOnly} />}
           {node.type === 'condo' && (

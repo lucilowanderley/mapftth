@@ -17,7 +17,18 @@ const SHAPES: Record<NetNode['type'], (fill: string, ring: string) => string> = 
   // Condomínio de prédios: dois blocos com janelas.
   condo: (f, r) =>
     `<rect x="2" y="2" width="20" height="20" rx="5" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M6 18V8h5v10M13 18V5h5v13" fill="white"/><path d="M7.5 10h2M7.5 13h2M14.5 7.5h2M14.5 10.5h2M14.5 13.5h2" stroke="${f}" stroke-width="1.3"/>`,
+  // Câmera IP / analógica: corpo tipo "bullet" com lente, preso num suporte.
+  camera: (f, r) =>
+    `<rect x="2" y="2" width="20" height="20" rx="6" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M5 8.5l9.5-2.2 1.6 5.6-9.5 2.2z" fill="white"/><circle cx="14.9" cy="9.2" r="1.3" fill="${f}"/><path d="M16.2 10.2l2.6-1.3v3.4l-2.2.6M9 13.6l-.4 3.9M6.5 17.5h4.5" stroke="white" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
 };
+
+/** Gravador DVR/NVR: caixa com LEDs e conectores. */
+const CAMERA_DVR = (f: string, r: string) =>
+  `<rect x="2" y="2" width="20" height="20" rx="6" fill="${f}" stroke="${r}" stroke-width="2.5"/><rect x="4.5" y="8" width="15" height="8" rx="1.5" fill="white"/><circle cx="7.3" cy="12" r="1" fill="${f}"/><circle cx="10.1" cy="12" r="1" fill="${f}"/><path d="M12.8 12h4.4" stroke="${f}" stroke-width="1.4" stroke-linecap="round"/><path d="M7 18.5v-2.5M17 18.5v-2.5" stroke="white" stroke-width="1.4"/>`;
+
+/** Ponto de situação da câmera (canto superior direito): verde online, vermelho sem resposta. */
+const healthDot = (color: string) =>
+  `<div style="position:absolute;right:-3px;top:-3px;width:9px;height:9px;border-radius:9999px;background:${color};border:1.5px solid #0f172a;pointer-events:none"></div>`;
 
 /** Cliente empresarial (loja com toldo) e corporativo (prédio). O residencial usa a casinha padrão. */
 const CLIENT_BUSINESS = (f: string, r: string) =>
@@ -39,7 +50,7 @@ const groupRing = (size: number) => {
 const groupBadge = (count: number) =>
   `<div class="group-badge" style="position:absolute;right:-9px;top:-9px;min-width:17px;height:17px;padding:0 4px;border-radius:9999px;background:#facc15;color:#0f172a;border:1.5px solid #0f172a;font:700 10px/14px system-ui,sans-serif;text-align:center;pointer-events:none;box-shadow:0 1px 2px rgba(0,0,0,.5)">+${count > 999 ? '999' : count}</div>`;
 
-const SIZES: Record<NetNode['type'], number> = { cto: 24, ceo: 24, pop: 30, dc: 32, tower: 30, pole: 14, client: 20, condo: 28 };
+const SIZES: Record<NetNode['type'], number> = { cto: 24, ceo: 24, pop: 30, dc: 32, tower: 30, pole: 14, client: 20, condo: 28, camera: 22 };
 
 /**
  * Os ícones ficam em cache: devolver sempre a mesma instância evita que o Leaflet
@@ -52,21 +63,22 @@ const cache = new Map<string, L.DivIcon>();
  * opts.group: objeto agrupado (esconde o que está a jusante); mostra um selo com a quantidade
  * de objetos ocultos e um anel tracejado em volta do ícone.
  */
-export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: string; group?: number } = {}) {
+export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: string; group?: number; dot?: string } = {}) {
   const size = SIZES[node.type];
   const fill = opts.fill ?? NODE_TYPES[node.type].color;
   const ring = opts.selected ? '#facc15' : STATUSES[node.status].color;
   const houses = node.type === 'condo' && node.attributes?.condo_kind === 'houses';
   const seg = node.type === 'client' ? node.attributes?.segment : undefined;
-  const variant = houses ? '-h' : seg === 'business' || seg === 'corporate' ? `-${seg}` : '';
+  const dvr = node.type === 'camera' && node.attributes?.cam_kind === 'dvr';
+  const variant = houses ? '-h' : dvr ? '-dvr' : seg === 'business' || seg === 'corporate' ? `-${seg}` : '';
   const group = opts.group;
-  const key = `${node.type}${variant}|${fill}|${ring}|${opts.selected ? 1 : 0}|${group ?? ''}`;
+  const key = `${node.type}${variant}|${fill}|${ring}|${opts.selected ? 1 : 0}|${group ?? ''}|${opts.dot ?? ''}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const glow = opts.selected ? 'filter:drop-shadow(0 0 6px #facc15);' : 'filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));';
   const icon = L.divIcon({
     className: 'node-marker',
-    html: `${group !== undefined ? groupRing(size) : ''}<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}${group !== undefined ? 'position:relative;' : ''}">${(houses ? CONDO_HOUSES : variant === '-business' ? CLIENT_BUSINESS : variant === '-corporate' ? CLIENT_CORPORATE : SHAPES[node.type])(fill, ring)}</svg>${group !== undefined ? groupBadge(group) : ''}`,
+    html: `${group !== undefined ? groupRing(size) : ''}<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}${group !== undefined ? 'position:relative;' : ''}">${(houses ? CONDO_HOUSES : dvr ? CAMERA_DVR : variant === '-business' ? CLIENT_BUSINESS : variant === '-corporate' ? CLIENT_CORPORATE : SHAPES[node.type])(fill, ring)}</svg>${group !== undefined ? groupBadge(group) : ''}${opts.dot ? healthDot(opts.dot) : ''}`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });

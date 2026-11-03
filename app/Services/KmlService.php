@@ -15,7 +15,7 @@ class KmlService
     /** Distância máxima (m) para ligar a ponta de um cabo a uma caixa. */
     private const SNAP_METERS = 15;
 
-    private const TYPE_LABELS = ['pop' => 'POPs', 'dc' => 'Datacenters', 'tower' => 'Torres', 'ceo' => 'CEOs', 'cto' => 'CTOs', 'pole' => 'Postes', 'client' => 'Clientes', 'condo' => 'Condomínios'];
+    private const TYPE_LABELS = ['pop' => 'POPs', 'dc' => 'Datacenters', 'tower' => 'Torres', 'ceo' => 'CEOs', 'cto' => 'CTOs', 'pole' => 'Postes', 'client' => 'Clientes', 'condo' => 'Condomínios', 'camera' => 'Câmeras'];
 
     private const CATEGORY_LABELS = ['backbone' => 'Cabos backbone', 'distribution' => 'Cabos distribuição', 'drop' => 'Cabos drop'];
 
@@ -140,7 +140,7 @@ class KmlService
         $e = fn ($s) => htmlspecialchars((string) $s, ENT_XML1 | ENT_QUOTES, 'UTF-8');
 
         $styles = '';
-        foreach (['pop' => 'ff7c3aed', 'dc' => 'ff88940d', 'tower' => 'ff5e3ff4', 'ceo' => 'ffe9a50e', 'cto' => 'ff1673f9', 'pole' => 'ffb8a394', 'client' => 'ff5ec522', 'condo' => 'ffef46d9'] as $type => $abgr) {
+        foreach (['pop' => 'ff7c3aed', 'dc' => 'ff88940d', 'tower' => 'ff5e3ff4', 'ceo' => 'ffe9a50e', 'cto' => 'ff1673f9', 'pole' => 'ffb8a394', 'client' => 'ff5ec522', 'condo' => 'ffef46d9', 'camera' => 'ff08b3ea'] as $type => $abgr) {
             $styles .= "<Style id=\"node-{$type}\"><IconStyle><color>{$abgr}</color><scale>0.9</scale>"
                 .'<Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon></IconStyle></Style>';
         }
@@ -233,6 +233,7 @@ class KmlService
             (bool) preg_match('/\bpops?\b|\bolts?\b/', $context) => 'pop',
             (bool) preg_match('/condom[ií]nio|edif[ií]cio|residencial/iu', $context) => 'condo',
             (bool) preg_match('/\btorres?\b|\btowers?\b|\berbs?\b|\brbs\b/u', $context) => 'tower',
+            (bool) preg_match('/c[aâ]meras?|\bcftv\b|\bdvr\b|\bnvr\b/u', $context) => 'camera',
             (bool) preg_match('/poste/', $context) => 'pole',
             (bool) preg_match('/client|\bonu\b|assinante/', $context) => 'client',
             default => null,

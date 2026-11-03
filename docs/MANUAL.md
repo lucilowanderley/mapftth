@@ -10,7 +10,7 @@ seções como consulta.
 2. [Conta e login](#2-conta-e-login)
 3. [Meus projetos](#3-meus-projetos)
 4. [A tela do mapa](#4-a-tela-do-mapa)
-5. [Adicionar POP, datacenter, torre, CEO, CTO, poste, cliente e condomínio](#5-adicionar-pop-datacenter-torre-ceo-cto-poste-cliente-e-condomínio)
+5. [Adicionar POP, datacenter, torre, CEO, CTO, poste, cliente e condomínio](#5-adicionar-pop-datacenter-torre-ceo-cto-poste-cliente-e-condomínio) (inclui a [Câmera: IP, analógica e DVR/NVR](#câmera-ip-analógica-e-dvrnvr))
 6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos) (inclui as [3 formas de ligar a CTO no cabo](#ligar-a-cto-no-cabo-3-formas))
 7. [Editor do POP: rack, OLT e DIO](#7-editor-do-pop-rack-olt-e-dio)
 8. [Diagrama de fusão da CEO e da CTO (splitters)](#8-diagrama-de-fusão-da-ceo-e-da-cto)
@@ -174,7 +174,7 @@ ocultos). O ícone volta ao normal e os objetos voltam a ser desenhados.
 
 ## 5. Adicionar POP, datacenter, torre, CEO, CTO, poste, cliente e condomínio
 
-1. Na barra de ferramentas, escolha **POP**, **Datacenter**, **Torre**, **CEO**, **CTO**, **Poste**, **Cliente** ou **Condomínio**.
+1. Na barra de ferramentas, escolha **POP**, **Datacenter**, **Torre**, **CEO**, **CTO**, **Poste**, **Cliente**, **Condomínio** ou **Câmera**.
 2. Clique no mapa onde o elemento fica. Ele é criado na hora com um nome automático e o painel de edição abre
    à esquerda. Você pode continuar clicando para colocar vários do mesmo tipo.
 3. Volte para **Selecionar** (ou aperte **Esc**) quando terminar.
@@ -256,7 +256,64 @@ frequência. Para esconder setores e
 enlaces, desmarque **Enlaces wireless** no painel da direita. Os **relatórios** contam os equipamentos
 wireless por tipo e os enlaces PtP.
 
-**Mover (arrastar)**: com **Selecionar**, clique e arraste qualquer elemento (POP, datacenter, torre, CEO, CTO, poste, cliente ou condomínio).
+### Câmera: IP, analógica e DVR/NVR
+
+**Lançar**
+
+1. Escolha **Câmera** na barra de ferramentas. Abaixo dela aparece **Câmera: IP | Analógica | DVR / NVR**; escolha o
+   tipo antes de clicar.
+   - **IP**: câmera de rede (RJ45/PoE), acessada pelo próprio IP.
+   - **Analógica**: câmera coaxial (HDCVI, AHD, HDTVI) gravada num canal de DVR.
+   - **DVR / NVR**: o gravador. As câmeras são ligadas aos canais dele.
+2. Clique no mapa, ou clique **num poste, cliente, datacenter ou POP**: a câmera fica **instalada** nele (campo
+   *Instalada em* já preenchido) e é colocada logo ao lado, ligada a ele por uma linha fina tracejada.
+3. As câmeras recebem o nome *CAM-1*, *CAM-2*... e os gravadores *DVR-1*, *DVR-2*... O ícone é amarelo: câmera
+   (corpo com lente) ou gravador (caixa com LEDs).
+
+**Cadastro (painel do objeto)**
+
+- **Tipo**, **Fabricante** (Intelbras, Dahua, Hikvision, HiLook, Axis, Uniview, Genérico ONVIF ou Outro),
+  **Modelo**, **Nº de série** e **Alimentação** (PoE, PoE+, 12 Vcc, 24 Vca, solar).
+- **Instalada em** (poste, cliente, datacenter ou POP, do mais perto para o mais longe) e **Altura (m)**.
+- **Conectada na rede por**: a CTO, CEO, cliente (ONU), condomínio, POP, datacenter ou torre por onde a câmera
+  chega na rede.
+- **Gravador e canal**: na câmera analógica escolha o **Gravador (DVR)** e o **Canal**; numa câmera IP que grava num
+  NVR, use **Grava em (NVR/DVR)**. A lista de canais mostra qual câmera já ocupa cada um. No mapa, uma linha amarela
+  pontilhada liga a câmera ao gravador.
+- **Imagem e campo de visão** (câmeras): **Resolução**, **Lente (mm)**, **IR (m)**, **Direção (°)** (0 = norte,
+  sentido horário; também pela régua deslizante), **Abertura (°)** (padrão 90°) e **Alcance (m)** (padrão 30 m).
+  Com a direção preenchida, o mapa desenha um **leque amarelo** com o campo de visão (a partir do zoom 15).
+- **DVR / NVR**: **Canais** (4, 8, 16, 32, 64), **HD (TB)** e **Gravação (dias)**.
+- **Rede e acesso** (IP e DVR): **IP ou DDNS**, **Porta web** (e *Interface web em HTTPS*), **Protocolo** (RTSP, ONVIF
+  ou HTTP), **Porta RTSP** (padrão 554), **Porta ONVIF**, **Usuário** e **Senha**, além dos caminhos **RTSP** e
+  **da foto**, que já vêm sugeridos pelo fabricante (deixe em branco para usar o padrão).
+- A **senha fica criptografada no servidor** (com a chave do sistema) e nunca volta para o navegador: o campo mostra
+  *•••••• (guardada)*. Para trocar, digite outra; para tirar, marque **Apagar a senha guardada**. O histórico só
+  registra que a senha foi alterada.
+
+**Comunicação com o equipamento real** (quadro **Equipamento**, no alto do painel)
+
+- **Testar comunicação**: o servidor do MapFTTH tenta falar com o equipamento e mostra cada teste com o tempo de
+  resposta: **HTTP/HTTPS** (porta web, com o nome do servidor web quando ele informa), **RTSP** (pergunta ao serviço
+  de vídeo) e **ONVIF** (quando o protocolo é ONVIF ou a porta ONVIF está preenchida; lê **fabricante, modelo,
+  firmware e nº de série** com o usuário e a senha cadastrados). Se o ONVIF trouxer dados novos, **usar no cadastro**
+  preenche fabricante, modelo e série. O resultado fica guardado e aparece no mapa como um **ponto no canto do
+  ícone**: verde (*Online*) ou vermelho (*Sem resposta*). Só editores e administradores testam.
+- **Ver foto**: o servidor busca uma foto atual da câmera (snapshot) com o usuário e a senha guardados e mostra no
+  painel. A câmera analógica usa o endereço do DVR e o canal dela. No **DVR**, a lista **Canais** mostra a câmera de
+  cada canal (clique no nome para ir até ela), quantos estão em uso e um botão de foto por canal.
+- **Interface web**: abre a página de configuração do equipamento numa aba nova, **no seu computador** (funciona
+  quando você está na mesma rede da câmera, por VPN ou com a porta liberada).
+- **Copiar RTSP**: copia o endereço do vídeo (sem a senha) para abrir no VLC, num NVR ou em outro programa.
+
+**Limites (importante)**: o teste e a foto saem **do servidor onde o MapFTTH está instalado**. Para funcionar, ele
+precisa alcançar a câmera: IP público ou DDNS com a porta liberada no roteador, ou uma VPN/rota entre o servidor e a
+rede das câmeras. Câmeras só na rede interna do cliente (192.168.x.x) não respondem a um servidor na nuvem. O teste
+não usa ping (ICMP), que costuma ser bloqueado nos servidores; ele abre conexão nas portas cadastradas. Nada é
+alterado no equipamento: o MapFTTH só lê. Por segurança, o servidor recusa endereços dele mesmo (127.0.0.1) e
+link-local (169.254.x.x). Para desligar o acesso às câmeras, coloque `CAMERA_CHECK=false` no `.env`.
+
+**Mover (arrastar)**: com **Selecionar**, clique e arraste qualquer elemento (POP, datacenter, torre, CEO, CTO, poste, cliente, condomínio ou câmera).
 Enquanto você arrasta, os cabos acompanham: as pontas ligadas ao elemento e os pontos de cabos que passam
 exatamente por ele (por exemplo, um cabo apoiado num poste). Ao soltar, a posição é salva e o comprimento dos
 cabos é recalculado.

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Activity, Area, Cable, EquipmentModel, LatLng, Member, NetNode, Project, Role, Settings } from './types';
+import type { Activity, Area, CameraStatus, Cable, EquipmentModel, LatLng, Member, NetNode, Project, Role, Settings } from './types';
 
 export const http = axios.create({
   headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
@@ -47,6 +47,11 @@ export const api = {
   updateNode: (id: number, data: Partial<NetNode>) =>
     http.put<{ node: NetNode; cables: Cable[]; clients?: NetNode[] }>(`/api/nodes/${id}`, data).then((r) => r.data),
   deleteNode: (id: number) => http.delete(`/api/nodes/${id}`),
+  /** Câmera: o servidor testa HTTP/RTSP/ONVIF e guarda o resultado em attributes.cam_status. */
+  checkCamera: (id: number) => http.post<{ node: NetNode; status: CameraStatus }>(`/api/nodes/${id}/camera/check`).then((r) => r.data),
+  /** Câmera: foto atual buscada pelo servidor (a senha não sai dele). */
+  cameraSnapshot: (id: number, channel?: number) =>
+    http.get<Blob>(`/api/nodes/${id}/camera/snapshot`, { params: { ...(channel ? { channel } : {}), t: Date.now() }, responseType: 'blob' }).then((r) => r.data),
 
   createCable: (projectId: number, data: Partial<Cable>) =>
     http.post<Cable>(`/api/projects/${projectId}/cables`, data).then((r) => r.data),

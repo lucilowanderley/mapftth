@@ -9,6 +9,7 @@ use App\Models\NetworkNode;
 use App\Models\Project;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
@@ -18,6 +19,7 @@ class NodeController extends Controller
     {
         $this->authorizeProject($request, $project, 'edit');
         $data = $this->validated($request);
+        $data = $this->withCameraSecret($data, null);
         $data['name'] ??= $this->nextName($project, $data['type']);
         $node = $project->nodes()->create($data);
         ActivityLog::record($project, 'node', $node, 'created');
@@ -45,7 +47,7 @@ class NodeController extends Controller
             $counts[$n['type']]++;
             $n['name'] = ($n['name'] ?? '') !== '' ? $n['name'] : $this->prefix($n['type']).'-'.$counts[$n['type']];
 
-            return $project->nodes()->create($n);
+            return $project->nodes()->create($this->withCameraSecret($n, null));
         }));
         ActivityLog::record($project, 'project', null, 'imported', ['pontos' => $created->count()], 'Planilha');
         $project->touch();
@@ -57,6 +59,7 @@ class NodeController extends Controller
     {
         $this->authorizeProject($request, $node->project, 'edit');
         $data = $this->validated($request, partial: true);
+        $data = $this->withCameraSecret($data, $node);
         $changed = $this->describeChanges($node, $data);
         $old = [(float) $node->lat, (float) $node->lng];
         $moved = (isset($data['lat']) && (float) $data['lat'] !== $node->lat)
@@ -185,6 +188,18 @@ class NodeController extends Controller
                 'attributes.segment' => ['nullable', Rule::in(NetworkNode::CLIENT_SEGMENTS)],
                 'attributes.rx_dbm' => ['nullable', 'numeric', 'between:-60,10'],
                 'attributes.rx_at' => ['nullable', 'date'],
+                // Câmera / DVR
+                'attributes.cam_kind' => ['nullable', Rule::in(['ip', 'analog', 'dvr'])],
+                'attributes.host' => ['nullable', 'string', 'max:253', 'regex:/^(\[?[0-9A-Fa-f:.]+\]?|[A-Za-z0-9.-]+)$/'],
+                'attributes.http_port' => ['nullable', 'integer', 'between:1,65535'],
+                'attributes.rtsp_port' => ['nullable', 'integer', 'between:1,65535'],
+                'attributes.onvif_port' => ['nullable', 'integer', 'between:1,65535'],
+                'attributes.username' => ['nullable', 'string', 'max:64'],
+                'attributes.password' => ['nullable', 'string', 'max:128'],
+                'attributes.channels' => ['nullable', 'integer', 'between:1,256'],
+                'attributes.dvr_channel' => ['nullable', 'integer', 'between:1,256'],
+            ], [
+                'attributes.host.regex' => 'Endereço da câmera inválido: use um IP (ex.: 192.168.1.64) ou um nome (ex.: cam1.meudns.com).',
             ]);
         }
         // Mesma precisão da coluna (7 casas ≈ 1 cm) para pontas de cabo e objeto coincidirem.
@@ -193,6 +208,31 @@ class NodeController extends Controller
                 $data[$k] = round((float) $data[$k], 7);
             }
         }
+
+        return $data;
+    }
+
+    /**
+     * Senha da câmera/DVR: chega em attributes.password (texto), é guardada criptografada em attributes.cam_secret
+     * e nunca volta para o navegador. Sem senha nova, a guardada é mantida (a não ser que venha password_clear).
+     */
+    private function withCameraSecret(array $data, ?NetworkNode $node): array
+    {
+        if (! array_key_exists('attributes', $data) || ! is_array($data['attributes'])) {
+            return $data;
+        }
+        $a = $data['attributes'];
+        $key = NetworkNode::CAMERA_SECRET;
+        $previous = is_array($node?->attributes) ? ($node->attributes[$key] ?? null) : null;
+        $password = $a['password'] ?? null;
+        $clear = ! empty($a['password_clear']);
+        unset($a['password'], $a['password_clear'], $a['cam_has_password'], $a[$key]);
+        if (is_string($password) && $password !== '') {
+            $a[$key] = Crypt::encryptString($password);
+        } elseif (! $clear && is_string($previous) && $previous !== '') {
+            $a[$key] = $previous;
+        }
+        $data['attributes'] = $a;
 
         return $data;
     }
@@ -212,6 +252,18 @@ class NodeController extends Controller
                 if ((float) $value !== $node->{$key}) {
                     $fields['position'] = 'movida';
                 }
+            } elseif ($key === 'attributes') {
+                // A senha criptografada da câmera não vai para o histórico; só o aviso de que mudou.
+                $secret = NetworkNode::CAMERA_SECRET;
+                $before = is_array($node->attributes) ? $node->attributes : [];
+                $after = is_array($value) ? $value : [];
+                if (($before[$secret] ?? null) !== ($after[$secret] ?? null)) {
+                    $fields['password'] = isset($after[$secret]) ? 'senha da câmera alterada' : 'senha da câmera removida';
+                }
+                unset($before[$secret], $after[$secret]);
+                if ($before != $after) {
+                    $fields['attributes'] = ['de' => $before ?: null, 'para' => $after ?: null];
+                }
             } elseif ($value != $node->{$key}) {
                 $fields[$key] = ['de' => $node->{$key}, 'para' => $value];
             }
@@ -226,7 +278,7 @@ class NodeController extends Controller
 
     private function prefix(string $type): string
     {
-        return ['cto' => 'CTO', 'ceo' => 'CEO', 'pop' => 'POP', 'dc' => 'DC', 'tower' => 'TR', 'pole' => 'P', 'client' => 'Cliente', 'condo' => 'Cond'][$type];
+        return ['cto' => 'CTO', 'ceo' => 'CEO', 'pop' => 'POP', 'dc' => 'DC', 'tower' => 'TR', 'pole' => 'P', 'client' => 'Cliente', 'condo' => 'Cond', 'camera' => 'CAM'][$type];
     }
 
     private function nextName(Project $project, string $type): string

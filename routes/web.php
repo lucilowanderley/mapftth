@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\ActivityController;
 use App\Http\Controllers\Api\AreaController;
+use App\Http\Controllers\Api\CameraController;
 use App\Http\Controllers\Api\CableController;
 use App\Http\Controllers\Api\EquipmentModelController;
 use App\Http\Controllers\Api\KmzController;
@@ -34,6 +35,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/projects/{project}/nodes/bulk', [NodeController::class, 'bulk']);
         Route::put('/nodes/{node}', [NodeController::class, 'update']);
         Route::delete('/nodes/{node}', [NodeController::class, 'destroy']);
+        Route::post('/nodes/{node}/camera/check', [CameraController::class, 'check'])->middleware('throttle:30,1');
+        Route::get('/nodes/{node}/camera/snapshot', [CameraController::class, 'snapshot'])->middleware('throttle:60,1');
         Route::post('/projects/{project}/cables', [CableController::class, 'store']);
         Route::put('/cables/{cable}', [CableController::class, 'update']);
         Route::delete('/cables/{cable}', [CableController::class, 'destroy']);

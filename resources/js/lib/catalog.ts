@@ -204,10 +204,11 @@ export const NODE_TYPES: Record<NodeType, { label: string; plural: string; color
   pole: { label: 'Poste', plural: 'Postes', color: '#94a3b8' },
   client: { label: 'Cliente', plural: 'Clientes', color: '#22c55e' },
   condo: { label: 'Condomínio', plural: 'Condomínios', color: '#d946ef' },
+  camera: { label: 'Câmera', plural: 'Câmeras', color: '#eab308' },
 };
 
 /** Todos os tipos de objeto, na ordem usada em listas e relatórios. */
-export const NODE_TYPE_LIST: NodeType[] = ['dc', 'pop', 'tower', 'ceo', 'cto', 'condo', 'pole', 'client'];
+export const NODE_TYPE_LIST: NodeType[] = ['dc', 'pop', 'tower', 'ceo', 'cto', 'condo', 'pole', 'client', 'camera'];
 
 /** Objetos com diagrama de fusão (aceitam cabos, splitters e sangria). */
 export const BOX_TYPES: NodeType[] = ['dc', 'pop', 'tower', 'ceo', 'cto', 'condo'];
