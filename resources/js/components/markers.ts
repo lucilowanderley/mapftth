@@ -29,6 +29,16 @@ const CLIENT_CORPORATE = (f: string, r: string) =>
 const CONDO_HOUSES = (f: string, r: string) =>
   `<rect x="2" y="2" width="20" height="20" rx="5" fill="${f}" stroke="${r}" stroke-width="2.5"/><path d="M4.5 12l3.5-3.5 3.5 3.5v5h-7zM12.5 12l3.5-3.5 3.5 3.5v5h-7z" fill="white"/>`;
 
+/** Anel tracejado em volta do objeto agrupado. */
+const groupRing = (size: number) => {
+  const d = size + 10;
+  return `<div class="group-ring" style="position:absolute;left:-5px;top:-5px;width:${d}px;height:${d}px;border-radius:9999px;border:2px dashed #facc15;background:rgba(250,204,21,.12);pointer-events:none"></div>`;
+};
+
+/** Selo com a quantidade de objetos escondidos pelo grupo (canto superior direito). */
+const groupBadge = (count: number) =>
+  `<div class="group-badge" style="position:absolute;right:-9px;top:-9px;min-width:17px;height:17px;padding:0 4px;border-radius:9999px;background:#facc15;color:#0f172a;border:1.5px solid #0f172a;font:700 10px/14px system-ui,sans-serif;text-align:center;pointer-events:none;box-shadow:0 1px 2px rgba(0,0,0,.5)">+${count > 999 ? '999' : count}</div>`;
+
 const SIZES: Record<NetNode['type'], number> = { cto: 24, ceo: 24, pop: 30, dc: 32, tower: 30, pole: 14, client: 20, condo: 28 };
 
 /**
@@ -38,20 +48,25 @@ const SIZES: Record<NetNode['type'], number> = { cto: 24, ceo: 24, pop: 30, dc: 
  */
 const cache = new Map<string, L.DivIcon>();
 
-export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: string } = {}) {
+/**
+ * opts.group: objeto agrupado (esconde o que está a jusante); mostra um selo com a quantidade
+ * de objetos ocultos e um anel tracejado em volta do ícone.
+ */
+export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: string; group?: number } = {}) {
   const size = SIZES[node.type];
   const fill = opts.fill ?? NODE_TYPES[node.type].color;
   const ring = opts.selected ? '#facc15' : STATUSES[node.status].color;
   const houses = node.type === 'condo' && node.attributes?.condo_kind === 'houses';
   const seg = node.type === 'client' ? node.attributes?.segment : undefined;
   const variant = houses ? '-h' : seg === 'business' || seg === 'corporate' ? `-${seg}` : '';
-  const key = `${node.type}${variant}|${fill}|${ring}|${opts.selected ? 1 : 0}`;
+  const group = opts.group;
+  const key = `${node.type}${variant}|${fill}|${ring}|${opts.selected ? 1 : 0}|${group ?? ''}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const glow = opts.selected ? 'filter:drop-shadow(0 0 6px #facc15);' : 'filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));';
   const icon = L.divIcon({
     className: 'node-marker',
-    html: `<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}">${(houses ? CONDO_HOUSES : variant === '-business' ? CLIENT_BUSINESS : variant === '-corporate' ? CLIENT_CORPORATE : SHAPES[node.type])(fill, ring)}</svg>`,
+    html: `${group !== undefined ? groupRing(size) : ''}<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}${group !== undefined ? 'position:relative;' : ''}">${(houses ? CONDO_HOUSES : variant === '-business' ? CLIENT_BUSINESS : variant === '-corporate' ? CLIENT_CORPORATE : SHAPES[node.type])(fill, ring)}</svg>${group !== undefined ? groupBadge(group) : ''}`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });

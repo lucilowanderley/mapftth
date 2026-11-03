@@ -1,4 +1,4 @@
-import { Activity, Building2, Copy, Crosshair, History, Home, Link2, Network, Radar, Store, Trash2, X } from 'lucide-react';
+import { Activity, Building2, Layers, Layers2, Copy, Crosshair, History, Home, Link2, Network, Radar, Store, Trash2, X } from 'lucide-react';
 import type { SignalAnalysis } from '../lib/signal';
 import SignalHealthBox from './SignalHealthBox';
 import { CLIENT_SEGMENTS, clientDataOf, normalizeSerial, type ClientSegment } from '../lib/client';
@@ -44,6 +44,10 @@ interface Props {
   onSlacksChange?: (cable: Cable, slacks: Slack[]) => void;
   /** Liga a ferramenta Reserva para posicionar uma reserva neste cabo. */
   onPlaceSlack?: (cable: Cable) => void;
+  /** Agrupamento no mapa do objeto selecionado: ativo e quantos objetos ele esconde. */
+  group?: { active: boolean; count: number };
+  /** Agrupa (esconde o que está a jusante) ou desagrupa o objeto. */
+  onToggleGroup?: (n: NetNode) => void;
 }
 
 /** Foca e seleciona o campo quando focusKey muda (duplo clique no mapa). */
@@ -140,6 +144,8 @@ function NodeForm({
   onDeleted,
   onOpenDiagram,
   onShowBudget,
+  group,
+  onToggleGroup,
   onConnectClient,
   onError,
   onHistory,
@@ -237,6 +243,17 @@ function NodeForm({
         {hasDiagram && (
           <button className="btn-primary w-full" onClick={() => onOpenDiagram(node)}>
             <Network size={16} /> {node.type === 'pop' ? 'Editor do POP' : node.type === 'dc' ? 'Editor do Datacenter' : node.type === 'tower' ? 'Shelter da torre (racks)' : 'Diagrama de fusão'}
+          </button>
+        )}
+        {node.type !== 'client' && onToggleGroup && (
+          <button
+            type="button"
+            className={group?.active ? 'btn-primary w-full' : 'btn-ghost w-full'}
+            onClick={() => onToggleGroup(node)}
+            title={group?.active ? 'Mostra de novo os objetos a jusante' : 'Esconde os objetos à frente pelos cabos de saída e derivações'}
+          >
+            {group?.active ? <Layers2 size={16} /> : <Layers size={16} />}
+            {group?.active ? `Desagrupar (${group.count} ${group.count === 1 ? 'oculto' : 'ocultos'})` : 'Agrupar objetos a jusante'}
           </button>
         )}
         {node.type === 'client' && budget && level && (
