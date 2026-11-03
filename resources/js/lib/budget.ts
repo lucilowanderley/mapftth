@@ -87,6 +87,20 @@ class Index {
   }
 }
 
+/** Descrição legível de uma porta, para dizer onde o caminho óptico parou. */
+function endLabel(idx: Index, node: NetNode, end: End): string {
+  if (end.c.startsWith('c')) {
+    const cable = idx.cables.get(Number(end.c.slice(1)));
+    return `Fibra ${end.p.slice(1)} do ${cable?.name ?? 'cabo'}`;
+  }
+  const comp = idx.component(node, end.c);
+  if (!comp) return 'Porta';
+  const name = 'name' in comp && comp.name ? comp.name : '';
+  if (comp.kind === 'splitter') return end.p === 'in' ? `Entrada do splitter ${name || splitterModel(comp.model).name}` : `Saída ${end.p.slice(1)} do splitter ${name}`.trim();
+  if (comp.kind === 'dio') return `Porta ${end.p.slice(1)} (${end.p.startsWith('a') ? 'fusão' : 'conector'}) do ${name || 'DIO'}`;
+  return `Porta ${end.p} de ${name || comp.kind}`;
+}
+
 /** Uma ponta é "de conector" quando é cordão/patch (porta de OLT ou frente do DIO). */
 function isPatch(node: NetNode, idx: Index, end: End): boolean {
   if (end.c.startsWith('c')) return false;
@@ -191,7 +205,7 @@ export function traceUpstream(net: Network, nodeId: number, start: End): BudgetR
     // 2) Segue pela fusão/cordão ligado à porta de saída.
     const link = idx.partner(nextNode, nextEnd);
     if (!link) {
-      return fail(`Porta sem conexão em ${nextNode.name}.`);
+      return fail(`${endLabel(idx, nextNode, nextEnd)} sem ligação em ${nextNode.name}.`);
     }
     if (!link.conn.pass && !isPatch(nextNode, idx, nextEnd) && !isPatch(nextNode, idx, link.other)) {
       const loss = round(jointLoss(link.conn, s));

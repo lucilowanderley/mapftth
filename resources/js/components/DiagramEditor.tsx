@@ -559,6 +559,14 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     return map;
   }, [diagram, liveNetwork, node.id, showPower]);
 
+  // Por que a potência não aparece: motivo(s) das saídas de splitter sem caminho até uma OLT.
+  const powerProblems = useMemo(() => {
+    const errs = new Set<string>();
+    let ok = 0;
+    splitterPower.forEach((r) => (r.ok ? ok++ : r.error && errs.add(r.error)));
+    return { ok, errors: [...errs] };
+  }, [splitterPower]);
+
   // Potência que chega em cada cliente do diagrama.
   const clientPower = useMemo(() => {
     const map = new Map<string, BudgetResult>();
@@ -1857,6 +1865,17 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
             <div className="panel px-5 py-4 text-sm text-center max-w-sm">
               Nenhum cabo chega nesta caixa ainda. Desenhe cabos no mapa ligando a {node.name} e depois volte aqui para fazer as fusões.
             </div>
+          </div>
+        )}
+        {showPower && powerProblems.errors.length > 0 && (
+          <div className="absolute top-3 left-3 max-w-md rounded-md bg-amber-50 border border-amber-300 text-amber-900 text-xs px-3 py-2 shadow">
+            <div className="font-semibold mb-0.5">
+              {powerProblems.ok ? 'Potência não calculada em algumas saídas' : 'Potência não calculada'}
+            </div>
+            {powerProblems.errors.slice(0, 3).map((e) => (
+              <div key={e}>• {e}</div>
+            ))}
+            <div className="mt-1 text-amber-800">A potência aparece quando a fibra chega, emenda a emenda, até uma porta PON de OLT.</div>
           </div>
         )}
         {error && (

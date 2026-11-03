@@ -47,6 +47,14 @@ function network(): Network {
 }
 
 describe('orçamento óptico', () => {
+  it('diz qual porta ficou sem ligação quando o caminho não chega na OLT', () => {
+    const net = network();
+    net.nodes[0].diagram!.connections = net.nodes[0].diagram!.connections.filter((c) => c.id !== 'k2');
+    const r = traceUpstream(net, 2, { c: 's1', p: 'o1' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('Fibra 1 do Cabo 10 sem ligação em POP-1.');
+  });
+
   it('soma OLT, DIO, cabos, fusões e splitter até o cliente', () => {
     const net = network();
     const r = clientBudget(net, net.nodes[2]);
