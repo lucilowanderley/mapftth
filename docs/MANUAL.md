@@ -558,9 +558,16 @@ Clique em **Lançar cabo**: o cabo fica selecionado e os postes novos entram no 
 situação do cabo. Depois disso é um cabo como qualquer outro: dá para editar o traçado, ligar CTOs com as 3 formas
 acima e mexer nas reservas.
 
-**De onde vem o caminho da rua:** o servidor do MapFTTH consulta o **OSRM** com os dados de ruas do
-**OpenStreetMap** (serviço público e gratuito, sem chave; primeiro o perfil a pé, que não respeita contramão, depois
-o de carro). Se o serviço não responder, o caminho fica em **linha reta** e o painel avisa. Confira o caminho no mapa
+**Preferência de vias:** o caminho prefere as vias nesta ordem: **BR** (rodovias federais), **rodovias** estaduais
+(RN-063, SP-280...), **estradas**, **avenidas** e **ruas**. Cada metro de via tem um peso (BR 1,0; rodovia 1,15;
+estrada 1,3; avenida 1,45; rua 1,6) e vence o caminho de menor soma: um caminho um pouco mais longo pela BR ganha de um
+mais curto por ruas, mas um desvio grande não compensa. Quando há mais de uma opção, o painel lista até 3
+**caminhos** (o primeiro é o recomendado) com a metragem por tipo de via e os nomes das principais (ex.: BR-101,
+Avenida Prudente de Morais). Clique num caminho para trocar; o mapa e os postes acompanham.
+
+**De onde vem o caminho:** o servidor do MapFTTH consulta o **OSRM** com os dados de vias do **OpenStreetMap**
+(serviço público e gratuito, sem chave), pedindo caminhos alternativos ao perfil de carro e ao perfil a pé. O tipo de
+via sai do número e do nome da via no OpenStreetMap. Se o serviço não responder, o caminho fica em **linha reta** e o painel avisa. Confira o caminho no mapa
 antes de lançar: em ruas que não estão no OpenStreetMap ele pode dar volta. Quem tiver um servidor OSRM próprio pode
 apontar para ele com `ROUTING_URL` no `.env`.
 
@@ -1298,13 +1305,37 @@ Use para comparar com a medição do OTDR de campo e achar onde está um problem
 **Importar** (barra lateral → **Importar KMZ/KML**)
 
 1. Escolha um arquivo `.kmz` ou `.kml` (por exemplo, do Google Earth).
-2. Os pontos viram caixas conforme o **nome do ponto ou da pasta**: *CTO* ou *caixa de atendimento* → CTO; *CEO* ou
-   *emenda* → CEO; *POP* ou *OLT* → POP; *datacenter* → Datacenter; *torre*, *tower*, *ERB* ou *RBS* → Torre; *caixa de passagem*, *caixa subterrânea*, *caixa de parede* ou *CX* → Caixa; *condomínio*, *edifício* ou *residencial* → Condomínio; *poste* → Poste; *cliente*, *ONU* ou *assinante* → Cliente.
-3. As linhas viram cabos. Se o nome tiver a quantidade de fibras (ex.: *12FO*, *24 fibras*) ela é usada; *backbone*
-   ou *tronco* define o tipo. As pontas dos cabos se ligam às caixas que estiverem a até **15 m**.
-4. Ao final aparece quantos pontos e cabos foram importados.
+2. Os pontos viram caixas conforme o **nome da pasta** (e, se a pasta não disser, o **nome do ponto**): *CTO*,
+   *caixa de atendimento* ou *terminais de atendimento* → CTO; *CEO*, *emenda* ou *caixas de emenda* → CEO; *POP*,
+   *OLT*, *estações* ou *racks* → POP; *datacenter* → Datacenter; *torre*, *tower*, *ERB* ou *RBS* → Torre; *caixa de
+   passagem*, *caixa subterrânea*, *caixa de parede* ou *CX* → Caixa; *condomínio*, *edifício* ou *residencial* →
+   Condomínio; *poste* → Poste; *cliente*, *ONU* ou *assinante* → Cliente. Assim um poste chamado "COSERN POP N44095"
+   dentro da pasta *Postes* continua sendo poste.
+3. As linhas viram cabos. Se o nome tiver a quantidade de fibras (ex.: *12FO*, *24 fibras*) ela é usada; *backbone*,
+   *tronco* ou *BCK* define o tipo. A **cor e a espessura** da linha no arquivo são mantidas. As pontas dos cabos se
+   ligam às caixas que estiverem a até **15 m**.
+4. Os **polígonos** viram **áreas** (com nome e cor).
+5. A **descrição** do ponto ou da linha vai para **Observações** (ex.: "SINAL -18.45" anotado na CTO).
+6. Se o nome do arquivo disser de quem são os postes (ex.: *POSTES COSERN*, *POSTES INTELNET*), esse nome é gravado
+   como **proprietário** dos postes (veja na Tabela de postes).
+7. Pontos repetidos (mesmo tipo e nome a menos de 2 m) são ignorados. Assim dá para importar vários arquivos no mesmo
+   projeto (por exemplo, postes COSERN e postes próprios) sem duplicar nada.
+8. Ao final aparece quantos pontos, cabos e áreas foram importados.
 
 Dica: no Google Earth, organize as pastas com nomes como *CTOs*, *CEOs*, *Postes*, *Clientes* antes de exportar.
+
+**Importar vários projetos de uma vez** (tela **Meus projetos** → **Importar projetos**)
+
+1. Escolha um arquivo `.zip` com vários `.kmz`/`.kml` dentro (por exemplo, a **exportação do ISM**) ou selecione
+   vários `.kmz`/`.kml` de uma vez.
+2. **Cada arquivo vira um projeto separado**, com o nome do arquivo. Um nome como *Brejinho - RN* também preenche a
+   cidade. O mapa do projeto já abre centralizado na rede importada.
+3. A exportação do ISM é reconhecida: *Terminais de atendimento* → CTO, *Caixas de emenda* → CEO, *Estações* → POP
+   (com ícone de antena → Torre), *Racks* → POP, *Postes* (inclusive as subpastas "De 0 até 500"), *Cabos* e
+   *Áreas personalizadas* → áreas. O número que o ISM coloca no fim do nome do cabo, como "(201)", sai do nome e fica
+   em Observações como *Código de origem*.
+4. No fim aparece uma tabela com o que entrou em cada projeto e um botão **Abrir**. Se um arquivo falhar, os outros
+   continuam sendo importados e o erro aparece na linha dele.
 
 **Exportar** (barra lateral → **Exportar KMZ**): baixa o projeto inteiro em KMZ, com pastas por tipo e cores, para
 abrir no Google Earth.

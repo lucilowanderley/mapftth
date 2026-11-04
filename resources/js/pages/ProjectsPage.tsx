@@ -1,11 +1,11 @@
-import { FolderOpen, LogOut, MapPin, Plus, Search, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { FolderOpen, LogOut, MapPin, Plus, Search, Trash2, Upload } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { STREETS_LAYER } from '../lib/basemaps';
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import { useNavigate } from 'react-router-dom';
 import L from 'leaflet';
 import { ROLE_LABELS } from '../components/TeamModal';
-import { api, errorMessage } from '../lib/api';
+import { api, errorMessage, type ImportResult } from '../lib/api';
 import { AutoResize, TILE_OPTIONS } from '../lib/mapview';
 import { searchPlaces, type Place } from '../lib/geocode';
 import type { Project } from '../lib/types';
@@ -23,7 +23,20 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState<ImportResult[] | 'loading' | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+
+  async function importProjects(files: File[]) {
+    if (!files.length) return;
+    setImporting('loading');
+    try {
+      setImporting(await api.importProjects(files));
+    } catch (e) {
+      setImporting([{ file: files.map((f) => f.name).join(', '), error: errorMessage(e) }]);
+    }
+    api.projects().then(setProjects);
+  }
 
   useEffect(() => {
     api.projects().then(setProjects);
@@ -66,6 +79,24 @@ export default function ProjectsPage() {
               <Search size={16} className="absolute left-3 top-2.5 text-slate-500" />
               <input className="input pl-9 w-56" placeholder="Buscar..." value={query} onChange={(e) => setQuery(e.target.value)} />
             </div>
+            <button
+              className="btn-ghost"
+              onClick={() => importRef.current?.click()}
+              title="Envie um .zip ou vários .kmz/.kml: cada arquivo vira um projeto (aceita a exportação do ISM)"
+            >
+              <Upload size={16} /> Importar projetos
+            </button>
+            <input
+              ref={importRef}
+              type="file"
+              multiple
+              accept=".zip,.kmz,.kml"
+              className="hidden"
+              onChange={(e) => {
+                importProjects(Array.from(e.target.files ?? []));
+                e.target.value = '';
+              }}
+            />
             <button className="btn-primary" onClick={() => setCreating(true)}>
               <Plus size={16} /> Novo projeto
             </button>
@@ -149,6 +180,13 @@ export default function ProjectsPage() {
         )}
       </main>
 
+      {importing && (
+        <ImportResultsModal
+          results={importing}
+          onClose={() => importing !== 'loading' && setImporting(null)}
+          onOpen={(id) => navigate(`/projects/${id}`)}
+        />
+      )}
       {creating && <CreateProjectModal onClose={() => setCreating(false)} onCreated={(p) => navigate(`/projects/${p.id}`)} />}
     </div>
   );
@@ -260,6 +298,57 @@ function CreateProjectModal({ onClose, onCreated }: { onClose: () => void; onCre
           </button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+function ImportResultsModal({ results, onClose, onOpen }: { results: ImportResult[] | 'loading'; onClose: () => void; onOpen: (id: number) => void }) {
+  const ok = results === 'loading' ? [] : results.filter((r) => !r.error);
+  return (
+    <Modal title="Importar projetos" onClose={onClose} width="max-w-2xl">
+      <div className="p-5 overflow-auto">
+        {results === 'loading' ? (
+          <p className="text-sm text-slate-400">Importando arquivos... isso pode levar alguns segundos por arquivo.</p>
+        ) : (
+          <>
+            <p className="text-sm text-slate-400 mb-3">
+              {ok.length} de {results.length} arquivo(s) virou(aram) projeto. Cada arquivo foi importado como um projeto separado.
+            </p>
+            <table className="w-full text-sm">
+              <thead className="text-xs text-slate-500 text-left">
+                <tr>
+                  <th className="py-1 pr-2 font-medium">Arquivo</th>
+                  <th className="py-1 px-2 font-medium text-right">Pontos</th>
+                  <th className="py-1 px-2 font-medium text-right">Cabos</th>
+                  <th className="py-1 px-2 font-medium text-right">Áreas</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {results.map((r, i) => (
+                  <tr key={i} className="border-t border-slate-800">
+                    <td className="py-1.5 pr-2 min-w-0">
+                      <div className="truncate max-w-[22rem]" title={r.file}>{r.name ?? r.file}</div>
+                      {r.error && <div className="text-xs text-red-400">{r.error}</div>}
+                      {!!r.skipped && <div className="text-xs text-slate-500">{r.skipped} repetido(s) ignorado(s)</div>}
+                    </td>
+                    <td className="px-2 text-right tabular-nums">{r.nodes ?? '—'}</td>
+                    <td className="px-2 text-right tabular-nums">{r.cables ?? '—'}</td>
+                    <td className="px-2 text-right tabular-nums">{r.areas ?? '—'}</td>
+                    <td className="pl-2 text-right">
+                      {r.project_id && (
+                        <button className="text-emerald-400 hover:underline cursor-pointer" onClick={() => onOpen(r.project_id!)}>
+                          Abrir
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
     </Modal>
   );
 }

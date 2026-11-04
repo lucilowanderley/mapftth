@@ -33,7 +33,9 @@ class KmzController extends Controller
 
         try {
             $kml = $this->kml->readKml($file->getRealPath(), $name);
-            $result = $this->kml->import($project, $kml, $request->input('default_type', 'pole'));
+            $result = $this->kml->import($project, $kml, $request->input('default_type', 'pole'), [
+                'pole_owner' => KmlService::poleOwnerFromFileName($name),
+            ]);
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }

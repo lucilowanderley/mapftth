@@ -21,6 +21,15 @@ export function errorMessage(error: unknown): string {
   return e.response?.data?.message ?? 'Algo deu errado. Tente novamente.';
 }
 
+/** Caminho pelas vias: metros por classe (BR, rodovias, estradas, avenidas, ruas) e nomes das vias principais. */
+export interface LaunchRoute {
+  source: string;
+  path: LatLng[];
+  distance_m: number;
+  roads: { class: 'br' | 'rodovia' | 'estrada' | 'avenida' | 'rua'; label: string; meters: number }[];
+  names?: string[];
+}
+
 export interface LaunchRequest {
   cable: Pick<Cable, 'category' | 'fiber_count' | 'fibers_per_tube'> & Partial<Pick<Cable, 'name' | 'model' | 'status' | 'color' | 'width'>>;
   points: { pole_id?: number; new_pole?: boolean; lat?: number; lng?: number }[];
@@ -28,6 +37,17 @@ export interface LaunchRequest {
   from_node_id?: number | null;
   to_node_id?: number | null;
 }
+
+export type ImportResult = {
+  file: string;
+  error?: string;
+  project_id?: number;
+  name?: string;
+  nodes?: number;
+  cables?: number;
+  areas?: number;
+  skipped?: number;
+};
 
 export const api = {
   equipmentModels: (projectId?: number) =>
@@ -49,6 +69,11 @@ export const api = {
   updateProject: (id: number, data: Partial<Project> & { settings?: Partial<Settings> }) =>
     http.put<{ project: Project; settings: Settings }>(`/api/projects/${id}`, data).then((r) => r.data),
   deleteProject: (id: number) => http.delete(`/api/projects/${id}`),
+  importProjects: (files: File[]) => {
+    const form = new FormData();
+    files.forEach((f) => form.append('files[]', f));
+    return http.post<{ results: ImportResult[] }>('/api/projects/import', form).then((r) => r.data.results);
+  },
   project: (id: number) =>
     http
       .get<{ project: Project; role: Role; settings: Settings; nodes: NetNode[]; cables: Cable[]; areas: Area[]; google_maps_key?: string | null; google_key_source?: GoogleKeySource }>(`/api/projects/${id}`)
@@ -71,7 +96,7 @@ export const api = {
   /** Lançamento de cabo: caminho pela rua entre dois pontos (source 'line' = linha reta, o roteador não respondeu). */
   launchRoute: (projectId: number, from: LatLng, to: LatLng) =>
     http
-      .post<{ source: string; path: LatLng[]; distance_m: number }>(`/api/projects/${projectId}/launch/route`, { from, to })
+      .post<LaunchRoute & { options: LaunchRoute[] }>(`/api/projects/${projectId}/launch/route`, { from, to })
       .then((r) => r.data),
   /** Lançamento de cabo: cria o cabo com os postes novos e as reservas fixadas nos postes. */
   launchCable: (projectId: number, data: LaunchRequest) =>
@@ -87,7 +112,7 @@ export const api = {
     const form = new FormData();
     form.append('file', file);
     return http
-      .post<{ nodes: number; cables: number }>(`/api/projects/${projectId}/import`, form)
+      .post<{ nodes: number; cables: number; areas?: number; skipped?: number }>(`/api/projects/${projectId}/import`, form)
       .then((r) => r.data);
   },
   exportUrl: (projectId: number) => `/api/projects/${projectId}/export`,

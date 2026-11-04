@@ -1,6 +1,6 @@
 import { ArrowDownUp, Eraser, Loader2, MapPin, Route as RouteIcon, Search, Shuffle, UtilityPole, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { api, errorMessage } from '../lib/api';
+import { api, errorMessage, type LaunchRoute } from '../lib/api';
 import { CABLE_CATEGORIES, CABLE_MODELS, STATUSES } from '../lib/catalog';
 import { formatCoord, parsePair } from '../lib/coords';
 import { searchPlaces, type Place } from '../lib/geocode';
@@ -83,7 +83,9 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
   const [end, setEnd] = useState<Endpoint>({ text: '', point: null });
   const [picking, setPicking] = useState<'start' | 'end' | null>(null);
   const [follow, setFollow] = useState(true);
-  const [route, setRoute] = useState<{ path: LatLng[]; source: string } | null>(null);
+  const [route, setRoute] = useState<LaunchRoute | null>(null);
+  /** Caminhos possíveis, do melhor (vias preferidas: BR, rodovias, estradas, avenidas, ruas) para o pior. */
+  const [routeOptions, setRouteOptions] = useState<LaunchRoute[]>([]);
   const [routing, setRouting] = useState(false);
   const [useExisting, setUseExisting] = useState(true);
   const [addPoles, setAddPoles] = useState(true);
@@ -127,7 +129,10 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
   }, [pick]);
 
   // Mudou uma ponta: o caminho antigo não vale mais.
-  useEffect(() => setRoute(null), [start.point, end.point, follow]);
+  useEffect(() => {
+    setRoute(null);
+    setRouteOptions([]);
+  }, [start.point, end.point, follow]);
 
   const existingAlong = useMemo(() => (route ? polesAlong(route.path, poles) : []), [route, poles]);
 
@@ -158,14 +163,16 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
   async function traceRoute() {
     if (!start.point || !end.point) return onError('Informe o início e o fim do lançamento.');
     if (!follow) {
-      setRoute({ path: [start.point, end.point], source: 'line' });
+      setRoute({ path: [start.point, end.point], source: 'line', distance_m: distance(start.point, end.point), roads: [] });
+      setRouteOptions([]);
       onFit([start.point, end.point]);
       return;
     }
     setRouting(true);
     try {
       const r = await api.launchRoute(projectId, start.point, end.point);
-      setRoute({ path: r.path, source: r.source });
+      setRoute(r.options?.[0] ?? r);
+      setRouteOptions(r.options ?? []);
       onFit(r.path);
       setUseExisting(polesAlong(r.path, poles).length > 0 || useExisting);
       if (r.source === 'line') onError('O serviço de rotas não respondeu: o caminho ficou em linha reta. Você pode tentar de novo.');
@@ -308,8 +315,32 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
                 <div className="text-slate-400">
                   {route.source === 'line'
                     ? 'Caminho em linha reta.'
-                    : 'Caminho pela rua (OpenStreetMap, roteador OSRM). Confira no mapa antes de lançar.'}
+                    : 'Caminho pelas vias do OpenStreetMap (roteador OSRM), preferindo BR, rodovias, estradas, avenidas e ruas, nessa ordem. Confira no mapa antes de lançar.'}
                 </div>
+                {routeOptions.length > 1 && (
+                  <div className="space-y-1">
+                    {routeOptions.map((o, i) => (
+                      <label key={i} className={`flex items-start gap-2 rounded px-1.5 py-1 cursor-pointer ${route.path === o.path ? 'bg-slate-800' : 'hover:bg-slate-800/60'}`}>
+                        <input
+                          type="radio"
+                          name="launch-route"
+                          checked={route.path === o.path}
+                          onChange={() => {
+                            setRoute(o);
+                            onFit(o.path);
+                          }}
+                          className="accent-emerald-500 mt-0.5"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <b>Caminho {i + 1}</b>
+                          {i === 0 && ' (recomendado)'} · {formatLength(o.distance_m)}
+                          <RoadSummary route={o} />
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {routeOptions.length <= 1 && route.roads.length > 0 && <RoadSummary route={route} />}
                 <div>
                   {existingAlong.length
                     ? `Já existem ${existingAlong.length} poste${existingAlong.length > 1 ? 's' : ''} cadastrado${existingAlong.length > 1 ? 's' : ''} no caminho.`
@@ -411,6 +442,16 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
         </button>
       </div>
     </div>
+  );
+}
+
+/** Vias usadas no caminho: metros por classe e os nomes das principais (ex.: BR-101, Av. Brasil). */
+function RoadSummary({ route }: { route: LaunchRoute }) {
+  return (
+    <span className="block text-slate-400">
+      {route.roads.map((r) => `${r.label} ${formatLength(r.meters)}`).join(' · ')}
+      {route.names && route.names.length > 0 && <span className="block text-slate-500 truncate">{route.names.join(', ')}</span>}
+    </span>
   );
 }
 
