@@ -195,3 +195,28 @@ export function offsetOnPath(path: LatLng[], at: LatLng, meters: number): LatLng
 export function cableTargets(host: NetNode, nodes: NetNode[]): NetNode[] {
   return anchoredOn(host, nodes).filter((n) => n.type === 'cto' || n.type === 'ceo');
 }
+
+/** Nome do cabo sem o sufixo de trecho da sangria ("Cabo 12FO · T2" → "Cabo 12FO"). */
+export const baseCableName = (name: string) => name.replace(/\s*·\s*T\d+$/, '');
+
+/**
+ * Trechos do mesmo cabo no poste/caixa: quando o cabo entra e sai por CTO/CEO fixadas ali (sangria),
+ * cada trecho é um cabo próprio, mas fisicamente é um cabo só. Junta os trechos ligados por um objeto do
+ * poste/caixa (ou pelo próprio poste/caixa) com o mesmo nome base, fibras e tipo. Mantém a ordem de `here`.
+ */
+export function cableRuns(host: NetNode, here: Cable[], ids: number[] = []): Cable[][] {
+  const at = new Set([host.id, ...ids]);
+  const parent = here.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const same = (a: Cable, b: Cable) => baseCableName(a.name) === baseCableName(b.name) && a.fiber_count === b.fiber_count && a.category === b.category;
+  const ends = (c: Cable) => [c.from_node_id, c.to_node_id].filter((id): id is number => id != null && at.has(id));
+  for (let i = 0; i < here.length; i++)
+    for (let j = i + 1; j < here.length; j++) {
+      if (!same(here[i], here[j])) continue;
+      const ej = ends(here[j]);
+      if (ends(here[i]).some((id) => ej.includes(id))) parent[find(j)] = find(i);
+    }
+  const groups = new Map<number, Cable[]>();
+  here.forEach((c, i) => groups.set(find(i), [...(groups.get(find(i)) ?? []), c]));
+  return [...groups.values()];
+}

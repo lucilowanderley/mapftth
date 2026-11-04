@@ -311,7 +311,7 @@ uma tela parecida com o diagrama da CTO, com tudo o que está ali dentro:
 
 - **Poste**: a haste com a **cruzeta no alto**. Logo abaixo da cruzeta, os **cabos de entrada e saída** atravessam o
   poste (cada um na cor dele, preso por uma braçadeira), com o rótulo no mesmo estilo do drop do diagrama: nome em
-  negrito, fibras, tipo e se só passa (apoio) ou chega num objeto. Duplo clique no rótulo abre o painel do cabo.
+  negrito, fibras, tipo e se só passa (apoio) ou chega num objeto. Duplo clique no rótulo abre o painel do cabo. Um cabo que entra e sai pelas CTO/CEO do poste (sangria) aparece **uma vez só**, numa linha, com *entra e sai por ...* e a quantidade de trechos.
 - **Objetos presos no poste** ficam mais embaixo, abaixo da linha dos cabos, alternando os lados. Eles aparecem
   **recolhidos, como ícones** (como os equipamentos no rack): **um clique abre o cartão** no formato completo (nome,
   tipo, status e resumo: CTO/CEO com cabos, drops, splitters e emendas; câmera com tipo, fabricante, IP, gravador e
