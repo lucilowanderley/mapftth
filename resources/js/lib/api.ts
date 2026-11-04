@@ -20,6 +20,14 @@ export function errorMessage(error: unknown): string {
   return e.response?.data?.message ?? 'Algo deu errado. Tente novamente.';
 }
 
+export interface LaunchRequest {
+  cable: Pick<Cable, 'category' | 'fiber_count' | 'fibers_per_tube'> & Partial<Pick<Cable, 'name' | 'model' | 'status' | 'color' | 'width'>>;
+  points: { pole_id?: number; new_pole?: boolean; lat?: number; lng?: number }[];
+  slacks?: { point: number; length_m: number; kind?: 'aerial' | 'underground' }[];
+  from_node_id?: number | null;
+  to_node_id?: number | null;
+}
+
 export const api = {
   equipmentModels: (projectId?: number) =>
     http.get<EquipmentModel[]>('/api/equipment-models', { params: projectId ? { project: projectId } : {} }).then((r) => r.data),
@@ -56,6 +64,14 @@ export const api = {
 
   createCable: (projectId: number, data: Partial<Cable>) =>
     http.post<Cable>(`/api/projects/${projectId}/cables`, data).then((r) => r.data),
+  /** Lançamento de cabo: caminho pela rua entre dois pontos (source 'line' = linha reta, o roteador não respondeu). */
+  launchRoute: (projectId: number, from: LatLng, to: LatLng) =>
+    http
+      .post<{ source: string; path: LatLng[]; distance_m: number }>(`/api/projects/${projectId}/launch/route`, { from, to })
+      .then((r) => r.data),
+  /** Lançamento de cabo: cria o cabo com os postes novos e as reservas fixadas nos postes. */
+  launchCable: (projectId: number, data: LaunchRequest) =>
+    http.post<{ cable: Cable; nodes: NetNode[] }>(`/api/projects/${projectId}/launch`, data).then((r) => r.data),
   updateCable: (id: number, data: Partial<Cable>) =>
     http.put<{ cable: Cable; nodes: NetNode[] }>(`/api/cables/${id}`, data).then((r) => r.data),
   /** Sangria: divide o cabo nas caixas dos vértices indicados. */
