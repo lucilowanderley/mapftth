@@ -2370,7 +2370,7 @@ function RotaFrame({
   );
 }
 
-function IconTool({
+export function IconTool({
   icon,
   label,
   text,
@@ -2410,7 +2410,7 @@ function IconTool({
   );
 }
 
-function Sep() {
+export function Sep() {
   return <div className="mx-1 h-5 w-px bg-slate-200" />;
 }
 

@@ -60,6 +60,10 @@ class NodeController extends Controller
         $this->authorizeProject($request, $node->project, 'edit');
         $data = $this->validated($request, partial: true);
         $data = $this->withCameraSecret($data, $node);
+        // ends_only: só as pontas ligadas ao objeto acompanham (objeto ancorado num poste/caixa: os cabos que
+        // passam pelo poste continuam nele).
+        $endsOnly = ! empty($data['ends_only']);
+        unset($data['ends_only']);
         $changed = $this->describeChanges($node, $data);
         $old = [(float) $node->lat, (float) $node->lng];
         $moved = (isset($data['lat']) && (float) $data['lat'] !== $node->lat)
@@ -83,7 +87,7 @@ class NodeController extends Controller
                     // Pontas ligadas a outro objeto não são arrastadas junto.
                     $otherEnd = ($i === 0 && $cable->from_node_id && $cable->from_node_id !== $node->id)
                         || ($i === $last && $cable->to_node_id && $cable->to_node_id !== $node->id);
-                    if ($attached || (! $otherEnd && $same($p))) {
+                    if ($attached || (! $endsOnly && ! $otherEnd && $same($p))) {
                         $path[$i] = $point;
                         $changedPath = true;
                     }
@@ -178,6 +182,7 @@ class NodeController extends Controller
             'notes' => ['nullable', 'string'],
             'attributes' => ['nullable', 'array'],
             'diagram' => ['nullable', 'array'],
+            'ends_only' => [$partial ? 'sometimes' : 'prohibited', 'boolean'],
         ]);
         if (array_key_exists('attributes', $data)) {
             // Cliente: dados para integração (ID no sistema de gestão, serial da ONU/ONT e tipo). Validados à parte
@@ -194,6 +199,8 @@ class NodeController extends Controller
                 'attributes.box_kind' => ['nullable', Rule::in(['wall', 'underground'])],
                 'attributes.box_place' => ['nullable', Rule::in(['internal', 'external'])],
                 'attributes.address' => ['nullable', 'string', 'max:500'],
+                // CTO/CEO/câmera ancorada no poste/caixa: ícone fundido, só se move junto com ele.
+                'attributes.anchored' => ['nullable', 'boolean'],
                 // Câmera / DVR
                 'attributes.cam_kind' => ['nullable', Rule::in(['ip', 'analog', 'dvr'])],
                 'attributes.host' => ['nullable', 'string', 'max:253', 'regex:/^(\[?[0-9A-Fa-f:.]+\]?|[A-Za-z0-9.-]+)$/'],

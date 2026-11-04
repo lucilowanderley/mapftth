@@ -10,7 +10,7 @@ seções como consulta.
 2. [Conta e login](#2-conta-e-login)
 3. [Meus projetos](#3-meus-projetos)
 4. [A tela do mapa](#4-a-tela-do-mapa)
-5. [Adicionar POP, datacenter, torre, CEO, CTO, caixa, poste, cliente e condomínio](#5-adicionar-pop-datacenter-torre-ceo-cto-caixa-poste-cliente-e-condomínio) (inclui a [Caixa de parede ou subterrânea](#caixa-de-parede-ou-subterrânea), a [Fixação da CTO/CEO](#fixação-da-ctoceo-poste-parede-ou-caixa) e a [Câmera: IP, analógica e DVR/NVR](#câmera-ip-analógica-e-dvrnvr))
+5. [Adicionar POP, datacenter, torre, CEO, CTO, caixa, poste, cliente e condomínio](#5-adicionar-pop-datacenter-torre-ceo-cto-caixa-poste-cliente-e-condomínio) (inclui a [Caixa de parede ou subterrânea](#caixa-de-parede-ou-subterrânea), a [Fixação da CTO/CEO](#fixação-da-ctoceo-poste-parede-ou-caixa), os [Objetos ancorados e o editor do poste/caixa](#objetos-ancorados-e-o-editor-do-postecaixa) e a [Câmera: IP, analógica e DVR/NVR](#câmera-ip-analógica-e-dvrnvr))
 6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos) (inclui as [3 formas de ligar a CTO no cabo](#ligar-a-cto-no-cabo-3-formas))
 7. [Editor do POP: rack, OLT e DIO](#7-editor-do-pop-rack-olt-e-dio)
 8. [Diagrama de fusão da CEO e da CTO (splitters)](#8-diagrama-de-fusão-da-ceo-e-da-cto)
@@ -186,7 +186,8 @@ até o novo elemento. Aceita graus decimais com ponto ou vírgula (`-8.0476` ou 
 os dois campos são preenchidos.
 
 **Editar um elemento**: com **Selecionar**, clique nele. **Duplo clique** abre o editor direto: na CTO, CEO ou POP
-(e no condomínio) abre o diagrama de fusão / editor do POP; no poste e no cliente coloca o cursor no campo **Nome** do painel. No painel:
+(e no condomínio) abre o diagrama de fusão / editor do POP; no **poste** e na **caixa** abre o editor do poste/caixa
+(objetos ancorados); no cliente coloca o cursor no campo **Nome** do painel. No painel:
 
 - **Nome**, **Status** (*Em projeto*, *Não implantado*, *Implantado*, *Certificado*) e **Observações**.
 - **Posição**: latitude e longitude do elemento. Digite os valores exatos (mesmos formatos aceitos acima) e salve
@@ -199,6 +200,8 @@ os dois campos são preenchidos.
 - **Poste**: **Código / plaqueta**, **Material**, **Altura (m)**, **Esforço (daN)**, **Distribuidora / proprietário**,
   a lista de **cabos neste poste** e as CTO/CEO **fixadas neste poste**. No mapa o poste é um círculo cinza com a
   haste, a cruzeta e os isoladores desenhados (na barra de ferramentas, o botão **Poste** tem o mesmo desenho).
+  O botão **Editor do poste** (ou duplo clique no poste) abre a tela com tudo o que está ancorado nele
+  ([veja abaixo](#objetos-ancorados-e-o-editor-do-postecaixa)).
 - **CTO e CEO**: campo **Fixada em** (*Poste*, *Parede* ou *Caixa*); veja
   [Fixação da CTO/CEO](#fixação-da-ctoceo-poste-parede-ou-caixa).
 - **Caixa**: **Tipo** (*Parede* ou *Subterrânea*), **Local** (*Externa* ou *Interna*), **Modelo / tamanho**,
@@ -239,8 +242,11 @@ A caixa tem tudo o que a CTO/CEO tem: o cabo pode terminar nela ou passar por el
 grupos) e entra no orçamento óptico como qualquer caixa. Além disso ela **recebe CTO e CEO dentro dela**:
 
 - Com a ferramenta **CTO** ou **CEO**, clique sobre a caixa; ou, no painel da caixa, use **+ CTO na caixa** /
-  **+ CEO na caixa**. A CTO/CEO nasce ao lado da caixa, já com *Fixada em: Caixa*.
+  **+ CEO na caixa**; ou use o **Editor da caixa**. A CTO/CEO nasce **ancorada** na caixa (*Fixada em: Caixa*): o
+  ícone dela se funde ao da caixa ([veja abaixo](#objetos-ancorados-e-o-editor-do-postecaixa)).
 - O painel da caixa lista as CTO/CEO que estão dentro; clique numa para ir até ela.
+- **Duplo clique na caixa** (ou o botão **Editor da caixa**) abre o editor com tudo o que está dentro; o diagrama de
+  fusão da própria caixa abre pelo botão **Diagrama de fusão** do painel ou da barra do editor.
 - Ao **mover a caixa** no mapa, as CTO/CEO de dentro vão junto (Ctrl+Z desfaz tudo).
 - Nos relatórios a caixa aparece como *Caixa de parede / subterrânea* e no KMZ vai para a pasta *Caixas*.
 
@@ -254,13 +260,68 @@ Toda CTO e CEO precisa estar fixada em algum lugar. No painel dela, **Fixada em*
   vale o endereço da caixa, ou digite outro no campo **Endereço do imóvel** da CTO/CEO.
 
 O jeito mais rápido: com a ferramenta **CTO** ou **CEO**, **clique sobre o poste ou a caixa**; ela já nasce fixada
-nele, um pouco ao lado para os ícones não ficarem um sobre o outro. Clicando no mapa a até 8 m de um poste ou caixa,
-ela também é fixada sozinha no mais próximo. No mapa (zoom alto) uma linha tracejada curta liga a CTO/CEO ao poste ou à
-caixa.
+e **ancorada** nele (o ícone se funde ao do poste/caixa). Clicando no mapa a até 8 m de um poste ou caixa, ela
+também é fixada e ancorada sozinha no mais próximo. Uma CTO/CEO **desancorada** (solta) fica um pouco ao lado, com
+ícone próprio, e no mapa (zoom alto) uma linha tracejada curta liga a CTO/CEO ao poste ou à caixa.
 
 CTO/CEO antigas, sem fixação, continuam funcionando normalmente, mas ganham um **ponto âmbar** no canto do ícone, um
 aviso no painel e aparecem em **Análise de rede → CTO/CEO com fixação pendente**. O botão **Salvar alterações** da
 CTO/CEO só grava depois que a fixação (e o endereço, quando pedido) estiver preenchida.
+
+### Objetos ancorados e o editor do poste/caixa
+
+Um poste segura vários objetos: CTO, CEO, câmera e reservas técnicas. Uma caixa guarda CTO, CEO e reservas. Quando um
+objeto é colocado no poste ou na caixa ele fica **ancorado**:
+
+- **Os ícones se fundem**: o objeto não tem mais ícone próprio no mapa. Ao lado do ícone do poste/caixa aparece uma
+  faixa escura com o mini ícone de cada objeto ancorado (e das reservas guardadas ali), com **+N** quando há mais de
+  quatro. Com rótulos ligados, o nome dos objetos aparece embaixo (ex.: *CTO-07 · CEO-02 · CAM-3*).
+- **Não pode ser arrastado**: o objeto fica na posição do poste/caixa e só se move junto com ele. Arraste o poste ou
+  a caixa e tudo o que está ancorado vai junto, com as pontas dos cabos (Ctrl+Z desfaz). Os campos de latitude e
+  longitude do objeto ficam bloqueados.
+- **Para mover sozinho é preciso desancorar**: no painel do objeto (cartão *Ancorada em...*) ou no editor do
+  poste/caixa, clique em **Desancorar**. O objeto sai um pouco para o lado, ganha ícone próprio e pode ser
+  arrastado; continua fixado no mesmo poste/caixa (linha tracejada). **Ancorar** devolve para cima do poste/caixa.
+  Os cabos que só passam pelo poste continuam no poste; só as pontas dos cabos do próprio objeto acompanham.
+- **Cabo num poste com CTO/CEO ancorada**: com a ferramenta **Cabo**, clicar no poste liga o cabo na CTO/CEO ancorada.
+  Com mais de uma, aparece um menu para escolher em qual ligar (ou no próprio poste). Arrastar a ponta ou um ponto do
+  meio de um cabo para cima do poste também liga (ou faz a sangria) na CTO/CEO ancorada.
+- Câmeras só ficam ancoradas em **poste**; em cliente, datacenter ou POP continuam ao lado, com linha tracejada.
+- CTO/CEO antigas, fixadas num poste mas com ícone separado, aparecem como **soltas**: use **Ancorar** no painel
+  delas ou **Ancorar todos** no editor do poste.
+
+**Editor do poste / Editor da caixa**
+
+Dê **duplo clique no poste ou na caixa** (ou use o botão **Editor do poste** / **Editor da caixa** no painel). Abre
+uma tela parecida com o diagrama da CTO, com tudo o que está ali dentro:
+
+- No alto, **Cabos no poste / na caixa**: cada cabo que passa ou chega, na cor dele, com o nome, as fibras, o tipo e
+  se ele só passa (apoio) ou chega num objeto.
+- No poste, a haste com a cruzeta e os objetos presos dos dois lados; na caixa, uma moldura com os objetos dentro.
+  Cada **cartão** mostra o nome, o tipo, o status, se está **Ancorada** ou **Solta** e um resumo (CTO/CEO: cabos,
+  drops, splitters e emendas; câmera: tipo, fabricante, IP, gravador e situação do teste). Duplo clique no cartão
+  abre o objeto: CTO/CEO abrem o **diagrama de fusão** (ao fechar, você volta para o editor do poste); a câmera abre
+  o painel dela no mapa.
+- As **reservas técnicas** guardadas no poste/caixa também aparecem como cartões (comprimento, tipo e cabo), com a
+  lixeira para remover.
+- Embaixo, **Perto do poste/da caixa, sem fixação**: CTO/CEO (e câmeras, no poste) a até 15 m sem fixação; clique
+  para prender e ancorar ali.
+
+A **barra de ferramentas** só mostra o que pode ser implantado naquele suporte:
+
+| Botão | O que faz |
+| --- | --- |
+| **+ CTO**, **+ CEO** | Implanta uma CTO/CEO nova, já fixada e ancorada no poste/caixa |
+| **+ Câmera** (só poste) | Implanta uma câmera ancorada no poste (o tipo IP/analógica/DVR é o escolhido na ferramenta Câmera) |
+| **+ Reserva** | Reserva técnica de um cabo que passa ali: escolha o cabo, o comprimento e se é suspensa ou subterrânea |
+| **Abrir** | Abre o objeto selecionado (o mesmo que o duplo clique no cartão) |
+| **Ancorar / Desancorar** | Ancora ou solta o objeto selecionado |
+| **Ancorar todos** | Ancora de uma vez todos os objetos soltos deste poste/caixa |
+| Lixeira | Remove a reserva selecionada |
+| **Diagrama de fusão** (só caixa) | Abre o diagrama de fusão da própria caixa |
+| **Dados do poste / da caixa** | Fecha o editor e abre o painel de propriedades do poste/caixa |
+
+**Esc** fecha o editor.
 
 **Datacenter**
 
@@ -308,7 +369,9 @@ wireless por tipo e os enlaces PtP.
    - **Analógica**: câmera coaxial (HDCVI, AHD, HDTVI) gravada num canal de DVR.
    - **DVR / NVR**: o gravador. As câmeras são ligadas aos canais dele.
 2. Clique no mapa, ou clique **num poste, cliente, datacenter ou POP**: a câmera fica **instalada** nele (campo
-   *Instalada em* já preenchido) e é colocada logo ao lado, ligada a ele por uma linha fina tracejada.
+   *Instalada em* já preenchido). No **poste** ela fica **ancorada** (ícone fundido ao do poste, veja
+   [Objetos ancorados](#objetos-ancorados-e-o-editor-do-postecaixa)); nos outros, é colocada logo ao lado, ligada a
+   ele por uma linha fina tracejada.
 3. As câmeras recebem o nome *CAM-1*, *CAM-2*... e os gravadores *DVR-1*, *DVR-2*... O ícone é amarelo: câmera
    (corpo com lente) ou gravador (caixa com LEDs).
 
