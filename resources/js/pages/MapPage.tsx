@@ -58,8 +58,7 @@ import { destination } from '../lib/tower';
 import { BOX_KINDS, BOX_PLACES, FIXABLE_TYPES, fixTo, fixationIssue, nearestHost } from '../lib/fixation';
 import { ANCHOR_HOST_TYPES, UNANCHOR_OFFSET_M, slackOnHost, anchorHost, anchorIndex, attachedTo, cableTargets, withAnchor } from '../lib/anchor';
 import HostEditor from '../components/HostEditor';
-import { LAYERS, MAP_ENGINES, MAP_STYLES, availableEngines, googleTileUrl, loadEngine, loadStyle, saveEngine, saveStyle, type MapEngine, type MapStyle } from '../lib/basemaps';
-import { appConfig } from '../lib/user';
+import { LAYERS, MAP_ENGINES, MAP_STYLES, googleTileUrl, googleViewportCopyright, loadEngine, loadStyle, saveEngine, saveStyle, usableEngine, type GoogleKeySource, type MapEngine, type MapStyle } from '../lib/basemaps';
 import { AutoResize, RememberView, TILE_OPTIONS, loadView } from '../lib/mapview';
 import { connectIcon, midpointIcon, nodeGlyph, nodeIcon, slackIcon, vertexIcon, wirelessLinkIcon } from '../components/markers';
 import { ALONG_TOLERANCE_M, nearestOnPath, planBoxesAlong, pointOnPath, type AlongPlan } from '../lib/connect';
@@ -208,8 +207,10 @@ export default function MapPage() {
   const [ruler, setRuler] = useState<LatLng[]>([]);
   const [cursor, setCursor] = useState<LatLng | null>(null);
   // Estilo (no mapa) e motor (em Configurações) ficam salvos neste navegador.
-  const engines = useMemo(() => availableEngines(!!appConfig.googleMapsKey), []);
-  const [engine, setEngineState] = useState<MapEngine>(() => loadEngine(engines));
+  // O Google precisa da chave do dono do projeto (ou do .env); sem ela o mapa usa o OpenStreetMap.
+  const [googleKey, setGoogleKey] = useState<{ key: string | null; source: GoogleKeySource }>({ key: null, source: null });
+  const [preferredEngine, setEngineState] = useState<MapEngine>(loadEngine);
+  const engine = usableEngine(preferredEngine, !!googleKey.key);
   const [mapStyle, setMapStyleState] = useState<MapStyle>(loadStyle);
   const setEngine = (e: MapEngine) => {
     setEngineState(e);
@@ -402,6 +403,7 @@ export default function MapPage() {
       setCables(d.cables);
       setAreas(d.areas);
       setRole(d.role);
+      setGoogleKey({ key: d.google_maps_key ?? null, source: d.google_key_source ?? null });
     });
 
   useEffect(() => {
@@ -1168,6 +1170,7 @@ export default function MapPage() {
           <BaseTiles
             engine={engine}
             mapStyle={mapStyle}
+            googleKey={googleKey.key}
             onError={(m) => {
               notify(`${m} Voltando ao OpenStreetMap.`, 'error');
               setEngine('osm');
@@ -2292,7 +2295,13 @@ export default function MapPage() {
           settings={settings}
           canManage={canManage}
           engine={engine}
-          engines={engines}
+          preferredEngine={preferredEngine}
+          googleKey={googleKey}
+          isOwner={role === 'owner'}
+          onGoogleKey={(k) => {
+            setGoogleKey(k);
+            if (k.key) setEngine('google');
+          }}
           onEngine={setEngine}
           onClose={() => setModal(null)}
           onSaved={(p, s) => {
@@ -2356,7 +2365,17 @@ export default function MapPage() {
 }
 
 /** Mapa base do motor e estilo escolhidos (com sessão do Google quando necessário). */
-function BaseTiles({ engine, mapStyle, onError }: { engine: MapEngine; mapStyle: MapStyle; onError: (message: string) => void }) {
+function BaseTiles({
+  engine,
+  mapStyle,
+  googleKey,
+  onError,
+}: {
+  engine: MapEngine;
+  mapStyle: MapStyle;
+  googleKey: string | null;
+  onError: (message: string) => void;
+}) {
   const layer = LAYERS[engine][mapStyle];
   const [url, setUrl] = useState(layer.google ? '' : layer.url);
   useEffect(() => {
@@ -2366,16 +2385,60 @@ function BaseTiles({ engine, mapStyle, onError }: { engine: MapEngine; mapStyle:
     }
     let alive = true;
     setUrl('');
-    googleTileUrl(layer, appConfig.googleMapsKey ?? '')
+    googleTileUrl(layer, googleKey ?? '')
       .then((u) => alive && setUrl(u))
       .catch((e: Error) => alive && onError(e.message));
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engine, mapStyle]);
+  }, [engine, mapStyle, googleKey]);
   if (!url) return null;
-  return <TileLayer key={url} url={url} attribution={layer.attribution} maxZoom={21} maxNativeZoom={layer.maxNativeZoom} {...TILE_OPTIONS} />;
+  return (
+    <>
+      <TileLayer key={url} url={url} attribution={layer.attribution} maxZoom={21} maxNativeZoom={layer.maxNativeZoom} {...TILE_OPTIONS} />
+      {layer.google && <GoogleAttribution tileUrl={url} fallback={layer.attribution} />}
+    </>
+  );
+}
+
+/** Mantém no canto do mapa a atribuição que o Google exige para a área visível (logo + copyright). */
+function GoogleAttribution({ tileUrl, fallback }: { tileUrl: string; fallback: string }) {
+  const map = useMap();
+  useEffect(() => {
+    const ctl = map.attributionControl;
+    let current = fallback;
+    let timer = 0;
+    let alive = true;
+    const update = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(async () => {
+        const b = map.getBounds();
+        const text = await googleViewportCopyright(tileUrl, map.getZoom(), {
+          north: b.getNorth(),
+          south: b.getSouth(),
+          east: b.getEast(),
+          west: b.getWest(),
+        });
+        if (!alive || !text) return;
+        const next = `<b style="font-family:Arial,sans-serif">Google</b> · ${text.replace(/</g, '&lt;')}`;
+        if (next === current) return;
+        ctl?.removeAttribution(current);
+        ctl?.addAttribution(next);
+        current = next;
+      }, 400);
+    };
+    // a camada já põe a atribuição estática; a da área visível entra no lugar dela
+    update();
+    map.on('moveend', update);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+      map.off('moveend', update);
+      if (current !== fallback) ctl?.removeAttribution(current);
+    };
+  }, [map, tileUrl, fallback]);
+  return null;
 }
 
 function MapEvents({

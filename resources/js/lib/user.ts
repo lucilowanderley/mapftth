@@ -13,8 +13,3 @@ export function logout() {
   document.body.appendChild(form);
   form.submit();
 }
-
-/** Configuração do servidor repassada à página (ex.: chave opcional do Google Maps). */
-export const appConfig = JSON.parse(document.getElementById('root')?.dataset.config ?? '{}') as {
-  googleMapsKey?: string | null;
-};

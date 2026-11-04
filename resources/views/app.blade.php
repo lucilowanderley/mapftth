@@ -9,6 +9,6 @@
     @vite(['resources/css/app.css', 'resources/js/main.tsx'])
 </head>
 <body class="h-full bg-slate-950 text-slate-100 antialiased">
-    <div id="root" class="h-full" data-user='@json(auth()->user()->only('id', 'name', 'email'))' data-config='@json(['googleMapsKey' => config('services.google_maps.key') ?: null])'></div>
+    <div id="root" class="h-full" data-user='@json(auth()->user()->only('id', 'name', 'email'))'></div>
 </body>
 </html>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import type { Project, Settings } from '../lib/types';
-import { LAYERS, MAP_ENGINES, MAP_STYLES, type MapEngine, type MapStyle } from '../lib/basemaps';
+import { LAYERS, MAP_ENGINES, MAP_STYLES, maskKey, testGoogleKey, type GoogleKeySource, type MapEngine, type MapStyle } from '../lib/basemaps';
 import { Field, Modal } from './ui';
 
 const FIELDS: { key: keyof Settings; label: string; step: number }[] = [
@@ -19,14 +19,20 @@ interface Props {
   settings: Settings;
   /** Dono/administrador: pode alterar os dados do projeto. */
   canManage: boolean;
+  /** Motor em uso (o Google sem chave aparece como OpenStreetMap). */
   engine: MapEngine;
-  engines: MapEngine[];
+  /** Motor escolhido neste navegador. */
+  preferredEngine: MapEngine;
+  googleKey: { key: string | null; source: GoogleKeySource };
+  /** Só o dono do projeto cadastra a chave (ela é da conta dele). */
+  isOwner: boolean;
+  onGoogleKey: (k: { key: string | null; source: GoogleKeySource }) => void;
   onEngine: (e: MapEngine) => void;
   onClose: () => void;
   onSaved: (p: Project, s: Settings) => void;
 }
 
-export default function SettingsModal({ project, settings, canManage, engine, engines, onEngine, onClose, onSaved }: Props) {
+export default function SettingsModal({ project, settings, canManage, engine, preferredEngine, googleKey, isOwner, onGoogleKey, onEngine, onClose, onSaved }: Props) {
   const [name, setName] = useState(project.name);
   const [city, setCity] = useState(project.city ?? '');
   const [values, setValues] = useState<Settings>(settings);
@@ -47,24 +53,24 @@ export default function SettingsModal({ project, settings, canManage, engine, en
       <div className="space-y-2 pb-4 mb-4 border-b border-slate-800">
         <div className="label">Motor de mapas (salvo neste navegador)</div>
         <select className="input" value={engine} onChange={(e) => onEngine(e.target.value as MapEngine)} aria-label="Motor de mapas">
-          {engines.map((e) => (
-            <option key={e} value={e}>
+          {(Object.keys(MAP_ENGINES) as MapEngine[]).map((e) => (
+            <option key={e} value={e} disabled={MAP_ENGINES[e].needsKey && !googleKey.key}>
               {MAP_ENGINES[e].label}
+              {MAP_ENGINES[e].needsKey && !googleKey.key ? ' (precisa de chave)' : ''}
             </option>
           ))}
         </select>
+        {preferredEngine !== engine && (
+          <p className="text-xs text-amber-400">Google Maps escolhido, mas este projeto não tem chave: usando o OpenStreetMap.</p>
+        )}
         <ul className="text-xs text-slate-400 space-y-0.5">
           {(Object.keys(MAP_STYLES) as MapStyle[]).map((st) => (
             <li key={st}>
-              <b className="text-slate-300">{MAP_STYLES[st]}</b>: {LAYERS[engine][st].note ?? LAYERS[engine][st].attribution.replace('&copy;', '©')}
+              <b className="text-slate-300">{MAP_STYLES[st]}</b>: {LAYERS[engine][st].note ?? LAYERS[engine][st].attribution.replaceAll('&copy;', '©')}
             </li>
           ))}
         </ul>
-        {!engines.includes('google') && (
-          <p className="text-xs text-slate-500">
-            Google Maps: disponível quando o administrador do servidor configura a chave GOOGLE_MAPS_KEY (veja o manual).
-          </p>
-        )}
+        <GoogleKeyField googleKey={googleKey} isOwner={isOwner} onSaved={onGoogleKey} />
       </div>
       {canManage ? (
         <form onSubmit={save} className="space-y-3">
@@ -106,5 +112,109 @@ export default function SettingsModal({ project, settings, canManage, engine, en
         </div>
       )}
     </Modal>
+  );
+}
+
+/** Chave da Google Map Tiles API: o dono cadastra; os outros só veem se há chave. */
+function GoogleKeyField({
+  googleKey,
+  isOwner,
+  onSaved,
+}: {
+  googleKey: { key: string | null; source: GoogleKeySource };
+  isOwner: boolean;
+  onSaved: (k: { key: string | null; source: GoogleKeySource }) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function save() {
+    const key = value.trim();
+    if (!key) return;
+    setBusy(true);
+    setError('');
+    try {
+      // testa no navegador: as restrições de domínio da chave valem para este endereço
+      await testGoogleKey(key);
+      const r = await api.saveGoogleKey(key);
+      onSaved({ key: r.google_maps_key, source: r.google_key_source });
+      setEditing(false);
+      setValue('');
+    } catch (err) {
+      setError(err instanceof Error && !('response' in err) ? err.message : errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!confirm('Remover a chave do Google Maps da sua conta? Os seus projetos voltam para o OpenStreetMap.')) return;
+    setBusy(true);
+    setError('');
+    try {
+      const r = await api.saveGoogleKey(null);
+      onSaved({ key: r.google_maps_key, source: r.google_key_source });
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const status =
+    googleKey.source === 'account'
+      ? `Chave do Google cadastrada${isOwner ? ' na sua conta' : ' pelo dono do projeto'} (${maskKey(googleKey.key ?? '')}).`
+      : googleKey.source === 'env'
+        ? 'Usando a chave do Google do servidor (GOOGLE_MAPS_KEY).'
+        : 'Google Maps sem chave.';
+
+  return (
+    <div className="rounded border border-slate-800 p-2 space-y-1.5">
+      <div className="text-xs text-slate-300">{status}</div>
+      {!isOwner ? (
+        !googleKey.key && <p className="text-xs text-slate-500">Peça ao dono do projeto para cadastrar a chave da Google Map Tiles API em Configurações.</p>
+      ) : editing ? (
+        <div className="space-y-1.5">
+          <input
+            className="input font-mono text-xs"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="AIza..."
+            autoFocus
+            spellCheck={false}
+            autoComplete="off"
+            aria-label="Chave da Google Map Tiles API"
+          />
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-ghost" onClick={() => (setEditing(false), setError(''))} disabled={busy}>
+              Cancelar
+            </button>
+            <button type="button" className="btn-primary" onClick={save} disabled={busy || !value.trim()}>
+              {busy ? 'Testando...' : 'Testar e salvar'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="btn-ghost text-xs" onClick={() => setEditing(true)}>
+            {googleKey.source === 'account' ? 'Trocar chave' : 'Cadastrar chave do Google'}
+          </button>
+          {googleKey.source === 'account' && (
+            <button type="button" className="btn-ghost text-xs" onClick={remove} disabled={busy}>
+              Remover
+            </button>
+          )}
+        </div>
+      )}
+      {isOwner && (
+        <p className="text-[11px] text-slate-500">
+          A chave fica criptografada no servidor e vale para todos os projetos de que você é dono. Ative a Map Tiles API no Google Cloud e
+          restrinja a chave a este endereço.
+        </p>
+      )}
+      {error && <p className="text-xs text-red-400">{error}</p>}
+    </div>
   );
 }
