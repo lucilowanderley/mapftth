@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Anchor, Archive, Camera, ExternalLink, Info, Network, Plus, Trash2, Unlink, X } from 'lucide-react';
+import { Archive, Camera, ExternalLink, Info, Network, Plus, Trash2, Unlink, X } from 'lucide-react';
 import { ANCHOR_CHILD_TYPES, attachedTo, cablesAtHost, slacksAtHost } from '../lib/anchor';
 import { CAMERA_KINDS, HEALTH_COLORS, HEALTH_LABEL, cameraHealth, cameraOf } from '../lib/camera';
 import { CABLE_CATEGORIES, NODE_TYPES, SLACK_KINDS, STATUSES, splitterModel } from '../lib/catalog';
@@ -10,7 +10,7 @@ import { IconTool, Sep } from './DiagramEditor';
 import { nodeGlyph } from './markers';
 import { formatLength } from './ui';
 
-/** Objetos soltos até essa distância (m) aparecem como "perto do poste/caixa", para prender e ancorar. */
+/** Objetos soltos até essa distância (m) aparecem como "perto do poste/caixa", para fixar nele. */
 const NEAR_M = 15;
 
 type Sel = { kind: 'node'; id: number } | { kind: 'slack'; cable: number; id: string } | null;
@@ -23,9 +23,9 @@ interface Props {
   /** Outro editor (diagrama da CTO/CEO) aberto por cima: as teclas são dele. */
   covered?: boolean;
   onClose: () => void;
-  /** Implanta um objeto novo no poste/caixa (já ancorado). */
+  /** Implanta um objeto novo no poste/caixa (já fixado). */
   onAdd: (type: NodeType) => Promise<NetNode | null>;
-  /** Ancora/desancora; com `attach`, primeiro prende o objeto (solto) neste poste/caixa. */
+  /** Fixa (on) ou solta o objeto; com `attach`, fixa o objeto solto neste poste/caixa. */
   onAnchor: (n: NetNode, on: boolean, attach?: NetNode) => void;
   /** Abre o editor do objeto (CTO/CEO: diagrama de fusão; câmera: painel). */
   onOpen: (n: NetNode) => void;
@@ -37,7 +37,7 @@ interface Props {
 }
 
 /**
- * Editor do poste / da caixa: tudo o que está ancorado nele (CTO, CEO, câmera), as reservas técnicas
+ * Editor do poste / da caixa: tudo o que está fixado nele (CTO, CEO, câmera), as reservas técnicas
  * guardadas ali e os cabos que passam, com uma barra de ferramentas para implantar novos objetos.
  */
 export default function HostEditor({ host, nodes, cables, readOnly, covered, onClose, onAdd, onAnchor, onOpen, onOpenDiagram, onEditHost, onSlacksChange }: Props) {
@@ -46,7 +46,6 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
   const ids = children.map((c) => c.id);
   const here = cablesAtHost(host, cables, ids);
   const slacks = slacksAtHost(host, cables);
-  const free = children.filter((c) => c.attributes?.anchored !== true);
   const allowed = ANCHOR_CHILD_TYPES[isPole ? 'pole' : 'box'];
   // Objetos que podem ir para o poste/caixa, perto dele, ainda sem fixação (ou instalados em outro lugar).
   const near = useMemo(
@@ -158,7 +157,7 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
               <IconTool
                 key={t}
                 icon={t === 'camera' ? <Camera size={16} /> : <span className="inline-flex" dangerouslySetInnerHTML={{ __html: nodeGlyph({ ...host, type: t, status: 'planned', attributes: {} }, 16) }} />}
-                label={`Implantar ${NODE_TYPES[t].label} ${isPole ? 'no poste' : 'na caixa'} (fica ancorada)`}
+                label={`Implantar ${NODE_TYPES[t].label} ${isPole ? 'no poste' : 'na caixa'} (fica fixada)`}
                 text={`+ ${NODE_TYPES[t].label}`}
                 onClick={() => add(t)}
               />
@@ -171,13 +170,12 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
         {!readOnly && (
           <>
             <IconTool
-              icon={selNode?.attributes?.anchored === true ? <Unlink size={16} /> : <Anchor size={16} />}
-              label={selNode?.attributes?.anchored === true ? 'Desancorar: o objeto ganha ícone próprio no mapa e pode ser arrastado' : `Ancorar ${isPole ? 'no poste' : 'na caixa'}: o ícone se funde e não pode ser arrastado`}
-              text={selNode?.attributes?.anchored === true ? 'Desancorar' : 'Ancorar'}
-              onClick={() => selNode && onAnchor(selNode, selNode.attributes?.anchored !== true)}
+              icon={<Unlink size={16} />}
+              label={`Soltar ${isPole ? 'do poste' : 'da caixa'}: o objeto ganha ícone próprio no mapa e pode ser arrastado`}
+              text="Soltar"
+              onClick={() => selNode && onAnchor(selNode, false)}
               disabled={!selNode}
             />
-            <IconTool icon={<Anchor size={16} />} label="Ancorar todos os objetos soltos deste poste/caixa" text={`Ancorar todos${free.length ? ` (${free.length})` : ''}`} onClick={() => free.forEach((n) => onAnchor(n, true))} disabled={!free.length} />
             <IconTool icon={<Trash2 size={16} />} label="Remover a reserva selecionada" onClick={() => selSlack && removeSlack(selSlack.cable, selSlack.slack.id)} disabled={!selSlack} danger />
             <Sep />
           </>
@@ -280,7 +278,7 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
           </div>
         )}
 
-        {/* Soltos por perto: prender aqui e ancorar */}
+        {/* Soltos por perto: fixar aqui */}
         {!readOnly && near.length > 0 && (
           <div className="mx-auto mb-8 max-w-5xl px-4">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Perto {isPole ? 'do poste' : 'da caixa'}, sem fixação</div>
@@ -289,7 +287,7 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
                 <button
                   key={n.id}
                   className="flex items-center gap-1.5 rounded-md border border-dashed border-slate-400 bg-white px-2 py-1 text-xs hover:border-emerald-500 hover:bg-emerald-50 cursor-pointer"
-                  title={`Prender ${n.name} ${isPole ? 'neste poste' : 'nesta caixa'} e ancorar`}
+                  title={`Fixar ${n.name} ${isPole ? 'neste poste' : 'nesta caixa'}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     onAnchor(n, true, host);
@@ -328,7 +326,6 @@ function ObjectCard({
   onOpen: () => void;
   onAnchor: (on: boolean) => void;
 }) {
-  const anchored = n.attributes?.anchored === true;
   const lines: string[] = [];
   if (n.type === 'camera') {
     const a = cameraOf(n);
@@ -351,7 +348,7 @@ function ObjectCard({
   const health = n.type === 'camera' && n.attributes?.cam_kind !== 'dvr' ? cameraHealth(cameraOf(n).cam_status) : null;
   return (
     <div
-      className={`w-64 rounded-lg border bg-white shadow-sm cursor-pointer select-none ${selected ? 'ring-2 ring-emerald-500 border-emerald-500' : anchored ? 'border-slate-300' : 'border-dashed border-slate-400'}`}
+      className={`w-64 rounded-lg border bg-white shadow-sm cursor-pointer select-none ${selected ? 'ring-2 ring-emerald-500 border-emerald-500' : 'border-slate-300'}`}
       onClick={(e) => {
         e.stopPropagation();
         onSelect();
@@ -372,12 +369,6 @@ function ObjectCard({
             </span>
           </div>
         </div>
-        <span
-          className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${anchored ? 'bg-slate-800 text-white' : 'bg-amber-100 text-amber-700'}`}
-          title={anchored ? 'Ancorada: ícone fundido ao do poste/caixa, não pode ser arrastada' : 'Solta: tem ícone próprio no mapa'}
-        >
-          {anchored ? 'Ancorada' : 'Solta'}
-        </span>
       </div>
       <div className="space-y-0.5 px-2.5 py-1.5 text-xs text-slate-600">
         {lines.map((l, i) => (
@@ -404,13 +395,13 @@ function ObjectCard({
         {!readOnly && (
           <button
             className="flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100 cursor-pointer"
-            title={anchored ? 'Desancorar para mover sozinha no mapa' : 'Ancorar no poste/caixa'}
+            title="Soltar do poste/caixa para mover sozinha no mapa"
             onClick={(e) => {
               e.stopPropagation();
-              onAnchor(!anchored);
+              onAnchor(false);
             }}
           >
-            {anchored ? <Unlink size={12} /> : <Anchor size={12} />} {anchored ? 'Desancorar' : 'Ancorar'}
+            <Unlink size={12} /> Soltar
           </button>
         )}
       </div>

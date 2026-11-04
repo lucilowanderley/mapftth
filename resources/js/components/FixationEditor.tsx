@@ -63,6 +63,11 @@ export function FixationFields({ node, nodes, value: a, onChange: set }: { node:
           </select>
         </Field>
       )}
+      {host && (
+        <div className="text-xs text-slate-400">
+          Fica junto ao ícone {host.type === 'box' ? 'da caixa' : 'do poste'} {host.name} no mapa e se move com {host.type === 'box' ? 'ela' : 'ele'}. Para soltar, escolha Parede.
+        </div>
+      )}
       {askAddress && (
         <Field label="Endereço do imóvel">
           <input className="input" placeholder={hostBox?.address || 'Rua, número, bairro'} value={a.address ?? ''} onChange={(e) => set({ address: e.target.value || undefined })} />

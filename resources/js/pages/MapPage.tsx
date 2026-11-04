@@ -54,7 +54,7 @@ import type { Activity as ActivityItem, Area, BoxKind, BoxPlace, CameraKind, Cab
 import { viability } from '../lib/analysis';
 import { CAMERA_COLOR, CAMERA_KINDS, CAMERA_MOUNT_TYPES, HEALTH_COLORS, cameraHealth, cameraLinks, cameraOf, fovPolygon } from '../lib/camera';
 import { destination } from '../lib/tower';
-import { BOX_KINDS, BOX_PLACES, FIXABLE_TYPES, fixLinks, fixTo, fixationIssue, fixedOn, nearestHost } from '../lib/fixation';
+import { BOX_KINDS, BOX_PLACES, FIXABLE_TYPES, fixTo, fixationIssue, nearestHost } from '../lib/fixation';
 import { ANCHOR_HOST_TYPES, SLACK_ON_HOST_M, UNANCHOR_OFFSET_M, anchorHost, anchorIndex, attachedTo, cableTargets, withAnchor } from '../lib/anchor';
 import HostEditor from '../components/HostEditor';
 import { LAYERS, MAP_ENGINES, MAP_STYLES, availableEngines, googleTileUrl, loadEngine, loadStyle, saveEngine, saveStyle, type MapEngine, type MapStyle } from '../lib/basemaps';
@@ -182,7 +182,7 @@ export default function MapPage() {
     areas: true,
   });
   const [labels, setLabels] = useState(true);
-  /** Objetos agrupados (escondem o que está a jusante), salvos neste navegador por projeto. */
+  /** Objetos agrupados (escondem o que está à frente), salvos neste navegador por projeto. */
   const [groups, setGroupsState] = useState<number[]>(() => loadGroups(projectId));
   const setGroups = (g: number[]) => {
     setGroupsState(g);
@@ -194,7 +194,7 @@ export default function MapPage() {
   const unfixed = useMemo(() => new Set(nodes.filter((n) => fixationIssue(n, nodes)).map((n) => n.id)), [nodes]);
   const showNode = (n: NetNode) => visible[n.type] && !grouped.hiddenNodes.has(n.id);
   const showCable = (c: Cable) => visible[c.category] && !grouped.hiddenCables.has(c.id);
-  /** Objetos ancorados no poste/caixa: não têm ícone próprio, aparecem fundidos ao do poste/caixa. */
+  /** Objetos fixados no poste/caixa: não têm ícone próprio, aparecem fundidos ao do poste/caixa. */
   const anchors = useMemo(() => anchorIndex(nodes), [nodes]);
   const showMarker = (n: NetNode) => showNode(n) && !anchors.anchored.has(n.id);
   /** Reservas técnicas guardadas num poste/caixa visível: também se fundem ao ícone dele. */
@@ -214,9 +214,9 @@ export default function MapPage() {
     }
     return { byHost, hidden };
   }, [nodes, cables, visible, grouped, anchors]);
-  /** Poste/caixa com o editor (objetos ancorados) aberto. */
+  /** Poste/caixa com o editor (objetos fixados) aberto. */
   const [hostEditorId, setHostEditorId] = useState<number | null>(null);
-  /** Clique com a ferramenta Cabo num poste/caixa com várias CTO/CEO ancoradas: escolher em qual ligar. */
+  /** Clique com a ferramenta Cabo num poste/caixa com várias CTO/CEO fixadas: escolher em qual ligar. */
   const [anchorPick, setAnchorPick] = useState<{ host: NetNode; options: NetNode[]; x: number; y: number } | null>(null);
   // Caixas flutuantes com cadeado: barra de ferramentas e painel de camadas.
   const toolbarPanel = useFloatPanel('toolbar');
@@ -314,7 +314,7 @@ export default function MapPage() {
   const [placeLng, setPlaceLng] = useState('');
   const [editorFocus, setEditorFocus] = useState(0);
   const lastClick = useRef<{ key: string; t: number }>({ key: '', t: 0 });
-  /** Escolha feita no menu de CTO/CEO ancoradas (não perguntar de novo). */
+  /** Escolha feita no menu de CTO/CEO fixadas (não perguntar de novo). */
   const pickedAnchor = useRef(false);
   /**
    * O react-leaflet reposiciona o marcador sempre que recebe um array de posição novo.
@@ -456,9 +456,9 @@ export default function MapPage() {
       // CTO/CEO precisa estar fixada num poste, parede ou caixa: lançada sobre (ou bem perto de) um poste/caixa, fica presa nele.
       const fixable = FIXABLE_TYPES.includes(type);
       const host = fixable ? (mount ?? nearestHost(at, nodes)) : undefined;
-      // Câmera lançada sobre um poste fica ancorada nele; sobre cliente/DC/POP, "instalada" um pouco ao lado.
+      // Câmera lançada sobre um poste fica fixada nele; sobre cliente/DC/POP, "instalada" um pouco ao lado.
       const camOnPole = type === 'camera' && mount?.type === 'pole';
-      // CTO/CEO no poste/caixa e câmera no poste ficam ancoradas: mesma posição, ícone fundido ao do poste/caixa.
+      // CTO/CEO no poste/caixa e câmera no poste ficam fixadas: mesma posição, ícone fundido ao do poste/caixa.
       const pos: LatLng = host ? [host.lat, host.lng] : camOnPole ? [mount.lat, mount.lng] : mount ? roundLatLng(destination([mount.lat, mount.lng], 45, 12)) : at;
       const dvrCount = nodes.filter((n) => n.type === 'camera' && cameraOf(n).cam_kind === 'dvr').length;
       const node = await api.createNode(projectId, {
@@ -467,11 +467,11 @@ export default function MapPage() {
         lng: pos[1],
         ...(type === 'condo' ? { attributes: { condo_kind: condoKind } } : {}),
         ...(type === 'box' ? { attributes: { box_kind: boxKindTool, box_place: boxPlaceTool } } : {}),
-        ...(host ? { attributes: { ...fixTo(host), anchored: true } } : {}),
+        ...(host ? { attributes: fixTo(host) } : {}),
         ...(type === 'camera'
           ? {
               ...(cameraKind === 'dvr' ? { name: `DVR-${dvrCount + 1}` } : {}),
-              attributes: { cam_kind: cameraKind, ...(cameraKind === 'dvr' ? { channels: 8 } : {}), ...(mount ? { mount_id: mount.id } : {}), ...(camOnPole ? { anchored: true } : {}) },
+              attributes: { cam_kind: cameraKind, ...(cameraKind === 'dvr' ? { channels: 8 } : {}), ...(mount ? { mount_id: mount.id } : {}) },
             }
           : {}),
       });
@@ -479,9 +479,9 @@ export default function MapPage() {
       setSelection({ kind: 'node', id: node.id });
       notify(
         host
-          ? `${NODE_TYPES[type].label} ${node.name} ancorada em ${NODE_TYPES[host.type].label.toLowerCase()} ${host.name}`
+          ? `${NODE_TYPES[type].label} ${node.name} fixada ${host.type === 'box' ? 'na caixa' : 'no poste'} ${host.name}`
           : camOnPole
-            ? `${NODE_TYPES[type].label} ${node.name} ancorada no poste ${mount.name}`
+            ? `${NODE_TYPES[type].label} ${node.name} fixada no poste ${mount.name}`
             : fixable
               ? `${NODE_TYPES[type].label} adicionada. Informe no painel onde ela está fixada (poste, parede ou caixa).`
               : `${NODE_TYPES[type].label} adicionado`,
@@ -514,15 +514,9 @@ export default function MapPage() {
       const r = await api.updateNode(node.id, { lat: at[0], lng: at[1], ...(endsOnly ? { ends_only: true } : {}) });
       mergeNodes([r.node]);
       mergeCables(r.cables);
-      // O poste/caixa leva junto os objetos ancorados nele (mesma posição; só as pontas dos cabos deles
-      // acompanham). A caixa também leva as CTO/CEO soltas dentro dela, com o mesmo deslocamento.
+      // O poste/caixa leva junto os objetos fixados nele (mesma posição; só as pontas dos cabos deles acompanham).
       if (ANCHOR_HOST_TYPES.includes(node.type)) {
-        const dLat = at[0] - from[0];
-        const dLng = at[1] - from[1];
-        for (const child of attachedTo(node, nodes)) {
-          if (anchors.anchored.has(child.id)) await moveNode(child, at, false, true);
-          else if (node.type === 'box' && fixedOn(node, nodes).some((x) => x.id === child.id)) await moveNode(child, [child.lat + dLat, child.lng + dLng], false);
-        }
+        for (const child of attachedTo(node, nodes)) await moveNode(child, at, false, true);
       }
       if (record) {
         setLastMove({ id: node.id, from, name: node.name });
@@ -558,29 +552,30 @@ export default function MapPage() {
   }
 
   /**
-   * Ancorar: o objeto vai para a posição do poste/caixa e o ícone se funde ao dele. Desancorar: sai um pouco
-   * para o lado, ganha ícone próprio e pode ser arrastado (continua fixado/instalado no mesmo poste/caixa).
+   * Fixar no poste/caixa: o objeto vai para a posição dele e o ícone se funde ao dele. Soltar: sai um pouco
+   * para o lado, ganha ícone próprio e pode ser arrastado (CTO/CEO fica sem fixação até escolher outra).
    */
   async function setAnchored(n: NetNode, on: boolean, attach?: NetNode) {
-    // attach: prende primeiro o objeto solto neste poste/caixa (CTO/CEO: "Fixada em"; câmera: "Instalada em").
-    const attachAttrs = attach ? (n.type === 'camera' ? { mount_id: attach.id } : fixTo(attach)) : {};
     const host = attach ?? anchorHost(n, nodes);
     if (!host) {
       notify(`${n.name} não está fixada em um poste ou caixa.`, 'error');
       return;
     }
     const idx = Math.max(0, attachedTo(host, nodes).findIndex((x) => x.id === n.id));
-    const base = { ...n, attributes: { ...(n.attributes ?? {}), ...attachAttrs } };
     const from: LatLng = [n.lat, n.lng];
     const at: LatLng = on ? [host.lat, host.lng] : roundLatLng(destination([host.lat, host.lng], (150 + 45 * idx) % 360, UNANCHOR_OFFSET_M));
-    const attributes = withAnchor(base, on);
+    const attributes = withAnchor(n, on, host);
     setNodes((list) => list.map((x) => (x.id === n.id ? { ...x, lat: at[0], lng: at[1], attributes } : x)));
     setCables((list) => list.map((c) => ({ ...c, path: movePath(c, n.id, from, at, true) })));
     try {
       const r = await api.updateNode(n.id, { lat: at[0], lng: at[1], attributes, ends_only: true });
       mergeNodes([r.node]);
       mergeCables(r.cables);
-      notify(on ? `${n.name} ancorada em ${host.name}` : `${n.name} desancorada de ${host.name}: agora pode ser arrastada`);
+      notify(
+        on
+          ? `${n.name} fixada ${host.type === 'box' ? 'na caixa' : 'no poste'} ${host.name}`
+          : `${n.name} solta ${host.type === 'box' ? 'da caixa' : 'do poste'} ${host.name}: agora pode ser arrastada${FIXABLE_TYPES.includes(n.type) ? '. Informe onde ela está fixada.' : ''}`,
+      );
     } catch (e) {
       notify(errorMessage(e), 'error');
       load();
@@ -676,7 +671,7 @@ export default function MapPage() {
     let bestD = 20;
     for (const raw of nodes) {
       if (!showMarker(raw)) continue;
-      // Poste/caixa com CTO/CEO ancorada: o cabo liga (ou faz sangria) na CTO/CEO.
+      // Poste/caixa com CTO/CEO fixada: o cabo liga (ou faz sangria) na CTO/CEO.
       const n = cableTargets(raw, nodes)[0] ?? raw;
       if (isEnd ? n.id === other : n.type === 'client' || n.id === cable.from_node_id || n.id === cable.to_node_id) continue;
       const d = map.latLngToContainerPoint([n.lat, n.lng]).distanceTo(p);
@@ -765,7 +760,7 @@ export default function MapPage() {
   /** Traçado exibido de um cabo, considerando um arrasto em andamento. */
   function displayPath(c: Cable): LatLng[] {
     let path = drag ? movePath(c, drag.id, drag.from, drag.at) : c.path;
-    // Os ancorados acompanham o poste/caixa arrastado (pontas dos cabos deles).
+    // Os fixados acompanham o poste/caixa arrastado (pontas dos cabos deles).
     if (drag) for (const ch of anchors.byHost.get(drag.id) ?? []) path = movePath({ ...c, path }, ch.id, drag.from, drag.at, true);
     if (vertexDrag && vertexDrag.cableId === c.id) {
       const { index, at, insert } = vertexDrag;
@@ -800,7 +795,7 @@ export default function MapPage() {
       return;
     }
     if (tool === 'cable') {
-      // Poste/caixa com CTO/CEO ancorada: o cabo liga nela (com várias, pergunta qual).
+      // Poste/caixa com CTO/CEO fixada: o cabo liga nela (com várias, pergunta qual).
       const targets = cableTargets(node, nodes);
       if (targets.length > 1 && !pickedAnchor.current) {
         const p = mapRef.current?.latLngToContainerPoint([node.lat, node.lng]);
@@ -904,16 +899,25 @@ export default function MapPage() {
     }
   }
 
-  /** Agrupar/Desagrupar: esconde (ou mostra de novo) tudo o que está a jusante do objeto pelos cabos de saída. */
+  /**
+   * Agrupar/Desagrupar: esconde (ou mostra de novo) tudo o que está à frente do objeto pelos cabos de saída.
+   * Objeto fixado num poste/caixa agrupa pelo poste/caixa (os cabos da CTO fixada contam para o poste).
+   */
+  const groupKey = (n: NetNode) => anchors.hostOf.get(n.id)?.id ?? n.id;
   function toggleGroup(n: NetNode) {
-    if (groups.includes(n.id)) {
-      setGroups(groups.filter((g) => g !== n.id));
+    const id = groupKey(n);
+    const mine = (g: number) => {
+      const x = nodes.find((y) => y.id === g);
+      return g === id || (!!x && groupKey(x) === id);
+    };
+    if (groups.some(mine)) {
+      setGroups(groups.filter((g) => !mine(g)));
       notify(`${n.name} desagrupado: objetos à frente visíveis de novo`);
       return;
     }
-    const count = groupView([n.id], nodes, cables).counts.get(n.id) ?? 0;
+    const count = groupView([id], nodes, cables).counts.get(id) ?? 0;
     if (!count) return notify(`Nada à frente de ${n.name} para agrupar (nenhum cabo de saída com objetos).`, 'error');
-    setGroups([...groups, n.id]);
+    setGroups([...groups, id]);
     notify(`${n.name} agrupado: ${count} ${count === 1 ? 'objeto oculto' : 'objetos ocultos'}`);
   }
 
@@ -1283,26 +1287,11 @@ export default function MapPage() {
               </Polyline>
             ))}
 
-          {/* CTO/CEO: ligação tracejada curta com o poste ou a caixa onde está fixada. */}
-          {zoom >= 16 &&
-            fixLinks(nodes.filter((n) => showMarker(n))).map((l) => (
-              <Polyline
-                key={`fx${l.key}`}
-                positions={[
-                  [l.from.lat, l.from.lng],
-                  [l.to.lat, l.to.lng],
-                ]}
-                pathOptions={{ color: '#e2e8f0', weight: 1.5, dashArray: '2 4', opacity: 0.75 }}
-              >
-                <Tooltip sticky>{`${l.from.name} ${l.to.type === 'box' ? 'dentro da caixa' : 'fixada no poste'} ${l.to.name}`}</Tooltip>
-              </Polyline>
-            ))}
-
           {nodes
             .filter((n) => showMarker(n))
             .map((n) => {
               const level = n.type === 'client' ? powerLevel(clientPower.get(n.id)?.power ?? null, settings) : null;
-              // Objetos ancorados no poste/caixa: mini ícones fundidos ao dele (o poste fica selecionado junto).
+              // Objetos fixados no poste/caixa: mini ícones fundidos ao dele (o poste fica selecionado junto).
               const stack = (anchors.byHost.get(n.id) ?? []).filter((c) => showNode(c));
               const coils = hostSlacks.byHost.get(n.id) ?? [];
               const label = stack.length ? stack.map((c) => c.name).join(' · ') : coils.length ? `Reserva ${coils.reduce((a, x) => a + x.slack.length_m, 0)} m` : n.name;
@@ -1848,7 +1837,7 @@ export default function MapPage() {
           )}
         </div>
 
-        {/* Ferramenta Cabo num poste/caixa com várias CTO/CEO ancoradas: em qual ligar */}
+        {/* Ferramenta Cabo num poste/caixa com várias CTO/CEO fixadas: em qual ligar */}
         {anchorPick && (
           <div className="absolute z-[1100] panel w-60 py-1 text-sm shadow-xl" style={{ left: Math.max(8, anchorPick.x - 120), top: anchorPick.y + 16 }} onContextMenu={(e) => e.preventDefault()}>
             <div className="px-3 py-1.5 border-b border-slate-800 text-xs text-slate-400">Ligar o cabo em qual objeto de {anchorPick.host.name}?</div>
@@ -2072,7 +2061,6 @@ export default function MapPage() {
             nodes={nodes}
             onSelectNode={(n) => focusNode(n)}
             onAddInBox={(box, type) => addNode(type, [box.lat, box.lng], box)}
-            onAnchor={(n, on) => setAnchored(n, on)}
             onOpenHost={(h) => setHostEditorId(h.id)}
             budget={selectedNode?.type === 'client' ? clientPower.get(selectedNode.id) : undefined}
             signal={selectedNode?.type === 'client' ? clientSignal.get(selectedNode.id) : undefined}
@@ -2106,7 +2094,7 @@ export default function MapPage() {
               notify('Excluído');
             }}
             onOpenDiagram={(n) => setDiagramNodeId(n.id)}
-            group={selectedNode ? { active: grouped.counts.has(selectedNode.id), count: grouped.counts.get(selectedNode.id) ?? 0 } : undefined}
+            group={selectedNode ? { active: grouped.counts.has(groupKey(selectedNode)), count: grouped.counts.get(groupKey(selectedNode)) ?? 0 } : undefined}
             onToggleGroup={toggleGroup}
             onShowBudget={(n) =>
               setBudget({
