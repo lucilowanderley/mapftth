@@ -11,7 +11,7 @@ seções como consulta.
 3. [Meus projetos](#3-meus-projetos)
 4. [A tela do mapa](#4-a-tela-do-mapa)
 5. [Adicionar POP, datacenter, torre, CEO, CTO, caixa, poste, cliente e condomínio](#5-adicionar-pop-datacenter-torre-ceo-cto-caixa-poste-cliente-e-condomínio) (inclui a [Caixa de parede ou subterrânea](#caixa-de-parede-ou-subterrânea), a [Fixação da CTO/CEO](#fixação-da-ctoceo-poste-parede-ou-caixa), os [Objetos fixados no poste/caixa e o editor do poste/caixa](#objetos-fixados-no-postecaixa-e-o-editor-do-postecaixa) e a [Câmera: IP, analógica e DVR/NVR](#câmera-ip-analógica-e-dvrnvr))
-6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos) (inclui as [3 formas de ligar a CTO no cabo](#ligar-a-cto-no-cabo-3-formas))
+6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos) (inclui as [3 formas de ligar a CTO no cabo](#ligar-a-cto-no-cabo-3-formas) e o [Lançar cabo](#lançar-cabo-com-postes-e-reservas))
 7. [Editor do POP: rack, OLT e DIO](#7-editor-do-pop-rack-olt-e-dio)
 8. [Diagrama de fusão da CEO e da CTO (splitters)](#8-diagrama-de-fusão-da-ceo-e-da-cto)
 9. [Ligar o cliente e ver o sinal](#9-ligar-o-cliente-e-ver-o-sinal)
@@ -92,7 +92,7 @@ A tela tem quatro partes:
 | Onde | O que tem |
 | --- | --- |
 | **Barra lateral (esquerda)** | Nome do projeto, % implantado, seu papel, busca, menu (Meus projetos, Dashboard, Análise de rede, Relatório da rede, Tabela de postes, Equipe, Histórico, Importar KMZ/KML, Exportar KMZ, Configurações) e os totais de POPs, CEOs, CTOs, clientes e metros de cabo. |
-| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, Caixa, POP, Datacenter, Torre, Poste, Cliente, Condomínio, Câmera, Cabo, Área, Reserva, Régua, Viabilidade. |
+| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, Caixa, POP, Datacenter, Torre, Poste, Cliente, Condomínio, Câmera, Cabo, Lançar cabo, Área, Reserva, Régua, Viabilidade. |
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
 
@@ -510,6 +510,53 @@ fusão**, clique na fibra, use **Remover passagem** e ligue a fibra ao splitter 
 cabo original continuam com as fusões que já tinham, agora no último trecho.
 
 O menu do botão direito no cabo também tem **Editar** (abre o painel do cabo), **Posicionar reserva** e **Excluir**.
+
+### Lançar cabo com postes e reservas
+
+A ferramenta **Lançar cabo** (barra do mapa, ao lado de **Cabo**) cria o cabo já passando pelos postes, cria os
+postes que faltam e coloca as reservas técnicas fixadas nos postes, tudo de uma vez. Ao escolher a ferramenta abre
+um painel à esquerda. No alto do painel escolha o **Tipo** (Backbone ou Distribuição), o **Modelo** (6 a 144 FO),
+o **Nome** (opcional) e a **Situação**. O painel tem dois jeitos de lançar:
+
+**1. Escolher postes.** O painel lista os postes do projeto, os mais perto primeiro (use a busca para achar pelo
+nome). Clique nos postes **no mapa** ou marque na lista, **na ordem** do lançamento: cada poste escolhido ganha um
+número e o cabo aparece tracejado ligando um ao outro. **Ordenar** refaz a ordem pelo caminho mais curto a partir do
+primeiro, **Inverter** troca o sentido e **Limpar** começa de novo. Clicar de novo num poste escolhido tira ele.
+
+**2. Início e fim.** Informe o **Início** e o **Fim** do lançamento: digite o endereço (escolha na lista que
+aparece), cole as coordenadas (ex.: `-8.0476, -34.877`) ou clique no **alfinete** e depois no mapa. Se clicar numa
+CTO, CEO, caixa ou POP, o cabo já nasce conectado nela. Deixe marcado **Seguir o percurso da rua, estrada ou
+avenida** e clique em **Traçar caminho**. O caminho aparece em cinza no mapa. Então o painel:
+
+- diz quantos **postes já cadastrados** existem no caminho (até 20 m da rua) e deixa **usar os postes que já
+  existem**;
+- deixa **adicionar os postes que faltam** a cada X metros. Os postes novos ficam nas pontas, nas esquinas e no meio
+  dos vãos maiores que essa distância. No mapa eles aparecem como bolinhas brancas e os existentes usados com anel
+  amarelo.
+
+Sem **adicionar os postes que faltam**, o cabo segue a rua e passa só pelos postes existentes.
+
+**Reserva técnica:** marque **Reserva técnica a cada X m, com Y m**. A cada X metros de cabo o sistema escolhe o
+poste mais perto dessa marca e coloca ali uma reserva suspensa de Y metros, **fixada no poste** (anel laranja
+tracejado na prévia).
+
+Padrões (o sistema lembra o que você mudar, para cada tipo de cabo):
+
+| Tipo | Distância entre postes | Reserva técnica |
+| --- | --- | --- |
+| Backbone | 100 m | a cada 500 m, com 15 m |
+| Distribuição | 40 m | a cada 500 m, com 15 m |
+
+O resumo mostra a metragem do cabo, a soma das reservas, quantos postes existentes e novos e quantas reservas.
+Clique em **Lançar cabo**: o cabo fica selecionado e os postes novos entram no mapa (P-1, P-2...) com a mesma
+situação do cabo. Depois disso é um cabo como qualquer outro: dá para editar o traçado, ligar CTOs com as 3 formas
+acima e mexer nas reservas.
+
+**De onde vem o caminho da rua:** o servidor do MapFTTH consulta o **OSRM** com os dados de ruas do
+**OpenStreetMap** (serviço público e gratuito, sem chave; primeiro o perfil a pé, que não respeita contramão, depois
+o de carro). Se o serviço não responder, o caminho fica em **linha reta** e o painel avisa. Confira o caminho no mapa
+antes de lançar: em ruas que não estão no OpenStreetMap ele pode dar volta. Quem tiver um servidor OSRM próprio pode
+apontar para ele com `ROUTING_URL` no `.env`.
 
 ### Reserva técnica no mapa
 

@@ -39,6 +39,7 @@ import {
   ChevronDown,
   Cctv,
   Video,
+  Route as LaunchIcon,
 } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Circle, CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
@@ -82,8 +83,9 @@ import AreaPanel from '../components/AreaPanel';
 import { groupView, loadGroups, saveGroups } from '../lib/mapgroup';
 import { useFloatPanel } from '../lib/floatpanel';
 import PanelLock from '../components/PanelLock';
+import LaunchPanel, { type LaunchPick, type LaunchPreview } from '../components/LaunchPanel';
 
-type Tool = 'select' | NodeType | 'cable' | 'slack' | 'ruler' | 'area' | 'viability';
+type Tool = 'select' | NodeType | 'cable' | 'launch' | 'slack' | 'ruler' | 'area' | 'viability';
 
 const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'select', label: 'Selecionar', icon: <MousePointer2 size={18} /> },
@@ -98,6 +100,7 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'condo', label: 'Condomínio', icon: <Building2 size={18} /> },
   { id: 'camera', label: 'Câmera', icon: <Cctv size={18} /> },
   { id: 'cable', label: 'Cabo', icon: <CableIcon size={18} /> },
+  { id: 'launch', label: 'Lançar cabo', icon: <LaunchIcon size={18} /> },
   { id: 'area', label: 'Área', icon: <Pentagon size={18} /> },
   { id: 'slack', label: 'Reserva', icon: <SlackToolIcon size={18} /> },
   { id: 'ruler', label: 'Régua', icon: <Ruler size={18} /> },
@@ -107,6 +110,45 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
 /** Ferramentas que só leem a rede (liberadas para quem tem acesso de leitura). */
 const READ_TOOLS: Tool[] = ['select', 'ruler', 'viability'];
 
+
+/** Prévia do lançamento de cabo: caminho da rua, cabo planejado, postes (existentes numerados e novos) e reservas. */
+function LaunchLayer({ preview, nodes }: { preview: LaunchPreview; nodes: NetNode[] }) {
+  const { plan, route, color } = preview;
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const slackAt = new Set(plan?.slacks ?? []);
+  return (
+    <>
+      {route && route.length > 1 && <Polyline positions={route} pathOptions={{ color: '#94a3b8', weight: 7, opacity: 0.35 }} interactive={false} />}
+      {plan && <Polyline positions={plan.points.map((p) => p.at)} pathOptions={{ color, weight: 4, dashArray: '8 6' }} interactive={false} />}
+      {!plan &&
+        preview.order &&
+        preview.order.length === 1 &&
+        byId.get(preview.order[0]) && <CircleMarker center={[byId.get(preview.order[0])!.lat, byId.get(preview.order[0])!.lng]} radius={11} pathOptions={{ color: '#fde047', weight: 3, fill: false }} interactive={false} />}
+      {plan?.points.map((p, i) =>
+        p.pole_id != null || p.new_pole ? (
+          <CircleMarker
+            key={`lp${i}`}
+            center={p.at}
+            radius={p.new_pole ? 6 : 10}
+            interactive={false}
+            pathOptions={p.new_pole ? { color, weight: 2, fillColor: '#ffffff', fillOpacity: 1 } : { color: '#fde047', weight: 3, fill: false }}
+          >
+            {preview.order && (
+              <Tooltip permanent direction="top" offset={[0, -8]} className="!px-1 !py-0 !text-[10px]">
+                {i + 1}
+              </Tooltip>
+            )}
+          </CircleMarker>
+        ) : null,
+      )}
+      {plan?.points.map((p, i) =>
+        slackAt.has(i) ? <CircleMarker key={`ls${i}`} center={p.at} radius={15} interactive={false} pathOptions={{ color: '#f59e0b', weight: 2, dashArray: '3 3', fill: false }} /> : null,
+      )}
+      {preview.start && <CircleMarker center={preview.start} radius={7} interactive={false} pathOptions={{ color: '#ffffff', weight: 2, fillColor: '#22c55e', fillOpacity: 1 }} />}
+      {preview.end && <CircleMarker center={preview.end} radius={7} interactive={false} pathOptions={{ color: '#ffffff', weight: 2, fillColor: '#ef4444', fillOpacity: 1 }} />}
+    </>
+  );
+}
 
 export type Selection = { kind: 'node'; id: number } | { kind: 'cable'; id: number } | { kind: 'area'; id: number } | null;
 
@@ -141,6 +183,9 @@ export default function MapPage() {
   } | null>(null);
   const [recent, setRecent] = useState<ActivityItem[] | null>(null);
   const [tool, setTool] = useState<Tool>('select');
+  /** Ferramenta Lançar cabo: cliques no mapa encaminhados ao painel e o que ele desenha. */
+  const [launchPick, setLaunchPick] = useState<LaunchPick | null>(null);
+  const [launchPreview, setLaunchPreview] = useState<LaunchPreview | null>(null);
   const [condoKind, setCondoKind] = useState<CondoKind>('buildings');
   const [cameraKind, setCameraKind] = useState<CameraKind>('ip');
   const [boxKindTool, setBoxKindTool] = useState<BoxKind>('underground');
@@ -795,6 +840,10 @@ export default function MapPage() {
   }
 
   function nodeClicked(node: NetNode) {
+    if (tool === 'launch') {
+      setLaunchPick({ at: [node.lat, node.lng], node, t: Date.now() });
+      return;
+    }
     if (tool === 'viability') {
       setViaPoint([node.lat, node.lng]);
       return;
@@ -992,6 +1041,8 @@ export default function MapPage() {
   const hint =
     tool === 'area'
       ? `Clique para marcar os vértices da área (${areaDraft.length}). Enter ou "Finalizar área" conclui. Esc cancela.`
+      : tool === 'launch'
+        ? 'Lançar cabo: escolha os postes (clique neles no mapa) ou marque o início e o fim no painel. Esc volta para Selecionar.'
       : tool === 'slack'
         ? 'Clique sobre o cabo (ou no poste/caixa por onde ele passa) para posicionar a reserva técnica. Esc volta para Selecionar.'
         : tool === 'viability'
@@ -1119,6 +1170,7 @@ export default function MapPage() {
               if (connectId) return;
               if (tool === 'select') setSelection(null);
               else if (tool === 'viability') setViaPoint(at);
+              else if (tool === 'launch') setLaunchPick({ at, t: Date.now() });
               else if (tool === 'area') setAreaDraft((a) => [...a, at]);
               else if (tool === 'cable') setDraft((d) => (d ? { ...d, path: [...d.path, at] } : { path: [at], from: null }));
               else if (tool === 'ruler') setRuler((r) => [...r, at]);
@@ -1576,6 +1628,7 @@ export default function MapPage() {
               </CircleMarker>
             </>
           )}
+          {tool === 'launch' && launchPreview && <LaunchLayer preview={launchPreview} nodes={nodes} />}
           {ruler.length > 0 && <Polyline positions={cursor && tool === 'ruler' ? [...ruler, cursor] : ruler} pathOptions={{ color: '#f472b6', weight: 3 }} />}
         </MapContainer>
 
@@ -1600,7 +1653,9 @@ export default function MapPage() {
                   setDraft(null);
                   setAreaDraft([]);
                   if (t.id !== 'ruler') setRuler([]);
-                  if (t.id === 'viability') setSelection(null);
+                  if (t.id === 'viability' || t.id === 'launch') setSelection(null);
+                  // Lançar cabo escolhe postes no mapa: a camada de postes precisa estar visível.
+                  if (t.id === 'launch') setVisible((v) => ({ ...v, pole: true }));
                 }}
                 className={`flex flex-col items-center gap-0.5 rounded-md px-2.5 py-1.5 text-[10px] uppercase tracking-wide cursor-pointer ${
                   tool === t.id ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800'
@@ -2002,6 +2057,31 @@ export default function MapPage() {
             )}
           </div>
         </div>
+
+        {tool === 'launch' && !readOnly && (
+          <LaunchPanel
+            projectId={projectId}
+            nodes={nodes}
+            center={() => {
+              const c = mapRef.current?.getCenter();
+              return c ? [c.lat, c.lng] : null;
+            }}
+            pick={launchPick}
+            onPreview={setLaunchPreview}
+            onFocus={(p) => mapRef.current?.setView(p, Math.max(mapRef.current.getZoom(), 17))}
+            onFit={(path) => mapRef.current?.fitBounds(L.latLngBounds(path), { paddingTopLeft: [340, 60], paddingBottomRight: [40, 60], maxZoom: 18 })}
+            onError={(m) => notify(m, 'error')}
+            onDone={(cable, created) => {
+              setNodes((list) => [...list, ...created]);
+              setCables((list) => [...list, cable]);
+              setTool('select');
+              setSelection({ kind: 'cable', id: cable.id });
+              const r = cable.slacks?.length ?? 0;
+              notify(`Cabo lançado${created.length ? ` com ${created.length} poste${created.length > 1 ? 's' : ''} novo${created.length > 1 ? 's' : ''}` : ''}${r ? ` e ${r} reserva${r > 1 ? 's' : ''} técnica${r > 1 ? 's' : ''}` : ''}.`);
+            }}
+            onClose={() => setTool('select')}
+          />
+        )}
 
         {tool === 'viability' && (
           <ViabilityPanel

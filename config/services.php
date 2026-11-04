@@ -40,6 +40,12 @@ return [
         'key' => env('GOOGLE_MAPS_KEY'),
     ],
 
+    // Lançamento de cabo: caminho pela rua (OSRM). Vazio = servidores públicos do OpenStreetMap (sem chave),
+    // com linha reta quando não respondem. ROUTING_URL aponta para um OSRM próprio (ex.: http://localhost:5000).
+    'routing' => [
+        'url' => env('ROUTING_URL'),
+    ],
+
     // Câmeras (objeto Câmera): teste de comunicação e foto feitos pelo servidor. CAMERA_CHECK=false desliga.
     'cameras' => [
         'check' => env('CAMERA_CHECK', true),

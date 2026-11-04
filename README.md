@@ -88,6 +88,8 @@ Para alterar o frontend: `npm install` e `npm run dev` (recarrega ao salvar) ou 
    `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` do banco criado.
    Opcional: `GOOGLE_MAPS_KEY` com uma chave da Google Map Tiles API para liberar os mapas do Google
    (veja "Mapa base" no `docs/MANUAL.md`).
+   O **Lançar cabo** busca o caminho pela rua no OSRM público do OpenStreetMap, então o servidor precisa de saída
+   HTTPS para `routing.openstreetmap.de` e `router.project-osrm.org` (ou `ROUTING_URL` com um OSRM próprio).
 5. Rode:
 
    ```bash
