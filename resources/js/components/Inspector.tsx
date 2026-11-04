@@ -1,4 +1,4 @@
-import { Building2, Layers, Layers2, Copy, Crosshair, History, Home, Link2, Network, Radar, Store, Trash2, X } from 'lucide-react';
+import { Anchor, Building2, Layers, Layers2, Copy, Crosshair, History, Home, Link2, Network, Radar, Store, Trash2, Unlink, UtilityPole, X } from 'lucide-react';
 import type { SignalAnalysis } from '../lib/signal';
 import { ClientSignalCard } from './SignalHealthBox';
 import { CLIENT_SEGMENTS, clientDataOf, normalizeSerial, type ClientSegment } from '../lib/client';
@@ -14,6 +14,7 @@ import { CAMERA_KINDS, cameraOf } from '../lib/camera';
 import { POLE_MATERIALS } from './PolesModal';
 import { BoxFields, FixationFields } from './FixationEditor';
 import { FIXABLE_TYPES, boxNeedsAddress, fixationIssue, fixedOn } from '../lib/fixation';
+import { ANCHOR_HOST_TYPES, anchorHost, attachedTo } from '../lib/anchor';
 import { cablesNear } from '../lib/analysis';
 import CableLossField, { lossRateText, parseLossRate } from './CableLossField';
 import { Field, formatLength } from './ui';
@@ -56,6 +57,10 @@ interface Props {
   onSelectNode?: (n: NetNode) => void;
   /** Lança uma CTO/CEO dentro da caixa. */
   onAddInBox?: (box: NetNode, type: 'cto' | 'ceo') => void;
+  /** Ancora (true) ou desancora (false) o objeto no poste/caixa onde está preso. */
+  onAnchor?: (n: NetNode, on: boolean) => void;
+  /** Abre o editor do poste/caixa (objetos ancorados e barra de ferramentas). */
+  onOpenHost?: (host: NetNode) => void;
 }
 
 /** Foca e seleciona o campo quando focusKey muda (duplo clique no mapa). */
@@ -163,6 +168,8 @@ function NodeForm({
   onLocate,
   onSelectNode,
   onAddInBox,
+  onAnchor,
+  onOpenHost,
 }: Props & { node: NetNode }) {
   const nameRef = useFocusOn(focusKey);
   const [lat, setLat] = useState(formatCoord(node.lat));
@@ -214,11 +221,24 @@ function NodeForm({
   const cablesHere = cablesNear([node.lat, node.lng], cables ?? []);
   const [saving, setSaving] = useState(false);
   const hasDiagram = BOX_TYPES.includes(node.type);
+  // Ancorado no poste/caixa: não se move sozinho (desancorar primeiro).
+  const host = anchorHost(node, nodes);
+  const anchored = !!host && node.attributes?.anchored === true;
+  const isHost = ANCHOR_HOST_TYPES.includes(node.type);
   const level = budget ? powerLevel(budget.power, settings) : null;
 
   async function save() {
     const pos = parseLatLng(lat, lng);
     if (typeof pos === 'string') return onError(pos);
+    // Ancorado: a posição é sempre a do poste/caixa. Se a fixação mudou de poste/caixa, vai junto para o novo;
+    // se deixou de estar num poste/caixa (ex.: parede), deixa de ser ancorado.
+    const nextAttrs = { ...(node.attributes ?? {}), ...(fixable ? fix : {}), ...(node.type === 'camera' ? { mount_id: camera.mount_id } : {}) };
+    const nextHost = anchored ? anchorHost({ ...node, attributes: nextAttrs }, nodes) : undefined;
+    if (anchored && nextHost) {
+      pos[0] = nextHost.lat;
+      pos[1] = nextHost.lng;
+    }
+    const keepAnchor = anchored ? { anchored: !!nextHost } : {};
     const moved = Math.abs(pos[0] - node.lat) > 1e-9 || Math.abs(pos[1] - node.lng) > 1e-9;
     // Toda CTO/CEO precisa estar fixada (poste, parede ou caixa); parede/caixa em imóvel pede o endereço.
     if (fixable) {
@@ -229,7 +249,7 @@ function NodeForm({
     setSaving(true);
     try {
       const r = await api.updateNode(node.id, {
-        ...(moved ? { lat: pos[0], lng: pos[1] } : {}),
+        ...(moved ? { lat: pos[0], lng: pos[1], ...(anchored ? { ends_only: true } : {}) } : {}),
         name,
         status,
         notes: notes || null,
@@ -260,6 +280,7 @@ function NodeForm({
                 ...(camClear && !camPassword ? { password_clear: true } : {}),
               }
             : {}),
+          ...keepAnchor,
         },
       });
       onNodeSaved(r.node, r.cables);
@@ -293,6 +314,31 @@ function NodeForm({
           <button className="btn-primary w-full" onClick={() => onOpenDiagram(node)}>
             <Network size={16} /> {node.type === 'pop' ? 'Editor do POP' : node.type === 'dc' ? 'Editor do Datacenter' : node.type === 'tower' ? 'Shelter da torre (racks)' : 'Diagrama de fusão'}
           </button>
+        )}
+        {isHost && onOpenHost && (
+          <button className={node.type === 'pole' ? 'btn-primary w-full' : 'btn-ghost w-full'} onClick={() => onOpenHost(node)} title="Objetos ancorados e barra de ferramentas para implantar CTO, CEO, câmera e reserva">
+            {node.type === 'pole' ? <UtilityPole size={16} /> : <Anchor size={16} />} {node.type === 'pole' ? 'Editor do poste' : 'Editor da caixa'}
+            {attachedTo(node, nodes).length ? ` (${attachedTo(node, nodes).length})` : ''}
+          </button>
+        )}
+        {host && (
+          <div className={`rounded-md border px-2 py-1.5 text-xs ${anchored ? 'border-sky-500/50 bg-sky-500/10 text-sky-200' : 'border-slate-700 text-slate-300'}`}>
+            <div className="flex items-center gap-1.5">
+              <Anchor size={13} className="shrink-0" />
+              <span className="min-w-0 truncate">
+                {anchored ? 'Ancorada em' : 'Presa (solta) em'} {NODE_TYPES[host.type].label.toLowerCase()}{' '}
+                <button type="button" className="font-semibold underline-offset-2 hover:underline cursor-pointer" onClick={() => (onOpenHost ? onOpenHost(host) : onSelectNode?.(host))}>
+                  {host.name}
+                </button>
+              </span>
+            </div>
+            <div className="mt-0.5 text-slate-400">{anchored ? 'Não pode ser arrastada: move junto com o poste/caixa. Desancore para mover sozinha.' : 'Tem ícone próprio no mapa e pode ser arrastada.'}</div>
+            {!readOnly && onAnchor && (
+              <button type="button" className="btn-ghost mt-1.5 w-full !py-1 text-xs" onClick={() => onAnchor(node, !anchored)}>
+                {anchored ? <Unlink size={13} /> : <Anchor size={13} />} {anchored ? 'Desancorar' : `Ancorar em ${host.name}`}
+              </button>
+            )}
+          </div>
         )}
         {node.type !== 'client' && node.type !== 'camera' && onToggleGroup && (
           <button
@@ -361,6 +407,8 @@ function NodeForm({
                 className="input font-mono text-xs"
                 aria-label="Latitude"
                 placeholder="Latitude"
+                disabled={anchored}
+                title={anchored ? 'Ancorada: a posição é a do poste/caixa' : undefined}
                 value={lat}
                 onChange={(e) => {
                   // Colar "lat, lng" no campo de latitude preenche os dois.
@@ -371,7 +419,7 @@ function NodeForm({
                   } else setLat(e.target.value);
                 }}
               />
-              <input className="input font-mono text-xs" aria-label="Longitude" placeholder="Longitude" value={lng} onChange={(e) => setLng(e.target.value)} />
+              <input className="input font-mono text-xs" aria-label="Longitude" placeholder="Longitude" disabled={anchored} title={anchored ? 'Ancorada: a posição é a do poste/caixa' : undefined} value={lng} onChange={(e) => setLng(e.target.value)} />
             </div>
           </div>
           {node.type === 'client' && (

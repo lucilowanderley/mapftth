@@ -44,7 +44,8 @@ export const api = {
 
   createNode: (projectId: number, data: Partial<NetNode>) =>
     http.post<NetNode>(`/api/projects/${projectId}/nodes`, data).then((r) => r.data),
-  updateNode: (id: number, data: Partial<NetNode>) =>
+  /** ends_only: ao mover, só as pontas dos cabos ligados ao objeto acompanham (objeto ancorado no poste/caixa). */
+  updateNode: (id: number, data: Partial<NetNode> & { ends_only?: boolean }) =>
     http.put<{ node: NetNode; cables: Cable[]; clients?: NetNode[] }>(`/api/nodes/${id}`, data).then((r) => r.data),
   deleteNode: (id: number) => http.delete(`/api/nodes/${id}`),
   /** Câmera: o servidor testa HTTP/RTSP/ONVIF e guarda o resultado em attributes.cam_status. */

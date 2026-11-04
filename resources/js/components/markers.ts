@@ -59,6 +59,28 @@ const groupRing = (size: number) => {
 const groupBadge = (count: number) =>
   `<div class="group-badge" style="position:absolute;right:-9px;top:-9px;min-width:17px;height:17px;padding:0 4px;border-radius:9999px;background:#facc15;color:#0f172a;border:1.5px solid #0f172a;font:700 10px/14px system-ui,sans-serif;text-align:center;pointer-events:none;box-shadow:0 1px 2px rgba(0,0,0,.5)">+${count > 999 ? '999' : count}</div>`;
 
+/**
+ * Objetos ancorados no poste/caixa: faixa escura grudada à direita do ícone, com os mini ícones de cada
+ * objeto e das reservas técnicas guardadas ali (até 4) e "+N" para o resto. Faz parte do mesmo marcador, então clicar nela seleciona o poste/caixa.
+ */
+const MINI = 15;
+const miniCoil = (color: string) =>
+  `<svg viewBox="0 0 24 24" width="${MINI}" height="${MINI}" style="display:block"><circle cx="12" cy="12" r="9.5" fill="#fff" stroke="#f59e0b" stroke-width="3"/><ellipse cx="12" cy="12" rx="5.5" ry="3.2" fill="none" stroke="${color}" stroke-width="1.8"/><ellipse cx="12" cy="12" rx="2.8" ry="1.6" fill="none" stroke="${color}" stroke-width="1.6"/></svg>`;
+function anchorStrip(size: number, stack: NetNode[], coils: string[], selected: boolean) {
+  const all = [
+    ...stack.map((c) => {
+      const dvr = c.type === 'camera' && c.attributes?.cam_kind === 'dvr';
+      return `<svg viewBox="0 0 24 24" width="${MINI}" height="${MINI}" style="display:block">${(dvr ? CAMERA_DVR : SHAPES[c.type])(NODE_TYPES[c.type].color, STATUSES[c.status].color)}</svg>`;
+    }),
+    ...coils.map(miniCoil),
+  ];
+  const shown = all.slice(0, 4);
+  const more = all.length - shown.length;
+  const icons = shown.join('');
+  const h = MINI + 6;
+  return `<div class="anchor-strip" style="position:absolute;left:${size - 5}px;top:${(size - h) / 2}px;height:${h}px;display:flex;align-items:center;gap:2px;padding:0 3px 0 6px;border-radius:0 9999px 9999px 0;background:#0f172a;border:1.5px solid ${selected ? '#facc15' : '#94a3b8'};border-left:0;box-shadow:0 1px 2px rgba(0,0,0,.6);z-index:-1">${icons}${more > 0 ? `<span style="font:700 10px/1 system-ui,sans-serif;color:#e2e8f0;padding-left:1px">+${more}</span>` : ''}</div>`;
+}
+
 const SIZES: Record<NetNode['type'], number> = { cto: 24, ceo: 24, box: 24, pop: 30, dc: 32, tower: 30, pole: 22, client: 20, condo: 28, camera: 22 };
 
 /**
@@ -72,7 +94,7 @@ const cache = new Map<string, L.DivIcon>();
  * opts.group: objeto agrupado (esconde o que está a jusante); mostra um selo com a quantidade
  * de objetos ocultos e um anel tracejado em volta do ícone.
  */
-export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: string; group?: number; dot?: string } = {}) {
+export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: string; group?: number; dot?: string; stack?: NetNode[]; coils?: string[] } = {}) {
   const size = SIZES[node.type];
   const fill = opts.fill ?? NODE_TYPES[node.type].color;
   const ring = opts.selected ? '#facc15' : STATUSES[node.status].color;
@@ -82,13 +104,16 @@ export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: strin
   const wallBox = node.type === 'box' && node.attributes?.box_kind === 'wall';
   const variant = houses ? '-h' : dvr ? '-dvr' : wallBox ? '-wall' : seg === 'business' || seg === 'corporate' ? `-${seg}` : '';
   const group = opts.group;
-  const key = `${node.type}${variant}|${fill}|${ring}|${opts.selected ? 1 : 0}|${group ?? ''}|${opts.dot ?? ''}`;
+  const stack = opts.stack?.length || opts.coils?.length ? (opts.stack ?? []) : undefined;
+  const coils = opts.coils ?? [];
+  const stackKey = stack ? stack.map((c) => `${c.type}${c.type === 'camera' && c.attributes?.cam_kind === 'dvr' ? 'd' : ''}${c.status[0]}`).join(',') + `|${coils.join(',')}` : '';
+  const key = `${node.type}${variant}|${fill}|${ring}|${opts.selected ? 1 : 0}|${group ?? ''}|${opts.dot ?? ''}|${stackKey}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const glow = opts.selected ? 'filter:drop-shadow(0 0 6px #facc15);' : 'filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));';
   const icon = L.divIcon({
     className: 'node-marker',
-    html: `${group !== undefined ? groupRing(size) : ''}<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}${group !== undefined ? 'position:relative;' : ''}">${(houses ? CONDO_HOUSES : dvr ? CAMERA_DVR : wallBox ? BOX_WALL : variant === '-business' ? CLIENT_BUSINESS : variant === '-corporate' ? CLIENT_CORPORATE : SHAPES[node.type])(fill, ring)}</svg>${group !== undefined ? groupBadge(group) : ''}${opts.dot ? healthDot(opts.dot) : ''}`,
+    html: `${group !== undefined ? groupRing(size) : ''}${stack ? anchorStrip(size, stack, coils, !!opts.selected) : ''}<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}${group !== undefined || stack ? 'position:relative;' : ''}">${(houses ? CONDO_HOUSES : dvr ? CAMERA_DVR : wallBox ? BOX_WALL : variant === '-business' ? CLIENT_BUSINESS : variant === '-corporate' ? CLIENT_CORPORATE : SHAPES[node.type])(fill, ring)}</svg>${group !== undefined ? groupBadge(group) : ''}${opts.dot ? healthDot(opts.dot) : ''}`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
@@ -167,4 +192,12 @@ export function wirelessLinkIcon(color: string) {
   });
   linkIcons.set(color, icon);
   return icon;
+}
+
+/** SVG do ícone do objeto (mesmo desenho do mapa), para usar fora do Leaflet (ex.: editor do poste/caixa). */
+export function nodeGlyph(node: NetNode, size = 20): string {
+  const dvr = node.type === 'camera' && node.attributes?.cam_kind === 'dvr';
+  const wallBox = node.type === 'box' && node.attributes?.box_kind === 'wall';
+  const draw = dvr ? CAMERA_DVR : wallBox ? BOX_WALL : SHAPES[node.type];
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}">${draw(NODE_TYPES[node.type].color, STATUSES[node.status].color)}</svg>`;
 }
