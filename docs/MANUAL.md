@@ -92,9 +92,13 @@ A tela tem quatro partes:
 | Onde | O que tem |
 | --- | --- |
 | **Barra lateral (esquerda)** | Nome do projeto, % implantado, seu papel, busca, menu (Meus projetos, Dashboard, Análise de rede, Relatório da rede, Tabela de postes, Equipe, Histórico, Importar KMZ/KML, Exportar KMZ, Configurações) e os totais de POPs, CEOs, CTOs, clientes e metros de cabo. |
-| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, Caixa, POP, Datacenter, Torre, Poste, Cliente, Condomínio, Câmera, Cabo, Lançar cabo, Área, Reserva, Régua, Viabilidade. |
+| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, Caixa, POP, Datacenter, Torre, Poste, Cliente, Condomínio, Câmera, Cabo, Lançar (lançar cabo), Área, Reserva, Régua, Viabilidade. |
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
+
+Quando um painel abre à esquerda do mapa (propriedades do objeto, **Lançar**, **Viabilidade** ou uma área), a barra de
+ferramentas se afasta para a direita dele, para nunca ficar coberta; se não couber numa linha, ela quebra em duas. Ao
+fechar o painel, ela volta ao centro. Se você arrastou a barra para outro lugar, ela fica onde você deixou.
 
 A barra de ferramentas e o painel de camadas podem ser arrastados para outro lugar destravando o **cadeado** (veja
 **Cadeado** mais abaixo).
@@ -141,7 +145,8 @@ aparece sempre).
 direito. Com o cadeado **fechado** (padrão) a caixa fica fixa. Clique nele para **abrir**: o cadeado fica amarelo, a
 borda da caixa também, e você pode **arrastar a caixa** para outro lugar do mapa (segure em qualquer ponto dela,
 até sobre um botão, e arraste). Clique de novo para fechar e fixar na nova posição. Ao lado do cadeado aparece
-a **seta circular** (Posição padrão), que devolve a caixa ao lugar original. A posição e o cadeado ficam salvos
+a **seta circular** (Posição padrão), que devolve a caixa ao lugar original; ela só funciona com o cadeado **aberto** (com o cadeado fechado
+fica apagada, para a caixa não sair do lugar sem querer). A posição e o cadeado ficam salvos
 neste navegador (valem para todos os projetos), e a caixa nunca sai da área do mapa, mesmo ao diminuir a janela.
 Quando a barra de ferramentas é movida, os avisos e os campos que aparecem logo abaixo dela vão junto. Se o painel
 da direita for levado para a metade de baixo da tela, a lista de **Elementos** abre para cima.
@@ -519,7 +524,7 @@ O menu do botão direito no cabo também tem **Editar** (abre o painel do cabo),
 
 ### Lançar cabo com postes e reservas
 
-A ferramenta **Lançar cabo** (barra do mapa, ao lado de **Cabo**) cria o cabo já passando pelos postes, cria os
+A ferramenta **Lançar** (barra do mapa, ao lado de **Cabo**) cria o cabo já passando pelos postes, cria os
 postes que faltam e coloca as reservas técnicas fixadas nos postes, tudo de uma vez. Ao escolher a ferramenta abre
 um painel à esquerda. No alto do painel escolha o **Tipo** (Backbone ou Distribuição), o **Modelo** (6 a 144 FO),
 o **Nome** (opcional) e a **Situação**. O painel tem três jeitos de lançar:

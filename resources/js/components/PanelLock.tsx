@@ -16,7 +16,15 @@ export default function PanelLock({ panel, vertical = false }: { panel: FloatPan
         {panel.locked ? <Lock size={13} /> : <LockOpen size={13} />}
       </button>
       {panel.moved && (
-        <button type="button" onClick={panel.reset} className={btn} title="Voltar a caixa para a posição padrão" aria-label="Posição padrão">
+        // Só volta à posição padrão com o cadeado aberto (travada, a caixa fica onde está).
+        <button
+          type="button"
+          onClick={panel.reset}
+          disabled={panel.locked}
+          className={panel.locked ? 'rounded p-0.5 text-slate-600 cursor-not-allowed' : btn}
+          title={panel.locked ? 'Abra o cadeado para voltar a caixa à posição padrão' : 'Voltar a caixa para a posição padrão'}
+          aria-label="Posição padrão"
+        >
           <RotateCcw size={12} />
         </button>
       )}
