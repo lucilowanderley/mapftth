@@ -37,6 +37,17 @@ export interface LaunchRequest {
   to_node_id?: number | null;
 }
 
+export type ImportResult = {
+  file: string;
+  error?: string;
+  project_id?: number;
+  name?: string;
+  nodes?: number;
+  cables?: number;
+  areas?: number;
+  skipped?: number;
+};
+
 export const api = {
   equipmentModels: (projectId?: number) =>
     http.get<EquipmentModel[]>('/api/equipment-models', { params: projectId ? { project: projectId } : {} }).then((r) => r.data),
@@ -54,6 +65,11 @@ export const api = {
   updateProject: (id: number, data: Partial<Project> & { settings?: Partial<Settings> }) =>
     http.put<{ project: Project; settings: Settings }>(`/api/projects/${id}`, data).then((r) => r.data),
   deleteProject: (id: number) => http.delete(`/api/projects/${id}`),
+  importProjects: (files: File[]) => {
+    const form = new FormData();
+    files.forEach((f) => form.append('files[]', f));
+    return http.post<{ results: ImportResult[] }>('/api/projects/import', form).then((r) => r.data.results);
+  },
   project: (id: number) =>
     http
       .get<{ project: Project; role: Role; settings: Settings; nodes: NetNode[]; cables: Cable[]; areas: Area[] }>(`/api/projects/${id}`)
@@ -92,7 +108,7 @@ export const api = {
     const form = new FormData();
     form.append('file', file);
     return http
-      .post<{ nodes: number; cables: number }>(`/api/projects/${projectId}/import`, form)
+      .post<{ nodes: number; cables: number; areas?: number; skipped?: number }>(`/api/projects/${projectId}/import`, form)
       .then((r) => r.data);
   },
   exportUrl: (projectId: number) => `/api/projects/${projectId}/export`,

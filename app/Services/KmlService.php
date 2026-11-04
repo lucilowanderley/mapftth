@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\Cable;
 use App\Models\NetworkNode;
 use App\Models\Project;
 use Illuminate\Support\Facades\DB;
@@ -48,11 +47,16 @@ class KmlService
     }
 
     /**
-     * Importa pontos (caixas, postes, clientes) e linhas (cabos) do KML para o projeto.
+     * Importa pontos (caixas, postes, clientes), linhas (cabos) e polígonos (áreas) do KML.
      *
-     * @return array{nodes: int, cables: int}
+     * Entende também a exportação do ISM: pastas "Terminais de atendimento" (CTO),
+     * "Caixas de emenda" (CEO), "Estações" (POP; ícone de antena = torre), "Racks",
+     * "Postes" (com subpastas "De 0 até 500") e "Áreas personalizadas".
+     *
+     * @param  array{pole_owner?: string|null}  $options
+     * @return array{nodes: int, cables: int, areas: int, skipped: int}
      */
-    public function import(Project $project, string $kml, string $defaultType = 'pole'): array
+    public function import(Project $project, string $kml, string $defaultType = 'pole', array $options = []): array
     {
         $previous = libxml_use_internal_errors(true);
         $xml = simplexml_load_string($kml, SimpleXMLElement::class, LIBXML_NONET);
@@ -61,50 +65,97 @@ class KmlService
             throw new RuntimeException('Não foi possível ler o KML.');
         }
 
+        $styles = $this->readStyles($xml);
         $points = [];
         $lines = [];
+        $polygons = [];
         foreach ($xml->xpath('//*[local-name()="Placemark"]') ?: [] as $pm) {
             $name = trim((string) ($pm->xpath('./*[local-name()="name"]')[0] ?? ''));
+            $description = $this->cleanDescription((string) ($pm->xpath('./*[local-name()="description"]')[0] ?? ''));
             $folders = array_map(
-                fn ($n) => (string) $n,
+                fn ($n) => mb_strtolower((string) $n),
                 $pm->xpath('ancestor::*[local-name()="Folder"]/*[local-name()="name"]') ?: [],
             );
-            $context = strtolower($name.' '.implode(' ', $folders));
+            $context = mb_strtolower($name.' '.implode(' ', $folders));
+            $styleUrl = ltrim(trim((string) ($pm->xpath('./*[local-name()="styleUrl"]')[0] ?? '')), '#');
+            $inline = $pm->xpath('./*[local-name()="Style"]')[0] ?? null;
+            $style = $inline !== null ? $this->styleOf($inline) : ($styles[$styleUrl] ?? []);
+            $base = compact('name', 'description', 'folders', 'context', 'style');
 
             foreach ($pm->xpath('.//*[local-name()="Point"]/*[local-name()="coordinates"]') ?: [] as $coords) {
                 $pts = $this->parseCoordinates((string) $coords);
                 if ($pts) {
-                    $points[] = ['name' => $name, 'context' => $context, 'at' => $pts[0]];
+                    $points[] = $base + ['at' => $pts[0]];
                 }
             }
             foreach ($pm->xpath('.//*[local-name()="LineString"]/*[local-name()="coordinates"]') ?: [] as $coords) {
                 $pts = $this->parseCoordinates((string) $coords);
                 if (count($pts) >= 2) {
-                    $lines[] = ['name' => $name, 'context' => $context, 'path' => $pts];
+                    $lines[] = $base + ['path' => $pts];
+                }
+            }
+            foreach ($pm->xpath('.//*[local-name()="Polygon"]/*[local-name()="outerBoundaryIs"]//*[local-name()="coordinates"]') ?: [] as $coords) {
+                $pts = $this->parseCoordinates((string) $coords);
+                if (count($pts) >= 2 && $pts[0] === end($pts)) {
+                    array_pop($pts);
+                }
+                if (count($pts) >= 3) {
+                    $polygons[] = $base + ['polygon' => $pts];
                 }
             }
         }
 
-        return DB::transaction(function () use ($project, $points, $lines, $defaultType) {
+        return DB::transaction(function () use ($project, $points, $lines, $polygons, $defaultType, $options) {
             $counters = [];
-            $created = [];
+            $created = 0;
+            $skipped = 0;
+            // Evita duplicar o mesmo elemento (mesmo tipo e nome a menos de 2 m),
+            // por exemplo ao importar "postes COSERN" e "postes INTELNET" no mesmo projeto.
+            $seen = [];
+            foreach ($project->nodes()->get(['type', 'name', 'lat', 'lng']) as $n) {
+                $seen[$n->type.'|'.mb_strtolower($n->name)][] = [$n->lat, $n->lng];
+            }
             foreach ($points as $p) {
-                $type = $this->guessNodeType($p['context']) ?? $defaultType;
+                $type = $this->typeFromFolders($p['folders'], $p['style']['icon'] ?? '')
+                    ?? $this->guessNodeType($p['context'])
+                    ?? $defaultType;
                 $counters[$type] = ($counters[$type] ?? $project->nodes()->where('type', $type)->count()) + 1;
-                $created[] = $project->nodes()->create([
+                $name = $p['name'] !== '' ? mb_substr($p['name'], 0, 255) : strtoupper($type).'-'.$counters[$type];
+                $key = $type.'|'.mb_strtolower($name);
+                foreach ($seen[$key] ?? [] as $at) {
+                    if (Geo::distance($at, $p['at']) < 2) {
+                        $skipped++;
+
+                        continue 2;
+                    }
+                }
+                $seen[$key][] = $p['at'];
+
+                $attributes = [];
+                if ($type === 'pole' && ! empty($options['pole_owner'])) {
+                    $attributes['owner'] = $options['pole_owner'];
+                }
+                if (in_array($type, ['pop', 'dc'], true) && preg_match('/\bracks?\b/u', implode(' ', $p['folders']))) {
+                    $attributes['imported_kind'] = 'rack';
+                }
+                $project->nodes()->create([
                     'type' => $type,
-                    'name' => $p['name'] !== '' ? mb_substr($p['name'], 0, 255) : strtoupper($type).'-'.$counters[$type],
+                    'name' => $name,
                     'lat' => $p['at'][0],
                     'lng' => $p['at'][1],
+                    'notes' => $p['description'] !== '' ? $p['description'] : null,
+                    'attributes' => $attributes ?: null,
                 ]);
+                $created++;
             }
 
             // Pontas dos cabos se ligam a caixas próximas (exceto postes).
             $anchors = $project->nodes()->where('type', '!=', 'pole')->get();
             foreach ($lines as $l) {
-                $fibers = preg_match('/(\d{1,3})\s*(fo|f\b|fibras?)/i', $l['context'], $m) ? (int) $m[1] : 12;
+                $fibers = preg_match('/(\d{1,3})\s*(fo|f0|f\b|fibras?)/i', $l['context'], $m) ? (int) $m[1] : 12;
+                $fibers = $fibers > 0 ? $fibers : 12;
                 $category = str_contains($l['context'], 'drop') ? 'drop'
-                    : (preg_match('/backbone|tronco/', $l['context']) ? 'backbone' : 'distribution');
+                    : (preg_match('/backbone|tronco|(^|[^a-z])bck([^a-z]|$)/', $l['context']) ? 'backbone' : 'distribution');
                 $from = $this->nearest($anchors, $l['path'][0]);
                 $to = $this->nearest($anchors, end($l['path']));
                 $path = $l['path'];
@@ -114,21 +165,39 @@ class KmlService
                 if ($to && $to->id !== $from?->id) {
                     $path[count($path) - 1] = [$to->lat, $to->lng];
                 }
+                // O ISM coloca o código interno do cabo no fim do nome: "CABO 01 (152)".
+                $name = $l['name'];
+                $notes = $l['description'];
+                if (preg_match('/^(.*\S)\s*\((\d+)\)$/u', $name, $m)) {
+                    $name = $m[1];
+                    $notes = trim("Código de origem: {$m[2]}\n".$notes);
+                }
+                $width = (int) round($l['style']['width'] ?? 0);
                 $project->cables()->create([
-                    'name' => $l['name'] !== '' ? mb_substr($l['name'], 0, 255) : "Cabo {$fibers}FO",
+                    'name' => $name !== '' ? mb_substr($name, 0, 255) : "Cabo {$fibers}FO",
                     'category' => $category,
                     'fiber_count' => max(1, min(288, $fibers)),
                     'fibers_per_tube' => $fibers >= 12 ? 12 : max(1, $fibers),
-                    'color' => ['backbone' => '#EF4444', 'distribution' => '#0EA5E9', 'drop' => '#22C55E'][$category],
-                    'width' => $category === 'drop' ? 2 : 4,
+                    'color' => $l['style']['line'] ?? ['backbone' => '#EF4444', 'distribution' => '#0EA5E9', 'drop' => '#22C55E'][$category],
+                    'width' => $width >= 1 && $width <= 12 ? $width : ($category === 'drop' ? 2 : 4),
                     'path' => $path,
                     'from_node_id' => $from?->id,
                     'to_node_id' => $to && $to->id !== $from?->id ? $to->id : null,
+                    'notes' => $notes !== '' ? $notes : null,
+                ]);
+            }
+
+            foreach ($polygons as $i => $a) {
+                $project->areas()->create([
+                    'name' => $a['name'] !== '' ? mb_substr($a['name'], 0, 255) : 'Área '.($i + 1),
+                    'color' => $a['style']['poly'] ?? $a['style']['line'] ?? '#10B981',
+                    'polygon' => $a['polygon'],
+                    'notes' => $a['description'] !== '' ? $a['description'] : null,
                 ]);
             }
             $project->touch();
 
-            return ['nodes' => count($created), 'cables' => count($lines)];
+            return ['nodes' => $created, 'cables' => count($lines), 'areas' => count($polygons), 'skipped' => $skipped];
         });
     }
 
@@ -222,6 +291,113 @@ class KmlService
         }
 
         return $points;
+    }
+
+    /**
+     * Ícones da exportação do ISM (o nome do arquivo é o md5 do ícone em base64,
+     * então é o mesmo em todo arquivo exportado). Estação com antena = torre.
+     */
+    private const ISM_TOWER_ICONS = ['ZmU4ZjllNGY2ZTUwMGMxMWQ0YzgxMTc2NTY1ZjA0Zjk'];
+
+    /** Tipo pelo nome da pasta, da mais interna para a mais externa. */
+    private function typeFromFolders(array $folders, string $icon): ?string
+    {
+        foreach (array_reverse($folders) as $folder) {
+            $type = match (true) {
+                (bool) preg_match('/terminais? de atendimento|caixas? de atendimento|\bctos?\b/u', $folder) => 'cto',
+                (bool) preg_match('/caixas? de emenda|\bceos?\b/u', $folder) => 'ceo',
+                (bool) preg_match('/esta[çc](ões|oes|ão|ao)\b/u', $folder) => 'pop',
+                (bool) preg_match('/\bracks?\b|\bpops?\b/u', $folder) => 'pop',
+                (bool) preg_match('/\btorres?\b/u', $folder) => 'tower',
+                (bool) preg_match('/\bpostes?\b/u', $folder) => 'pole',
+                (bool) preg_match('/\bclientes?\b|\bassinantes?\b/u', $folder) => 'client',
+                default => null,
+            };
+            if ($type !== null) {
+                if ($type === 'pop') {
+                    foreach (self::ISM_TOWER_ICONS as $tower) {
+                        if (str_contains($icon, $tower)) {
+                            return 'tower';
+                        }
+                    }
+                }
+
+                return $type;
+            }
+        }
+
+        return null;
+    }
+
+    /** @return array<string, array{line?: string, width?: float, poly?: string, icon?: string}> */
+    private function readStyles(SimpleXMLElement $xml): array
+    {
+        $styles = [];
+        foreach ($xml->xpath('//*[local-name()="Style"][@id]') ?: [] as $st) {
+            $styles[(string) $st['id']] = $this->styleOf($st);
+        }
+        // StyleMap: usa o estilo "normal".
+        foreach ($xml->xpath('//*[local-name()="StyleMap"][@id]') ?: [] as $map) {
+            foreach ($map->xpath('./*[local-name()="Pair"]') ?: [] as $pair) {
+                if (trim((string) ($pair->xpath('./*[local-name()="key"]')[0] ?? '')) === 'normal') {
+                    $ref = ltrim(trim((string) ($pair->xpath('./*[local-name()="styleUrl"]')[0] ?? '')), '#');
+                    $styles[(string) $map['id']] = $styles[$ref] ?? [];
+                }
+            }
+        }
+
+        return $styles;
+    }
+
+    private function styleOf(SimpleXMLElement $st): array
+    {
+        $out = [];
+        $line = trim((string) ($st->xpath('./*[local-name()="LineStyle"]/*[local-name()="color"]')[0] ?? ''));
+        if ($hex = $this->hexColor($line)) {
+            $out['line'] = $hex;
+        }
+        $width = (string) ($st->xpath('./*[local-name()="LineStyle"]/*[local-name()="width"]')[0] ?? '');
+        if (is_numeric($width)) {
+            $out['width'] = (float) $width;
+        }
+        $poly = trim((string) ($st->xpath('./*[local-name()="PolyStyle"]/*[local-name()="color"]')[0] ?? ''));
+        if ($hex = $this->hexColor($poly)) {
+            $out['poly'] = $hex;
+        }
+        $icon = trim((string) ($st->xpath('./*[local-name()="IconStyle"]//*[local-name()="href"]')[0] ?? ''));
+        if ($icon !== '') {
+            $out['icon'] = $icon;
+        }
+
+        return $out;
+    }
+
+    /** Converte aabbggrr do KML em #RRGGBB. */
+    private function hexColor(string $abgr): ?string
+    {
+        if (! preg_match('/^[0-9a-f]{8}$/i', $abgr)) {
+            return null;
+        }
+
+        return '#'.strtoupper(substr($abgr, 6, 2).substr($abgr, 4, 2).substr($abgr, 2, 2));
+    }
+
+    private function cleanDescription(string $html): string
+    {
+        $text = html_entity_decode(strip_tags(preg_replace('/<br\s*\/?>/i', "\n", $html) ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        return mb_substr(trim(preg_replace("/[ \t]+/", ' ', $text) ?? ''), 0, 2000);
+    }
+
+    /** "…_POSTES COSERN (2)" → "COSERN": dono dos postes pelo nome do arquivo. */
+    public static function poleOwnerFromFileName(string $fileName): ?string
+    {
+        $base = preg_replace('/\.(kmz|kml)$/i', '', $fileName) ?? $fileName;
+        if (preg_match('/postes?\s+(?!com\b|de\b|do\b|da\b)([\p{L}\d][\p{L}\d.\-]*)/iu', $base, $m)) {
+            return mb_strtoupper($m[1]);
+        }
+
+        return null;
     }
 
     private function guessNodeType(string $context): ?string

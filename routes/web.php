@@ -2,14 +2,15 @@
 
 use App\Http\Controllers\Api\ActivityController;
 use App\Http\Controllers\Api\AreaController;
-use App\Http\Controllers\Api\CameraController;
 use App\Http\Controllers\Api\CableController;
+use App\Http\Controllers\Api\CameraController;
 use App\Http\Controllers\Api\EquipmentModelController;
 use App\Http\Controllers\Api\KmzController;
 use App\Http\Controllers\Api\LaunchController;
 use App\Http\Controllers\Api\MemberController;
 use App\Http\Controllers\Api\NodeController;
 use App\Http\Controllers\Api\ProjectController;
+use App\Http\Controllers\Api\ProjectImportController;
 use App\Http\Controllers\AuthController;
 use Illuminate\Support\Facades\Route;
 
@@ -31,6 +32,7 @@ Route::middleware('auth')->group(function () {
     // API JSON usada pelo frontend (sessão + CSRF)
     Route::prefix('api')->group(function () {
         Route::get('/me', fn () => auth()->user()->only('id', 'name', 'email'));
+        Route::post('/projects/import', [ProjectImportController::class, 'store']);
         Route::apiResource('projects', ProjectController::class);
         Route::post('/projects/{project}/nodes', [NodeController::class, 'store']);
         Route::post('/projects/{project}/nodes/bulk', [NodeController::class, 'bulk']);

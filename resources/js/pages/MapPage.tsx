@@ -951,7 +951,7 @@ export default function MapPage() {
     try {
       const r = await api.importKmz(projectId, file);
       await load();
-      notify(`Importados ${r.nodes} pontos e ${r.cables} cabos`);
+      notify(`Importados ${r.nodes} pontos, ${r.cables} cabos${r.areas ? ` e ${r.areas} áreas` : ''}${r.skipped ? ` (${r.skipped} repetidos ignorados)` : ''}`);
     } catch (e) {
       notify(errorMessage(e), 'error');
     }

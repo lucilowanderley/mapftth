@@ -1299,13 +1299,37 @@ Use para comparar com a medição do OTDR de campo e achar onde está um problem
 **Importar** (barra lateral → **Importar KMZ/KML**)
 
 1. Escolha um arquivo `.kmz` ou `.kml` (por exemplo, do Google Earth).
-2. Os pontos viram caixas conforme o **nome do ponto ou da pasta**: *CTO* ou *caixa de atendimento* → CTO; *CEO* ou
-   *emenda* → CEO; *POP* ou *OLT* → POP; *datacenter* → Datacenter; *torre*, *tower*, *ERB* ou *RBS* → Torre; *caixa de passagem*, *caixa subterrânea*, *caixa de parede* ou *CX* → Caixa; *condomínio*, *edifício* ou *residencial* → Condomínio; *poste* → Poste; *cliente*, *ONU* ou *assinante* → Cliente.
-3. As linhas viram cabos. Se o nome tiver a quantidade de fibras (ex.: *12FO*, *24 fibras*) ela é usada; *backbone*
-   ou *tronco* define o tipo. As pontas dos cabos se ligam às caixas que estiverem a até **15 m**.
-4. Ao final aparece quantos pontos e cabos foram importados.
+2. Os pontos viram caixas conforme o **nome da pasta** (e, se a pasta não disser, o **nome do ponto**): *CTO*,
+   *caixa de atendimento* ou *terminais de atendimento* → CTO; *CEO*, *emenda* ou *caixas de emenda* → CEO; *POP*,
+   *OLT*, *estações* ou *racks* → POP; *datacenter* → Datacenter; *torre*, *tower*, *ERB* ou *RBS* → Torre; *caixa de
+   passagem*, *caixa subterrânea*, *caixa de parede* ou *CX* → Caixa; *condomínio*, *edifício* ou *residencial* →
+   Condomínio; *poste* → Poste; *cliente*, *ONU* ou *assinante* → Cliente. Assim um poste chamado "COSERN POP N44095"
+   dentro da pasta *Postes* continua sendo poste.
+3. As linhas viram cabos. Se o nome tiver a quantidade de fibras (ex.: *12FO*, *24 fibras*) ela é usada; *backbone*,
+   *tronco* ou *BCK* define o tipo. A **cor e a espessura** da linha no arquivo são mantidas. As pontas dos cabos se
+   ligam às caixas que estiverem a até **15 m**.
+4. Os **polígonos** viram **áreas** (com nome e cor).
+5. A **descrição** do ponto ou da linha vai para **Observações** (ex.: "SINAL -18.45" anotado na CTO).
+6. Se o nome do arquivo disser de quem são os postes (ex.: *POSTES COSERN*, *POSTES INTELNET*), esse nome é gravado
+   como **proprietário** dos postes (veja na Tabela de postes).
+7. Pontos repetidos (mesmo tipo e nome a menos de 2 m) são ignorados. Assim dá para importar vários arquivos no mesmo
+   projeto (por exemplo, postes COSERN e postes próprios) sem duplicar nada.
+8. Ao final aparece quantos pontos, cabos e áreas foram importados.
 
 Dica: no Google Earth, organize as pastas com nomes como *CTOs*, *CEOs*, *Postes*, *Clientes* antes de exportar.
+
+**Importar vários projetos de uma vez** (tela **Meus projetos** → **Importar projetos**)
+
+1. Escolha um arquivo `.zip` com vários `.kmz`/`.kml` dentro (por exemplo, a **exportação do ISM**) ou selecione
+   vários `.kmz`/`.kml` de uma vez.
+2. **Cada arquivo vira um projeto separado**, com o nome do arquivo. Um nome como *Brejinho - RN* também preenche a
+   cidade. O mapa do projeto já abre centralizado na rede importada.
+3. A exportação do ISM é reconhecida: *Terminais de atendimento* → CTO, *Caixas de emenda* → CEO, *Estações* → POP
+   (com ícone de antena → Torre), *Racks* → POP, *Postes* (inclusive as subpastas "De 0 até 500"), *Cabos* e
+   *Áreas personalizadas* → áreas. O número que o ISM coloca no fim do nome do cabo, como "(201)", sai do nome e fica
+   em Observações como *Código de origem*.
+4. No fim aparece uma tabela com o que entrou em cada projeto e um botão **Abrir**. Se um arquivo falhar, os outros
+   continuam sendo importados e o erro aparece na linha dele.
 
 **Exportar** (barra lateral → **Exportar KMZ**): baixa o projeto inteiro em KMZ, com pastas por tipo e cores, para
 abrir no Google Earth.
