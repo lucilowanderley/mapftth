@@ -13,8 +13,9 @@ import { CameraDevice, CameraFields } from './CameraEditor';
 import { CAMERA_KINDS, cameraOf } from '../lib/camera';
 import { POLE_MATERIALS } from './PolesModal';
 import { BoxFields, FixationFields } from './FixationEditor';
-import { FIXABLE_TYPES, boxNeedsAddress, fixationIssue, fixedOn } from '../lib/fixation';
-import { ANCHOR_HOST_TYPES, UNANCHOR_OFFSET_M, anchorHost, attachedTo } from '../lib/anchor';
+import { FIXABLE_TYPES, FIX_OFFSET_M, boxNeedsAddress, fixationIssue, fixedOn } from '../lib/fixation';
+import { ANCHOR_HOST_TYPES, UNANCHOR_OFFSET_M, anchorHost, attachedTo, offsetOnPath, slackFixation } from '../lib/anchor';
+import { pointOnPath } from '../lib/connect';
 import { roundLatLng } from '../lib/move';
 import { destination } from '../lib/tower';
 import { cablesNear } from '../lib/analysis';
@@ -231,11 +232,16 @@ function NodeForm({
     if (typeof pos === 'string') return onError(pos);
     // Fixado num poste/caixa: a posição é sempre a do poste/caixa (se mudou de poste/caixa, vai para o novo).
     // Se deixou de estar num poste/caixa (ex.: parede), sai um pouco para o lado e ganha ícone próprio.
-    const nextAttrs = { ...(node.attributes ?? {}), ...(fixable ? fix : {}), ...(node.type === 'camera' ? { mount_id: camera.mount_id } : {}) };
+    const nextAttrs = { ...(node.attributes ?? {}), ...(fixable ? fix : {}), ...(node.type === 'camera' ? { mount_id: camera.mount_id, mount_kind: camera.mount_kind } : {}) };
     const nextHost = anchorHost({ ...node, attributes: nextAttrs }, nodes);
+    const nextCable = fixable && fix.fixed_kind === 'cable' ? (cables ?? []).find((c) => c.id === fix.fixed_id) : undefined;
     if (nextHost) {
       pos[0] = nextHost.lat;
       pos[1] = nextHost.lng;
+    } else if (nextCable && nextCable.path.length > 1) {
+      // Fixada no cabo: vai para cima do traçado (saindo do poste/caixa, um pouco ao longo do cabo).
+      const onHost = host && Math.abs(pos[0] - host.lat) < 1e-9 && Math.abs(pos[1] - host.lng) < 1e-9;
+      [pos[0], pos[1]] = roundLatLng(onHost ? offsetOnPath(nextCable.path, pos as LatLng, FIX_OFFSET_M) : pointOnPath(nextCable.path, pos as LatLng));
     } else if (host && Math.abs(pos[0] - host.lat) < 1e-9 && Math.abs(pos[1] - host.lng) < 1e-9) {
       [pos[0], pos[1]] = roundLatLng(destination([host.lat, host.lng], 150, UNANCHOR_OFFSET_M));
     }
@@ -243,7 +249,7 @@ function NodeForm({
     const moved = Math.abs(pos[0] - node.lat) > 1e-9 || Math.abs(pos[1] - node.lng) > 1e-9;
     // Toda CTO/CEO precisa estar fixada (poste, parede ou caixa); parede/caixa em imóvel pede o endereço.
     if (fixable) {
-      const issue = fixationIssue({ ...node, attributes: { ...(node.attributes ?? {}), ...fix } }, nodes);
+      const issue = fixationIssue({ ...node, lat: pos[0], lng: pos[1], attributes: { ...(node.attributes ?? {}), ...fix } }, nodes, cables);
       if (issue) return onError(issue);
     }
     if (node.type === 'box' && boxNeedsAddress(box) && !(box.address ?? '').trim()) return onError('Caixa de parede ou interna: informe o endereço do imóvel.');
@@ -268,7 +274,7 @@ function NodeForm({
               }
             : {}),
           ...(node.type === 'pole' ? pole : {}),
-          ...(fixable ? { fixed_kind: fix.fixed_kind ?? null, fixed_id: fix.fixed_kind === 'wall' ? null : (fix.fixed_id ?? null), address: (fix.address ?? '').trim() || null } : {}),
+          ...(fixable ? { fixed_kind: fix.fixed_kind ?? null, fixed_id: fix.fixed_kind === 'wall' || !fix.fixed_kind ? null : (fix.fixed_id ?? null), address: (fix.address ?? '').trim() || null } : {}),
           ...(node.type === 'box' ? { ...box, address: (box.address ?? '').trim() || null } : {}),
           ...(node.type === 'condo' ? condo : {}),
           ...(node.type === 'tower' ? tower : {}),
@@ -497,7 +503,7 @@ function NodeForm({
               onClearPassword={setCamClear}
             />
           )}
-          {fixable && <FixationFields node={node} nodes={nodes} value={fix} onChange={setFx} />}
+          {fixable && <FixationFields node={node} nodes={nodes} cables={cables} value={fix} onChange={setFx} />}
           {node.type === 'box' && <BoxFields node={node} nodes={nodes} value={box} onChange={setBx} onSelect={onSelectNode} onAdd={!readOnly && onAddInBox ? (t) => onAddInBox(node, t) : undefined} />}
           {hasRadios && <RadiosEditor node={node} nodes={nodes} radios={radios} onChange={setRadios} readOnly={readOnly} />}
           {node.type === 'condo' && (
@@ -762,7 +768,7 @@ function CableForm({ cable, nodes, settings, readOnly, onClose, onCableSaved, on
               <span>{formatLength(cable.length_m + cable.slack_m)}</span>
             </div>
           </div>
-          <SlackList cable={cable} readOnly={readOnly} onChange={(list) => onSlacksChange?.(cable, list)} onPlace={() => onPlaceSlack?.(cable)} onLocate={onLocate} />
+          <SlackList cable={cable} nodes={nodes} readOnly={readOnly} onChange={(list) => onSlacksChange?.(cable, list)} onPlace={() => onPlaceSlack?.(cable)} onLocate={onLocate} />
           <Field label="Cor no mapa">
             <div className="flex flex-wrap gap-1.5 items-center">
               {SWATCHES.map((c) => (
@@ -830,12 +836,14 @@ function CableForm({ cable, nodes, settings, readOnly, onClose, onCableSaved, on
 /** Reservas técnicas do cabo: tipo, metragem e local de cada uma. Alterações são salvas na hora. */
 function SlackList({
   cable,
+  nodes,
   readOnly,
   onChange,
   onPlace,
   onLocate,
 }: {
   cable: Cable;
+  nodes: NetNode[];
   readOnly?: boolean;
   onChange: (list: Slack[]) => void;
   onPlace: () => void;
@@ -843,6 +851,20 @@ function SlackList({
 }) {
   const list = cable.slacks ?? [];
   const update = (id: string, patch: Partial<Slack>) => onChange(list.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  // Postes/caixas por onde o cabo passa (para fixar a reserva neles).
+  const hosts = nodes.filter((n) => ANCHOR_HOST_TYPES.includes(n.type) && cable.path.length > 1 && cablesNear([n.lat, n.lng], [cable], 3).length > 0);
+  function fixAt(r: Slack, value: string) {
+    const cur = slackFixation(r, nodes);
+    if (value.startsWith('h:')) {
+      const h = hosts.find((n) => n.id === Number(value.slice(2)));
+      if (h) update(r.id, { fixed_kind: h.type === 'box' ? 'box' : 'pole', fixed_id: h.id, lat: h.lat, lng: h.lng, notes: r.notes || h.name });
+      return;
+    }
+    const kind = value as 'cable' | 'wall';
+    // Saindo do poste/caixa: anda um pouco pelo cabo para não ficar em cima dele.
+    const [lat, lng] = cur.host && cable.path.length > 1 ? roundLatLng(offsetOnPath(cable.path, [cur.host.lat, cur.host.lng], FIX_OFFSET_M)) : [r.lat, r.lng];
+    update(r.id, { fixed_kind: kind, fixed_id: null, lat, lng });
+  }
   return (
     <Field label="Reservas técnicas no mapa">
       <div className="space-y-1.5">
@@ -891,6 +913,38 @@ function SlackList({
                 </button>
               )}
             </div>
+            {(() => {
+              const fx = slackFixation(r, nodes);
+              const value = fx.host ? `h:${fx.host.id}` : fx.kind === 'wall' ? 'wall' : 'cable';
+              const opts = fx.host && !hosts.some((h) => h.id === fx.host!.id) ? [fx.host, ...hosts] : hosts;
+              return (
+                <div className="mt-1 flex items-center gap-1.5 pl-4">
+                  <span className="text-[10px] text-slate-500 shrink-0">Fixada em</span>
+                  <select className="input !py-0.5 !px-1 text-xs flex-1" value={value} disabled={readOnly} onChange={(e) => fixAt(r, e.target.value)}>
+                    <option value="cable">Cabo (no vão)</option>
+                    <option value="wall">Parede</option>
+                    {opts.map((h) => (
+                      <option key={h.id} value={`h:${h.id}`}>
+                        {NODE_TYPES[h.type].label} {h.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })()}
+            {slackFixation(r, nodes).kind === 'wall' && (
+              <input
+                key={`${r.id}-addr-${r.address ?? ''}`}
+                className="input mt-1 !py-0.5 text-xs"
+                placeholder="Endereço do imóvel"
+                defaultValue={r.address ?? ''}
+                disabled={readOnly}
+                onBlur={(e) => {
+                  const v = e.target.value.trim() || null;
+                  if (v !== (r.address ?? null)) update(r.id, { address: v });
+                }}
+              />
+            )}
             <div className="text-[10px] text-slate-500 mt-0.5 pl-4">
               {r.lat.toFixed(6)}, {r.lng.toFixed(6)}
               {r.notes ? ` · ${r.notes}` : ''}

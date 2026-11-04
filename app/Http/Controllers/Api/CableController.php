@@ -326,6 +326,10 @@ class CableController extends Controller
             'slacks.*.length_m' => ['required', 'integer', 'min:0', 'max:5000'],
             'slacks.*.kind' => ['required', Rule::in(Cable::SLACK_KINDS)],
             'slacks.*.notes' => ['nullable', 'string', 'max:255'],
+            // Onde a reserva está fixada: poste, parede, caixa ou no próprio cabo (vão).
+            'slacks.*.fixed_kind' => ['nullable', Rule::in(['pole', 'wall', 'box', 'cable'])],
+            'slacks.*.fixed_id' => ['nullable', 'integer'],
+            'slacks.*.address' => ['nullable', 'string', 'max:500'],
             'notes' => ['nullable', 'string'],
         ]);
         if (array_key_exists('slacks', $data)) {
@@ -336,6 +340,9 @@ class CableController extends Controller
                 'length_m' => (int) $s['length_m'],
                 'kind' => $s['kind'],
                 'notes' => $s['notes'] ?? null,
+                'fixed_kind' => $s['fixed_kind'] ?? null,
+                'fixed_id' => isset($s['fixed_id']) ? (int) $s['fixed_id'] : null,
+                'address' => $s['address'] ?? null,
             ], $data['slacks'] ?? []));
             if (! $data['slacks']) {
                 $data['slacks'] = null;

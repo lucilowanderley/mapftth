@@ -204,7 +204,7 @@ os dois campos são preenchidos.
   haste, a cruzeta e os isoladores desenhados (na barra de ferramentas, o botão **Poste** tem o mesmo desenho).
   O botão **Editor do poste** (ou duplo clique no poste) abre a tela com tudo o que está fixado nele
   ([veja abaixo](#objetos-fixados-no-postecaixa-e-o-editor-do-postecaixa)).
-- **CTO e CEO**: campo **Fixada em** (*Poste*, *Parede* ou *Caixa*); veja
+- **CTO e CEO**: campo **Fixada em** (*Poste*, *Parede*, *Caixa* ou *Cabo*); veja
   [Fixação da CTO/CEO](#fixação-da-ctoceo-poste-parede-ou-caixa).
 - **Caixa**: **Tipo** (*Parede* ou *Subterrânea*), **Local** (*Externa* ou *Interna*), **Modelo / tamanho**,
   **Endereço** e a lista de **CTO / CEO dentro da caixa** ([veja abaixo](#caixa-de-parede-ou-subterrânea)).
@@ -252,14 +252,18 @@ grupos) e entra no orçamento óptico como qualquer caixa. Além disso ela **rec
 - Ao **mover a caixa** no mapa, as CTO/CEO de dentro vão junto (Ctrl+Z desfaz tudo).
 - Nos relatórios a caixa aparece como *Caixa de parede / subterrânea* e no KMZ vai para a pasta *Caixas*.
 
-### Fixação da CTO/CEO: poste, parede ou caixa
+### Fixação da CTO/CEO: poste, parede, caixa ou cabo
 
-Toda CTO e CEO precisa estar fixada em algum lugar. No painel dela, **Fixada em** tem três opções:
+Toda CTO e CEO precisa estar fixada em algum lugar. No painel dela, **Fixada em** tem quatro opções:
 
 - **Poste**: escolha o poste na lista (os mais perto primeiro).
 - **Parede**: presa na parede de um imóvel; informe o **Endereço do imóvel** (obrigatório).
 - **Caixa**: escolha a caixa na lista. Se a caixa for de parede ou interna (num imóvel), o endereço é obrigatório:
   vale o endereço da caixa, ou digite outro no campo **Endereço do imóvel** da CTO/CEO.
+- **Cabo**: presa no cabo (cordoalha), no meio do vão. Escolha o cabo na lista (os que passam a até 40 m, do mais
+  perto ao mais longe). Ao salvar, a CTO/CEO vai para cima do traçado do cabo (saindo de um poste, ela anda 8 m pelo
+  cabo). Ela continua com ícone próprio no mapa; se ficar a mais de 15 m do cabo (ou o cabo for apagado), aparece o
+  ponto âmbar de fixação pendente.
 
 Fixar num **poste** ou numa **caixa** é a mesma coisa que prender a CTO/CEO nele: ela vai para a posição do
 poste/caixa, o ícone dela se funde ao dele e ela passa a se mover junto com ele
@@ -276,7 +280,7 @@ CTO/CEO só grava depois que a fixação (e o endereço, quando pedido) estiver 
 ### Objetos fixados no poste/caixa e o editor do poste/caixa
 
 Um poste segura vários objetos: CTO, CEO, câmera e reservas técnicas. Uma caixa guarda CTO, CEO e reservas. Todo
-objeto **fixado** num poste ou numa caixa (CTO/CEO com *Fixada em: Poste/Caixa*, câmera com *Instalada em* um poste)
+objeto **fixado** num poste ou numa caixa (CTO/CEO com *Fixada em: Poste/Caixa*, câmera com *Fixada em: Poste*)
 fica preso nele:
 
 - **Os ícones se fundem**: o objeto não tem ícone próprio no mapa. Ao lado do ícone do poste/caixa aparece uma
@@ -286,7 +290,7 @@ fica preso nele:
   a caixa e tudo o que está fixado vai junto, com as pontas dos cabos (Ctrl+Z desfaz). Os campos de latitude e
   longitude do objeto ficam bloqueados.
 - **Para mover sozinho é preciso soltar**: no editor do poste/caixa, clique em **Soltar** (no cartão ou na barra);
-  ou, no painel da CTO/CEO, troque **Fixada em** para *Parede* (na câmera, limpe *Instalada em*). O objeto sai um
+  ou, no painel da CTO/CEO, troque **Fixada em** para *Parede* (na câmera, troque para *Parede*). O objeto sai um
   pouco para o lado, ganha ícone próprio e pode ser arrastado. Uma CTO/CEO solta fica **sem fixação** (ponto âmbar)
   até você escolher outra parede, poste ou caixa. Os cabos que só passam pelo poste continuam no poste; só as pontas
   dos cabos do próprio objeto acompanham.
@@ -295,7 +299,8 @@ fica preso nele:
   meio de um cabo para cima do poste também liga (ou faz a sangria) na CTO/CEO fixada.
 - **Agrupar objetos à frente** no poste/caixa (ou na CTO/CEO fixada nele) segue os cabos da CTO/CEO fixada: some
   tudo o que vem depois dela, e o selo **+N** aparece no poste/caixa.
-- Câmeras só ficam fixadas em **poste**; em cliente, datacenter ou POP continuam ao lado, com linha tracejada.
+- Câmeras ficam **fixadas em Poste ou Parede**. No poste, o ícone se funde ao dele; na parede, a câmera tem ícone
+  próprio, ao lado do imóvel (cliente, condomínio, datacenter ou POP, opcional) e com o endereço.
 - CTO/CEO e câmeras antigas que estavam presas num poste/caixa mas com ícone separado foram levadas para cima do
   poste/caixa na atualização (`php artisan migrate`), com as pontas dos cabos delas.
 
@@ -304,15 +309,22 @@ fica preso nele:
 Dê **duplo clique no poste ou na caixa** (ou use o botão **Editor do poste** / **Editor da caixa** no painel). Abre
 uma tela parecida com o diagrama da CTO, com tudo o que está ali dentro:
 
-- No alto, **Cabos no poste / na caixa**: cada cabo que passa ou chega, na cor dele, com o nome, as fibras, o tipo e
-  se ele só passa (apoio) ou chega num objeto.
-- No poste, a haste com a cruzeta e os objetos presos dos dois lados; na caixa, uma moldura com os objetos dentro.
-  Cada **cartão** mostra o nome, o tipo, o status e um resumo (CTO/CEO: cabos,
-  drops, splitters e emendas; câmera: tipo, fabricante, IP, gravador e situação do teste). Duplo clique no cartão
-  abre o objeto: CTO/CEO abrem o **diagrama de fusão** (ao fechar, você volta para o editor do poste); a câmera abre
-  o painel dela no mapa.
-- As **reservas técnicas** guardadas no poste/caixa também aparecem como cartões (comprimento, tipo e cabo), com a
+- **Poste**: a haste com a **cruzeta no alto**. Logo abaixo da cruzeta, os **cabos de entrada e saída** atravessam o
+  poste (cada um na cor dele, preso por uma braçadeira), com o rótulo no mesmo estilo do drop do diagrama: nome em
+  negrito, fibras, tipo e se só passa (apoio) ou chega num objeto. Duplo clique no rótulo abre o painel do cabo.
+- **Objetos presos no poste** ficam mais embaixo, abaixo da linha dos cabos, alternando os lados. Eles aparecem
+  **recolhidos, como ícones** (como os equipamentos no rack): **um clique abre o cartão** no formato completo (nome,
+  tipo, status e resumo: CTO/CEO com cabos, drops, splitters e emendas; câmera com tipo, fabricante, IP, gravador e
+  teste) e a setinha do cartão recolhe de novo. **Duplo clique** (no ícone ou no cartão) abre o editor do objeto:
+  CTO/CEO abrem o **diagrama de fusão** (ao fechar, você volta para o editor do poste); a câmera abre o painel dela.
+- **Drops dos clientes** saem ligados à CTO/CEO de onde partem, com o rótulo no estilo do drop (*nome · metros*) e o
+  nome do cliente na ponta. Duplo clique no rótulo abre o drop.
+- **CTO/CEO e reservas fixadas no cabo** a até 40 m do poste aparecem **sobre a linha do cabo**, do lado em que
+  estão (antes ou depois do poste no traçado), com a distância (*no cabo · 17 m*). Também abrem com um clique e
+  editam com duplo clique.
+- As **reservas técnicas** fixadas no poste aparecem como ícones de bobina (comprimento e cabo); o cartão tem a
   lixeira para remover.
+- **Caixa**: no alto, os cabos que passam ou chegam; embaixo, uma moldura com os cartões dos objetos de dentro.
 - Embaixo, **Perto do poste/da caixa, sem fixação**: CTO/CEO (e câmeras, no poste) a até 15 m sem fixação; clique
   para fixar ali.
 
@@ -322,9 +334,9 @@ A **barra de ferramentas** só mostra o que pode ser implantado naquele suporte:
 | --- | --- |
 | **+ CTO**, **+ CEO** | Implanta uma CTO/CEO nova, já fixada no poste/caixa |
 | **+ Câmera** (só poste) | Implanta uma câmera fixada no poste (o tipo IP/analógica/DVR é o escolhido na ferramenta Câmera) |
-| **+ Reserva** | Reserva técnica de um cabo que passa ali: escolha o cabo, o comprimento e se é suspensa ou subterrânea |
+| **+ Reserva** | Reserva técnica de um cabo que passa ali: escolha o cabo, o comprimento, se é suspensa ou subterrânea e onde fica fixada (*Poste*/*Caixa*, ou *Cabo*: no vão, 8 m ao lado) |
 | **Abrir** | Abre o objeto selecionado (o mesmo que o duplo clique no cartão) |
-| **Soltar** | Solta o objeto selecionado do poste/caixa (ganha ícone próprio e pode ser arrastado) |
+| **Soltar** | Solta o objeto selecionado do poste/caixa (ganha ícone próprio e pode ser arrastado). Não vale para os fixados no cabo |
 | Lixeira | Remove a reserva selecionada |
 | **Diagrama de fusão** (só caixa) | Abre o diagrama de fusão da própria caixa |
 | **Dados do poste / da caixa** | Fecha o editor e abre o painel de propriedades do poste/caixa |
@@ -376,8 +388,8 @@ wireless por tipo e os enlaces PtP.
    - **IP**: câmera de rede (RJ45/PoE), acessada pelo próprio IP.
    - **Analógica**: câmera coaxial (HDCVI, AHD, HDTVI) gravada num canal de DVR.
    - **DVR / NVR**: o gravador. As câmeras são ligadas aos canais dele.
-2. Clique no mapa, ou clique **num poste, cliente, datacenter ou POP**: a câmera fica **instalada** nele (campo
-   *Instalada em* já preenchido). No **poste** ela fica **fixada** (ícone fundido ao do poste, veja
+2. Clique no mapa, ou clique **num poste, cliente, datacenter ou POP**: a câmera já nasce fixada (*Fixada em:
+   Poste*, ou *Parede* do imóvel clicado). No **poste** ela fica **fixada** (ícone fundido ao do poste, veja
    [Objetos fixados no poste/caixa](#objetos-fixados-no-postecaixa-e-o-editor-do-postecaixa)); nos outros, é colocada logo ao lado, ligada a
    ele por uma linha fina tracejada.
 3. As câmeras recebem o nome *CAM-1*, *CAM-2*... e os gravadores *DVR-1*, *DVR-2*... O ícone é amarelo: câmera
@@ -387,7 +399,8 @@ wireless por tipo e os enlaces PtP.
 
 - **Tipo**, **Fabricante** (Intelbras, Dahua, Hikvision, HiLook, Axis, Uniview, Genérico ONVIF ou Outro),
   **Modelo**, **Nº de série** e **Alimentação** (PoE, PoE+, 12 Vcc, 24 Vca, solar).
-- **Instalada em** (poste, cliente, datacenter ou POP, do mais perto para o mais longe) e **Altura (m)**.
+- **Fixada em**: **Poste** (escolha o poste, do mais perto para o mais longe) ou **Parede** (escolha o imóvel,
+  opcional: cliente, condomínio, datacenter ou POP, e informe o **Endereço do imóvel**). Ao lado, **Altura (m)**.
 - **Conectada na rede por**: a CTO, CEO, cliente (ONU), condomínio, POP, datacenter ou torre por onde a câmera
   chega na rede.
 - **Gravador e canal**: na câmera analógica escolha o **Gravador (DVR)** e o **Canal**; numa câmera IP que grava num
@@ -518,6 +531,10 @@ Cada reserva técnica (sobra de cabo enrolada) tem **local**, **metragem** e **t
 
 - No mapa, o ícone mostra o tipo; passe o mouse para ver a metragem (a partir do zoom 18 ela aparece fixa).
 - **Arraste** o ícone para mudar o local: ele sempre volta para cima do cabo, no ponto mais próximo.
+- **Fixada em**: no painel do cabo, cada reserva tem o campo **Fixada em**: *Cabo (no vão)*, *Parede* (com o
+  endereço do imóvel) ou um dos postes/caixas por onde o cabo passa. Fixada num poste/caixa, ela vai para a posição
+  dele, aparece fundida ao ícone dele e se move junto quando ele é arrastado. Reservas antigas a até 3 m de um
+  poste/caixa contam como fixadas nele.
 - Clicar no ícone seleciona o cabo. No painel, em **Reservas técnicas no mapa**, cada reserva (R1, R2...) mostra
   o tipo, a metragem, as coordenadas, o botão de **mostrar no mapa** e o **X** para remover. Mudanças nessa lista
   são salvas na hora.

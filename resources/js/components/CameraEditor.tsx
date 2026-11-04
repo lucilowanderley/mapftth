@@ -3,7 +3,9 @@ import { useEffect, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import {
   CAMERA_KINDS,
-  CAMERA_MOUNT_TYPES,
+  CAMERA_MOUNTS,
+  CAMERA_WALL_TYPES,
+  cameraMountKind,
   CAMERA_POWER,
   CAMERA_PROTOS,
   CAMERA_RESOLUTIONS,
@@ -24,7 +26,8 @@ import {
 } from '../lib/camera';
 import { NODE_TYPES } from '../lib/catalog';
 import { distance } from '../lib/geo';
-import type { CameraAttributes, CameraKind, CameraPower, CameraProto, NetNode, NodeType } from '../lib/types';
+import { BrickWall, UtilityPole } from 'lucide-react';
+import type { CameraAttributes, CameraKind, CameraMount, CameraPower, CameraProto, NetNode, NodeType } from '../lib/types';
 import { Field, formatLength } from './ui';
 
 const int = (v: string) => (v.trim() === '' ? undefined : Math.max(0, Math.round(Number(v)) || 0));
@@ -55,7 +58,8 @@ interface EditorProps {
 export function CameraFields({ node, nodes, value: a, onChange: set, password, onPassword, clearPassword, onClearPassword }: EditorProps) {
   const kind: CameraKind = a.cam_kind ?? 'ip';
   const preset = a.vendor ? CAMERA_VENDORS[a.vendor] : undefined;
-  const mounts = nearby(node, nodes, CAMERA_MOUNT_TYPES);
+  const mountKind = a.mount_kind ?? cameraMountKind({ ...node, attributes: a }, nodes);
+  const mounts = nearby(node, nodes, mountKind === 'wall' ? CAMERA_WALL_TYPES : ['pole']);
   const uplinks = nearby(node, nodes, CAMERA_UPLINK_TYPES);
   const dvrs = nodes.filter((n) => n.type === 'camera' && n.id !== node.id && cameraOf(n).cam_kind === 'dvr');
   const dvr = dvrs.find((n) => n.id === a.dvr_id);
@@ -115,10 +119,28 @@ export function CameraFields({ node, nodes, value: a, onChange: set, password, o
         </Field>
       </div>
 
+      <div>
+        <div className="label">Fixada em</div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {(Object.keys(CAMERA_MOUNTS) as CameraMount[]).map((k) => (
+            <button
+              key={k}
+              type="button"
+              title={CAMERA_MOUNTS[k].hint}
+              aria-pressed={mountKind === k}
+              onClick={() => k !== mountKind && set({ mount_kind: k, mount_id: undefined })}
+              className={`flex items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs cursor-pointer ${mountKind === k ? 'border-emerald-500 bg-emerald-600/20 text-emerald-300' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
+            >
+              {k === 'pole' ? <UtilityPole size={14} /> : <BrickWall size={14} />}
+              {CAMERA_MOUNTS[k].label}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="grid grid-cols-[1fr_5rem] gap-2">
-        <Field label="Instalada em">
-          <select className="input" value={a.mount_id ?? ''} onChange={(e) => set({ mount_id: int(e.target.value) })}>
-            <option value="">— (poste, cliente, datacenter ou POP)</option>
+        <Field label={mountKind === 'wall' ? 'Imóvel (opcional)' : 'Poste'}>
+          <select className="input" value={a.mount_id ?? ''} onChange={(e) => set({ mount_kind: mountKind ?? 'pole', mount_id: int(e.target.value) })}>
+            <option value="">{mountKind === 'wall' ? '— (cliente, condomínio, datacenter ou POP)' : '— escolha o poste'}</option>
             {mounts.map(option)}
           </select>
         </Field>
@@ -126,6 +148,11 @@ export function CameraFields({ node, nodes, value: a, onChange: set, password, o
           <input className="input" inputMode="decimal" value={a.height_m ?? ''} onChange={(e) => set({ height_m: dec(e.target.value) })} />
         </Field>
       </div>
+      {mountKind === 'wall' && (
+        <Field label="Endereço do imóvel">
+          <input className="input" placeholder="Rua, número, bairro" value={a.address ?? ''} onChange={(e) => set({ address: e.target.value || undefined })} />
+        </Field>
+      )}
       <Field label="Conectada na rede por">
         <select className="input" value={a.uplink_id ?? ''} onChange={(e) => set({ uplink_id: int(e.target.value) })}>
           <option value="">—</option>

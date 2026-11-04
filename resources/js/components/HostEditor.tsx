@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Archive, Camera, ExternalLink, Info, Network, Plus, Trash2, Unlink, X } from 'lucide-react';
-import { ANCHOR_CHILD_TYPES, attachedTo, cablesAtHost, slacksAtHost } from '../lib/anchor';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Archive, Camera, ChevronUp, ExternalLink, Info, Network, Plus, Trash2, Unlink, X } from 'lucide-react';
+import { ANCHOR_CHILD_TYPES, attachedTo, cablesAtHost, offsetOnPath, onCableNear, slacksAtHost, type OnCableItem } from '../lib/anchor';
 import { CAMERA_KINDS, HEALTH_COLORS, HEALTH_LABEL, cameraHealth, cameraOf } from '../lib/camera';
 import { CABLE_CATEGORIES, NODE_TYPES, SLACK_KINDS, STATUSES, splitterModel } from '../lib/catalog';
-import { BOX_KINDS, BOX_PLACES, FIXABLE_TYPES, boxOf, fixationOf } from '../lib/fixation';
+import { BOX_KINDS, BOX_PLACES, FIXABLE_TYPES, FIX_OFFSET_M, boxOf, fixationOf } from '../lib/fixation';
+import { roundLatLng } from '../lib/move';
 import { distance } from '../lib/geo';
 import type { Cable, NetNode, NodeType, PoleAttributes, Slack, SlackKind } from '../lib/types';
 import { IconTool, Sep } from './DiagramEditor';
@@ -34,18 +35,46 @@ interface Props {
   /** Abre o painel de propriedades do poste/caixa no mapa. */
   onEditHost: (host: NetNode) => void;
   onSlacksChange: (cable: Cable, slacks: Slack[], message: string) => void;
+  /** Abre o painel do cabo/drop no mapa (duplo clique no rótulo). */
+  onEditCable?: (cable: Cable) => void;
 }
 
 /**
  * Editor do poste / da caixa: tudo o que está fixado nele (CTO, CEO, câmera), as reservas técnicas
  * guardadas ali e os cabos que passam, com uma barra de ferramentas para implantar novos objetos.
  */
-export default function HostEditor({ host, nodes, cables, readOnly, covered, onClose, onAdd, onAnchor, onOpen, onOpenDiagram, onEditHost, onSlacksChange }: Props) {
+export default function HostEditor({ host, nodes, cables, readOnly, covered, onClose, onAdd, onAnchor, onOpen, onOpenDiagram, onEditHost, onSlacksChange, onEditCable }: Props) {
   const isPole = host.type === 'pole';
   const children = attachedTo(host, nodes);
   const ids = children.map((c) => c.id);
   const here = cablesAtHost(host, cables, ids);
-  const slacks = slacksAtHost(host, cables);
+  const slacks = slacksAtHost(host, cables, nodes);
+  // Drops que saem das CTO/CEO do poste: desenhados ligados a elas (não na faixa dos cabos).
+  const dropsOf = (n: NetNode) => cables.filter((c) => c.category === 'drop' && (c.from_node_id === n.id || c.to_node_id === n.id));
+  const ownDrops = new Set(children.flatMap((n) => dropsOf(n).map((c) => c.id)));
+  const lines = isPole ? here.filter((c) => !ownDrops.has(c.id)) : here;
+  // CTO/CEO e reservas fixadas no cabo, perto do poste: ficam sobre a linha do cabo.
+  const onCable = isPole ? onCableNear(host, lines, nodes) : [];
+  // Objeto recolhido (ícone) ou aberto (cartão), como no rack. Clique abre/fecha, duplo clique abre o editor.
+  const [open, setOpen] = useState<Set<string>>(() => new Set());
+  const clickTimer = useRef<number | undefined>(undefined);
+  const toggle = (key: string) =>
+    setOpen((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const itemClick = (key: string, select: Sel) => {
+    setSel(select);
+    window.clearTimeout(clickTimer.current);
+    clickTimer.current = window.setTimeout(() => toggle(key), 230);
+  };
+  const itemDouble = (action: () => void) => {
+    window.clearTimeout(clickTimer.current);
+    action();
+  };
+  useEffect(() => () => window.clearTimeout(clickTimer.current), []);
   const allowed = ANCHOR_CHILD_TYPES[isPole ? 'pole' : 'box'];
   // Objetos que podem ir para o poste/caixa, perto dele, ainda sem fixação (ou instalados em outro lugar).
   const near = useMemo(
@@ -59,7 +88,7 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
     [nodes, host, ids.join(',')],
   );
   const [sel, setSel] = useState<Sel>(null);
-  const [slackForm, setSlackForm] = useState<{ cable: number | ''; length: string; kind: SlackKind } | null>(null);
+  const [slackForm, setSlackForm] = useState<{ cable: number | ''; length: string; kind: SlackKind; on: 'host' | 'cable' } | null>(null);
   const selNode = sel?.kind === 'node' ? nodes.find((n) => n.id === sel.id) : undefined;
   const selSlack = sel?.kind === 'slack' ? slacks.find((s) => s.cable.id === sel.cable && s.slack.id === sel.id) : undefined;
 
@@ -81,7 +110,7 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
 
   function openSlackForm() {
     const first = here.find((c) => c.category !== 'drop') ?? here[0];
-    setSlackForm({ cable: first?.id ?? '', length: '20', kind: isPole ? 'aerial' : 'underground' });
+    setSlackForm({ cable: first?.id ?? '', length: '20', kind: isPole ? 'aerial' : 'underground', on: 'host' });
   }
 
   function saveSlack() {
@@ -89,7 +118,18 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
     const cable = cables.find((c) => c.id === slackForm.cable);
     const length = Math.round(Number(slackForm.length.replace(',', '.')));
     if (!cable || !(length > 0)) return;
-    const slack: Slack = { id: `r${Math.random().toString(36).slice(2, 9)}`, lat: host.lat, lng: host.lng, length_m: length, kind: slackForm.kind, notes: host.name };
+    const onSpan = slackForm.on === 'cable' && cable.path.length > 1;
+    // No cabo (vão): um pouco ao longo do cabo, ao lado do poste. No poste/caixa: na posição dele.
+    const [lat, lng] = onSpan ? roundLatLng(offsetOnPath(cable.path, [host.lat, host.lng], FIX_OFFSET_M)) : [host.lat, host.lng];
+    const slack: Slack = {
+      id: `r${Math.random().toString(36).slice(2, 9)}`,
+      lat,
+      lng,
+      length_m: length,
+      kind: slackForm.kind,
+      notes: host.name,
+      ...(onSpan ? { fixed_kind: 'cable' as const } : { fixed_kind: isPole ? ('pole' as const) : ('box' as const), fixed_id: host.id }),
+    };
     onSlacksChange(cable, [...(cable.slacks ?? []), slack], `Reserva ${SLACK_KINDS[slack.kind].label.toLowerCase()} de ${length} m em ${cable.name} (${host.name})`);
     setSlackForm(null);
     setSel({ kind: 'slack', cable: cable.id, id: slack.id });
@@ -174,7 +214,7 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
               label={`Soltar ${isPole ? 'do poste' : 'da caixa'}: o objeto ganha ícone próprio no mapa e pode ser arrastado`}
               text="Soltar"
               onClick={() => selNode && onAnchor(selNode, false)}
-              disabled={!selNode}
+              disabled={!selNode || !ids.includes(selNode.id)}
             />
             <IconTool icon={<Trash2 size={16} />} label="Remover a reserva selecionada" onClick={() => selSlack && removeSlack(selSlack.cable, selSlack.slack.id)} disabled={!selSlack} danger />
             <Sep />
@@ -213,6 +253,13 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
               ))}
             </select>
           </label>
+          <label className="flex flex-col gap-0.5">
+            Fixada em
+            <select className="rounded border border-slate-300 bg-white px-2 py-1 text-sm" value={slackForm.on} onChange={(e) => setSlackForm({ ...slackForm, on: e.target.value as 'host' | 'cable' })}>
+              <option value="host">{isPole ? 'Poste' : 'Caixa'}</option>
+              <option value="cable">Cabo (no vão, ao lado)</option>
+            </select>
+          </label>
           <button className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 cursor-pointer" onClick={saveSlack}>
             Adicionar reserva
           </button>
@@ -228,43 +275,54 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
         style={{ background: '#f1f5f9', backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)', backgroundSize: '20px 20px' }}
         onClick={() => setSel(null)}
       >
-        {/* Cabos que passam / chegam */}
-        <div className="px-6 pt-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{isPole ? 'Cabos no poste' : 'Cabos na caixa'}</div>
-          {here.length ? (
-            <div className="mt-1 space-y-1.5">
-              {here.map((c) => (
-                <CableLine key={c.id} cable={c} host={host} nodes={nodes} />
-              ))}
-            </div>
-          ) : (
-            <div className="mt-1 text-xs text-slate-500">Nenhum cabo passa {isPole ? 'neste poste' : 'nesta caixa'}.</div>
-          )}
-        </div>
-
         {isPole ? (
-          // Poste: haste no meio, cruzeta no alto, objetos presos dos dois lados (alternando).
-          <div className="relative mx-auto mt-4 mb-8 flex min-h-[420px] max-w-5xl justify-center px-4">
-            <div className="absolute left-1/2 top-0 bottom-0 w-6 -translate-x-1/2 rounded-t-md bg-gradient-to-r from-slate-400 via-slate-300 to-slate-400 shadow-inner" />
-            <div className="absolute left-1/2 top-6 h-3 w-64 -translate-x-1/2 rounded bg-slate-500 shadow" />
-            <div className="relative z-[1] grid w-full grid-cols-2 items-start gap-x-16 pt-16">
-              {[...cards, ...slackCards].map((card, i) => (
-                <div key={i} className={`relative mb-4 flex items-start ${i % 2 === 0 ? 'justify-end pr-2' : 'justify-start pl-2 mt-14'}`}>
-                  {/* Cinta que prende o objeto ao poste */}
-                  <div className={`absolute top-6 h-1.5 w-10 rounded bg-slate-500 ${i % 2 === 0 ? '-right-8' : '-left-8'}`} />
-                  {card}
+          <PoleView
+            host={host}
+            nodes={nodes}
+            lines={lines}
+            onCable={onCable}
+            children={children}
+            slacks={slacks}
+            dropsOf={dropsOf}
+            sel={sel}
+            open={open}
+            readOnly={readOnly}
+            onItemClick={itemClick}
+            onItemDouble={itemDouble}
+            onToggle={toggle}
+            onOpen={onOpen}
+            onAnchor={onAnchor}
+            onRemoveSlack={removeSlack}
+            onEditCable={onEditCable}
+            renderCard={(n) => (
+              <ObjectCard
+                node={n}
+                nodes={nodes}
+                cables={cables}
+                selected={sel?.kind === 'node' && sel.id === n.id}
+                readOnly={readOnly}
+                onSelect={() => itemClick(`n${n.id}`, { kind: 'node', id: n.id })}
+                onOpen={() => itemDouble(() => onOpen(n))}
+                onAnchor={(on) => onAnchor(n, on)}
+                onCollapse={() => toggle(`n${n.id}`)}
+              />
+            )}
+          />
+        ) : (
+          // Caixa: cabos que passam e moldura com tudo o que está dentro.
+          <div className="mx-auto mt-4 mb-8 max-w-5xl px-4">
+            <div className="mb-4">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cabos na caixa</div>
+              {here.length ? (
+                <div className="mt-1 space-y-1.5">
+                  {here.map((c) => (
+                    <CableLine key={c.id} cable={c} host={host} nodes={nodes} onEdit={onEditCable} />
+                  ))}
                 </div>
-              ))}
-              {empty && (
-                <div className="col-span-2 mx-auto mt-24 max-w-sm rounded-lg bg-white/90 px-4 py-3 text-center text-sm text-slate-500 shadow">
-                  Nenhum objeto neste poste. Use a barra acima para implantar CTO, CEO, câmera ou reserva técnica.
-                </div>
+              ) : (
+                <div className="mt-1 text-xs text-slate-500">Nenhum cabo passa nesta caixa.</div>
               )}
             </div>
-          </div>
-        ) : (
-          // Caixa: moldura com tudo o que está dentro.
-          <div className="mx-auto mt-4 mb-8 max-w-5xl px-4">
             <div className="rounded-2xl border-4 border-slate-500 bg-white/60 p-4 shadow-inner">
               <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-slate-500">
                 <Archive size={14} /> Dentro da caixa
@@ -316,6 +374,7 @@ function ObjectCard({
   onSelect,
   onOpen,
   onAnchor,
+  onCollapse,
 }: {
   node: NetNode;
   nodes: NetNode[];
@@ -325,6 +384,8 @@ function ObjectCard({
   onSelect: () => void;
   onOpen: () => void;
   onAnchor: (on: boolean) => void;
+  /** Volta a ser só o ícone (editor do poste). */
+  onCollapse?: () => void;
 }) {
   const lines: string[] = [];
   if (n.type === 'camera') {
@@ -369,6 +430,7 @@ function ObjectCard({
             </span>
           </div>
         </div>
+        {onCollapse && <CollapseBtn onClick={onCollapse} />}
       </div>
       <div className="space-y-0.5 px-2.5 py-1.5 text-xs text-slate-600">
         {lines.map((l, i) => (
@@ -392,7 +454,7 @@ function ObjectCard({
         >
           {n.type === 'camera' ? 'Abrir câmera' : 'Diagrama de fusão'}
         </button>
-        {!readOnly && (
+        {!readOnly && fixationOf(n).fixed_kind !== 'cable' && (
           <button
             className="flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100 cursor-pointer"
             title="Soltar do poste/caixa para mover sozinha no mapa"
@@ -410,7 +472,25 @@ function ObjectCard({
 }
 
 /** Cartão da reserva técnica guardada no poste/caixa. */
-function SlackCard({ cable, slack, selected, readOnly, onSelect, onRemove }: { cable: Cable; slack: Slack; selected: boolean; readOnly?: boolean; onSelect: () => void; onRemove: () => void }) {
+function SlackCard({
+  cable,
+  slack,
+  selected,
+  readOnly,
+  onSelect,
+  onRemove,
+  onCollapse,
+  onDouble,
+}: {
+  cable: Cable;
+  slack: Slack;
+  selected: boolean;
+  readOnly?: boolean;
+  onSelect: () => void;
+  onRemove: () => void;
+  onCollapse?: () => void;
+  onDouble?: () => void;
+}) {
   return (
     <div
       className={`w-64 rounded-lg border bg-white shadow-sm cursor-pointer select-none ${selected ? 'ring-2 ring-emerald-500 border-emerald-500' : 'border-slate-300'}`}
@@ -418,13 +498,13 @@ function SlackCard({ cable, slack, selected, readOnly, onSelect, onRemove }: { c
         e.stopPropagation();
         onSelect();
       }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onDouble?.();
+      }}
     >
       <div className="flex items-center gap-2 px-2.5 py-1.5">
-        <svg viewBox="0 0 24 24" width={20} height={20} className="shrink-0">
-          {slack.kind === 'aerial' ? <circle cx="12" cy="12" r="9.5" fill="#fff" stroke={SLACK_KINDS.aerial.color} strokeWidth="3" /> : <rect x="2.5" y="2.5" width="19" height="19" rx="3" fill="#fff" stroke={SLACK_KINDS.underground.color} strokeWidth="3" />}
-          <ellipse cx="12" cy="12" rx="5.5" ry="3.2" fill="none" stroke={cable.color} strokeWidth="1.8" />
-          <ellipse cx="12" cy="12" rx="2.8" ry="1.6" fill="none" stroke={cable.color} strokeWidth="1.6" />
-        </svg>
+        <CoilGlyph kind={slack.kind} color={cable.color} size={20} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold">Reserva {slack.length_m} m</div>
           <div className="truncate text-[11px] text-slate-500">
@@ -443,23 +523,275 @@ function SlackCard({ cable, slack, selected, readOnly, onSelect, onRemove }: { c
             <Trash2 size={14} />
           </button>
         )}
+        {onCollapse && <CollapseBtn onClick={onCollapse} />}
       </div>
     </div>
   );
 }
 
-/** Linha de um cabo no poste/caixa: cor do cabo, nome e onde ele termina (ou se só passa). */
-function CableLine({ cable: c, host, nodes }: { cable: Cable; host: NetNode; nodes: NetNode[] }) {
+/** Rótulo do cabo no mesmo estilo do drop do diagrama: fundo branco, borda na cor do cabo, nome em negrito. */
+function CablePill({ cable: c, extra, onEdit, title }: { cable: Cable; extra?: string; onEdit?: (c: Cable) => void; title?: string }) {
+  return (
+    <div
+      className={`shrink-0 whitespace-nowrap rounded-full border bg-white px-2.5 py-0.5 text-[11px] text-slate-600 shadow-sm ${onEdit ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+      style={{ borderColor: c.color }}
+      title={title ?? (onEdit ? `${c.name}: duplo clique para editar` : c.name)}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onEdit?.(c);
+      }}
+    >
+      <span className="font-bold text-slate-900">{c.name}</span>
+      {extra ? ` · ${extra}` : ''}
+    </div>
+  );
+}
+
+/** Onde o cabo termina (ou se só passa) no poste/caixa. */
+function cableRole(c: Cable, host: NetNode, nodes: NetNode[]): string {
   const ends = [c.from_node_id, c.to_node_id].map((id) => nodes.find((n) => n.id === id)).filter(Boolean) as NetNode[];
   const atHost = ends.filter((n) => n.id === host.id || distance([n.lat, n.lng], [host.lat, host.lng]) < 0.5);
-  const role = atHost.length ? `chega em ${atHost.map((n) => n.name).join(' e ')}` : 'passa (apoio)';
+  return atHost.length ? `chega em ${atHost.map((n) => n.name).join(' e ')}` : 'passa (apoio)';
+}
+
+/** Linha de um cabo na caixa: cor do cabo, nome e onde ele termina (ou se só passa). */
+function CableLine({ cable: c, host, nodes, onEdit }: { cable: Cable; host: NetNode; nodes: NetNode[]; onEdit?: (c: Cable) => void }) {
   return (
     <div className="flex items-center gap-2">
       <div className="h-1.5 flex-1 rounded-full" style={{ background: c.color }} />
-      <div className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600 shadow-sm">
-        <span className="font-semibold text-slate-800">{c.name}</span> · {c.fiber_count}FO · {CABLE_CATEGORIES[c.category].label} · {role}
-      </div>
+      <CablePill cable={c} extra={`${c.fiber_count}FO · ${CABLE_CATEGORIES[c.category].label} · ${cableRole(c, host, nodes)}`} onEdit={onEdit} />
       <div className="h-1.5 flex-1 rounded-full" style={{ background: c.color }} />
+    </div>
+  );
+}
+
+function CollapseBtn({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
+      title="Recolher (volta a ser só o ícone)"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      <ChevronUp size={14} />
+    </button>
+  );
+}
+
+function CoilGlyph({ kind, color, size }: { kind: SlackKind; color: string; size: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} className="shrink-0">
+      {kind === 'aerial' ? <circle cx="12" cy="12" r="9.5" fill="#fff" stroke={SLACK_KINDS.aerial.color} strokeWidth="3" /> : <rect x="2.5" y="2.5" width="19" height="19" rx="3" fill="#fff" stroke={SLACK_KINDS.underground.color} strokeWidth="3" />}
+      <ellipse cx="12" cy="12" rx="5.5" ry="3.2" fill="none" stroke={color} strokeWidth="1.8" />
+      <ellipse cx="12" cy="12" rx="2.8" ry="1.6" fill="none" stroke={color} strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+/** Ícone recolhido de um objeto (como os equipamentos no rack): clique abre o cartão, duplo clique o editor. */
+function ObjIcon({ glyph, name, sub, selected, onClick, onDouble, title }: { glyph: React.ReactNode; name: string; sub?: string; selected: boolean; onClick: () => void; onDouble: () => void; title: string }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      className="group flex flex-col items-center gap-0.5 cursor-pointer select-none"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onDouble();
+      }}
+    >
+      <span className={`flex h-11 w-11 items-center justify-center rounded-lg border bg-white shadow-sm transition-shadow group-hover:shadow-md ${selected ? 'border-emerald-500 ring-2 ring-emerald-500' : 'border-slate-300'}`}>{glyph}</span>
+      <span className="max-w-[6.5rem] truncate rounded bg-white/90 px-1 text-[10px] font-semibold leading-tight text-slate-700">{name}</span>
+      {sub && <span className="max-w-[6.5rem] truncate rounded bg-white/90 px-1 text-[9px] leading-tight text-slate-500">{sub}</span>}
+    </button>
+  );
+}
+
+const nodeGlyphEl = (n: NetNode, size = 26) => <span className="inline-flex" dangerouslySetInnerHTML={{ __html: nodeGlyph(n, size) }} />;
+
+interface PoleViewProps {
+  host: NetNode;
+  nodes: NetNode[];
+  lines: Cable[];
+  onCable: OnCableItem[];
+  children: NetNode[];
+  slacks: { cable: Cable; slack: Slack }[];
+  dropsOf: (n: NetNode) => Cable[];
+  sel: Sel;
+  open: Set<string>;
+  readOnly?: boolean;
+  onItemClick: (key: string, sel: Sel) => void;
+  onItemDouble: (action: () => void) => void;
+  onToggle: (key: string) => void;
+  onOpen: (n: NetNode) => void;
+  onAnchor: (n: NetNode, on: boolean) => void;
+  onRemoveSlack: (cable: Cable, id: string) => void;
+  onEditCable?: (c: Cable) => void;
+  renderCard: (n: NetNode) => React.ReactNode;
+}
+
+/** Altura (px) de cada cabo na faixa abaixo da cruzeta. */
+const LINE_H = 60;
+
+/**
+ * Desenho do poste: cruzeta no alto, cabos atravessando o poste logo abaixo dela e os objetos presos
+ * no poste mais embaixo (recolhidos como ícones, alternando os lados), com os drops ligados à CTO/CEO.
+ * Objetos fixados no cabo ficam sobre a linha do cabo, do lado em que estão.
+ */
+function PoleView(p: PoleViewProps) {
+  const { host, nodes, lines, onCable, children, slacks, sel, open } = p;
+  const items: ({ kind: 'node'; node: NetNode } | { kind: 'slack'; cable: Cable; slack: Slack })[] = [
+    ...children.map((node) => ({ kind: 'node' as const, node })),
+    ...slacks.map((x) => ({ kind: 'slack' as const, ...x })),
+  ];
+  const empty = !items.length && !onCable.length;
+
+  const slackKey = (c: Cable, r: Slack) => `s${c.id}-${r.id}`;
+  const slackSel = (c: Cable, r: Slack): Sel => ({ kind: 'slack', cable: c.id, id: r.id });
+  const isSlackSel = (c: Cable, r: Slack) => sel?.kind === 'slack' && sel.cable === c.id && sel.id === r.id;
+  const isNodeSel = (n: NetNode) => sel?.kind === 'node' && sel.id === n.id;
+
+  const nodeItem = (n: NetNode, sub?: string) =>
+    open.has(`n${n.id}`) ? (
+      p.renderCard(n)
+    ) : (
+      <ObjIcon
+        glyph={nodeGlyphEl(n)}
+        name={n.name}
+        sub={sub}
+        selected={isNodeSel(n)}
+        title={`${NODE_TYPES[n.type].label} ${n.name}: clique para abrir o cartão, duplo clique para ${n.type === 'camera' ? 'abrir a câmera' : 'abrir o diagrama de fusão'}`}
+        onClick={() => p.onItemClick(`n${n.id}`, { kind: 'node', id: n.id })}
+        onDouble={() => p.onItemDouble(() => p.onOpen(n))}
+      />
+    );
+  const slackItem = (c: Cable, r: Slack, sub?: string) =>
+    open.has(slackKey(c, r)) ? (
+      <SlackCard
+        cable={c}
+        slack={r}
+        selected={isSlackSel(c, r)}
+        readOnly={p.readOnly}
+        onSelect={() => p.onItemClick(slackKey(c, r), slackSel(c, r))}
+        onRemove={() => p.onRemoveSlack(c, r.id)}
+        onCollapse={() => p.onToggle(slackKey(c, r))}
+        onDouble={() => p.onItemDouble(() => p.onEditCable?.(c))}
+      />
+    ) : (
+      <ObjIcon
+        glyph={<CoilGlyph kind={r.kind} color={c.color} size={28} />}
+        name={`Reserva ${r.length_m} m`}
+        sub={sub ?? c.name}
+        selected={isSlackSel(c, r)}
+        title={`Reserva técnica de ${r.length_m} m em ${c.name}: clique para abrir o cartão, duplo clique para editar o cabo`}
+        onClick={() => p.onItemClick(slackKey(c, r), slackSel(c, r))}
+        onDouble={() => p.onItemDouble(() => p.onEditCable?.(c))}
+      />
+    );
+
+  // Objetos no cabo: a partir do poste, para fora, do lado em que estão.
+  const sideCount = { left: 0, right: 0 };
+  const placed = onCable.map((it) => ({ it, slot: sideCount[it.side]++ }));
+
+  const linesTop = 64;
+  const linesH = Math.max(1, lines.length) * LINE_H;
+
+  return (
+    <div className="relative mx-auto mb-8 max-w-6xl px-4" style={{ minHeight: linesTop + linesH + 420 }}>
+      {/* Haste do poste e cruzeta (no alto) */}
+      <div className="absolute left-1/2 top-3 bottom-0 w-6 -translate-x-1/2 rounded-t-md bg-gradient-to-r from-slate-400 via-slate-300 to-slate-400 shadow-inner" />
+      <div className="absolute left-1/2 top-7 h-3 w-72 -translate-x-1/2 rounded bg-slate-500 shadow" />
+      {[-120, -60, 60, 120].map((dx) => (
+        <div key={dx} className="absolute top-[18px] h-2.5 w-2 -translate-x-1/2 rounded-t bg-slate-600" style={{ left: `calc(50% + ${dx}px)` }} />
+      ))}
+      <div className="absolute left-4 top-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{host.name}</div>
+
+      {/* Cabos sobre o poste, abaixo da cruzeta */}
+      <div className="relative" style={{ paddingTop: linesTop }}>
+        {lines.length === 0 && <div className="relative z-[1] mx-auto w-fit rounded bg-white/90 px-2 py-1 text-xs text-slate-500 shadow-sm">Nenhum cabo passa neste poste.</div>}
+        {lines.map((c) => (
+          <div key={c.id} className="relative" style={{ height: LINE_H }}>
+            <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full" style={{ background: c.color }} />
+            {/* Braçadeira que prende o cabo no poste */}
+            <div className="absolute left-1/2 top-1/2 h-3.5 w-8 -translate-x-1/2 -translate-y-1/2 rounded-sm border border-slate-700 bg-slate-600/90" />
+            <div className="absolute left-0 top-1/2 -translate-y-1/2">
+              <CablePill cable={c} extra={`${c.fiber_count}FO · ${CABLE_CATEGORIES[c.category].label} · ${cableRole(c, host, nodes)}`} onEdit={p.onEditCable} />
+            </div>
+            {placed
+              .filter(({ it }) => it.cable.id === c.id)
+              .map(({ it, slot }) => {
+                const key = it.kind === 'node' ? `n${it.node.id}` : slackKey(it.cable, it.slack);
+                const offset = 90 + slot * 96;
+                const expanded = open.has(key);
+                return (
+                  <div
+                    key={key}
+                    className={`absolute top-1/2 z-[2] ${expanded ? 'z-20' : ''}`}
+                    style={{ left: `calc(50% ${it.side === 'left' ? '-' : '+'} ${offset}px)`, transform: expanded ? `translate(${it.side === 'left' ? '-100%' : '0'}, -22px)` : 'translate(-50%, -22px)' }}
+                  >
+                    {it.kind === 'node' ? nodeItem(it.node, `no cabo · ${formatLength(it.dist)}`) : slackItem(it.cable, it.slack, `no cabo · ${formatLength(it.dist)}`)}
+                  </div>
+                );
+              })}
+          </div>
+        ))}
+      </div>
+
+      {/* Objetos presos no poste, abaixo da linha dos cabos */}
+      <div className="relative z-[1] mt-10 grid grid-cols-[1fr_1.5rem_1fr] gap-y-4">
+        {items.map((it, i) => {
+          const left = i % 2 === 0;
+          const key = it.kind === 'node' ? `n${it.node.id}` : slackKey(it.cable, it.slack);
+          const drops = it.kind === 'node' && (it.node.type === 'cto' || it.node.type === 'ceo') ? p.dropsOf(it.node) : [];
+          return (
+            <div key={key} className={`flex items-start ${left ? 'col-start-1 flex-row-reverse' : 'col-start-3'}`} style={{ gridRow: i + 1 }}>
+              {/* Cinta que prende o objeto ao poste */}
+              <div className="mt-[18px] h-1.5 w-6 shrink-0 rounded bg-slate-500" />
+              <div className="shrink-0">{it.kind === 'node' ? nodeItem(it.node) : slackItem(it.cable, it.slack)}</div>
+              {drops.length > 0 && it.kind === 'node' && <Drops drops={drops} from={it.node} nodes={nodes} left={left} onEdit={p.onEditCable} />}
+            </div>
+          );
+        })}
+        {empty && (
+          <div className="col-span-3 mx-auto mt-10 max-w-sm rounded-lg bg-white/90 px-4 py-3 text-center text-sm text-slate-500 shadow">
+            Nenhum objeto neste poste. Use a barra acima para implantar CTO, CEO, câmera ou reserva técnica.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Drops que saem da CTO/CEO até os clientes, com o rótulo no estilo do drop do diagrama (nome · metros). */
+function Drops({ drops, from, nodes, left, onEdit }: { drops: Cable[]; from: NetNode; nodes: NetNode[]; left: boolean; onEdit?: (c: Cable) => void }) {
+  return (
+    <div className={`mt-[19px] flex flex-col gap-1.5 ${left ? 'items-end' : 'items-start'}`}>
+      {drops.map((c, i) => {
+        const otherId = c.from_node_id === from.id ? c.to_node_id : c.from_node_id;
+        const client = nodes.find((n) => n.id === otherId);
+        return (
+          <div key={c.id} className={`relative flex items-center ${left ? 'flex-row-reverse' : ''}`}>
+            {/* Barramento vertical ligando os drops ao objeto */}
+            {i > 0 && <div className={`absolute bottom-1/2 w-0.5 ${left ? 'right-0' : 'left-0'}`} style={{ height: 'calc(100% + 6px)', background: c.color }} />}
+            <div className="h-0.5 w-10" style={{ background: c.color }} />
+            <CablePill cable={c} extra={`${Math.round(c.length_m ?? 0)} m`} onEdit={onEdit} title={`Drop ${c.name}${client ? ` até ${client.name}` : ''}: duplo clique para editar`} />
+            {client && (
+              <div className={`flex items-center gap-1 text-[11px] text-slate-600 ${left ? 'mr-1.5' : 'ml-1.5'}`}>
+                {nodeGlyphEl(client, 16)}
+                <span className="max-w-[9rem] truncate">{client.name}</span>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

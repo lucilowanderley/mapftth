@@ -1,5 +1,6 @@
+import { nearestOnPath } from './connect';
 import { distance } from './geo';
-import type { BoxAttributes, BoxKind, BoxPlace, FixAttributes, FixKind, LatLng, NetNode, NodeType } from './types';
+import type { BoxAttributes, BoxKind, BoxPlace, Cable, FixAttributes, FixKind, LatLng, NetNode, NodeType } from './types';
 
 /**
  * Fixação de CTO/CEO (poste, parede ou caixa) e o objeto Caixa (sem React, usado também nos testes).
@@ -13,7 +14,11 @@ export const FIX_KINDS: Record<FixKind, { label: string; hint: string }> = {
   pole: { label: 'Poste', hint: 'Presa no poste (rede aérea)' },
   wall: { label: 'Parede', hint: 'Presa na parede de um imóvel (informe o endereço)' },
   box: { label: 'Caixa', hint: 'Dentro de uma caixa de parede ou subterrânea' },
+  cable: { label: 'Cabo', hint: 'Presa no cabo / cordoalha, no meio do vão' },
 };
+
+/** Distância máxima (m) entre o objeto fixado no cabo e o traçado dele antes de aparecer o aviso. */
+export const CABLE_FIX_TOLERANCE_M = 15;
 
 /** Tipo do objeto que recebe a CTO/CEO em cada forma de fixação (parede não tem objeto no mapa). */
 export const FIX_HOST_TYPE: Partial<Record<FixKind, NodeType>> = { pole: 'pole', box: 'box' };
@@ -55,6 +60,12 @@ export function fixHost(n: NetNode, nodes: NetNode[]): NetNode | undefined {
   return nodes.find((x) => x.id === a.fixed_id && x.type === type);
 }
 
+/** Cabo onde a CTO/CEO está fixada (fixed_kind cable). */
+export function fixedCable(n: NetNode, cables: Cable[]): Cable | undefined {
+  const a = fixationOf(n);
+  return a.fixed_kind === 'cable' && a.fixed_id ? cables.find((c) => c.id === a.fixed_id) : undefined;
+}
+
 /** Endereço do imóvel onde a CTO/CEO está (parede: o dela; caixa: o dela ou o da caixa). */
 export function fixedAddress(n: NetNode, nodes: NetNode[]): string {
   const a = fixationOf(n);
@@ -67,10 +78,18 @@ export function fixedAddress(n: NetNode, nodes: NetNode[]): string {
  * Problema na fixação da CTO/CEO (null = tudo certo). Objetos antigos sem fixação continuam
  * funcionando: o aviso aparece no mapa e no painel, sem impedir o uso.
  */
-export function fixationIssue(n: NetNode, nodes: NetNode[]): string | null {
+export function fixationIssue(n: NetNode, nodes: NetNode[], cables?: Cable[]): string | null {
   if (!FIXABLE_TYPES.includes(n.type)) return null;
   const a = fixationOf(n);
-  if (!a.fixed_kind) return 'Sem fixação: informe se está num poste, numa parede ou dentro de uma caixa.';
+  if (!a.fixed_kind) return 'Sem fixação: informe se está num poste, numa parede, dentro de uma caixa ou no cabo.';
+  if (a.fixed_kind === 'cable') {
+    if (!a.fixed_id) return 'Escolha o cabo onde está fixada.';
+    if (!cables) return null;
+    const c = fixedCable(n, cables);
+    if (!c) return 'O cabo onde estava fixada não existe mais: escolha outro.';
+    const d = c.path.length > 1 ? nearestOnPath(c.path, [n.lat, n.lng]).dist : 0;
+    return d > CABLE_FIX_TOLERANCE_M ? `Está a ${Math.round(d)} m do cabo ${c.name}: aproxime do traçado.` : null;
+  }
   if (a.fixed_kind === 'wall') return fixedAddress(n, nodes) ? null : 'Fixada na parede: informe o endereço do imóvel.';
   const host = fixHost(n, nodes);
   if (!host) return a.fixed_kind === 'pole' ? 'Escolha o poste onde está fixada.' : 'Escolha a caixa onde está instalada.';
