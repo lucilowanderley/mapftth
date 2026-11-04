@@ -522,7 +522,7 @@ O menu do botão direito no cabo também tem **Editar** (abre o painel do cabo),
 A ferramenta **Lançar cabo** (barra do mapa, ao lado de **Cabo**) cria o cabo já passando pelos postes, cria os
 postes que faltam e coloca as reservas técnicas fixadas nos postes, tudo de uma vez. Ao escolher a ferramenta abre
 um painel à esquerda. No alto do painel escolha o **Tipo** (Backbone ou Distribuição), o **Modelo** (6 a 144 FO),
-o **Nome** (opcional) e a **Situação**. O painel tem dois jeitos de lançar:
+o **Nome** (opcional) e a **Situação**. O painel tem três jeitos de lançar:
 
 **1. Escolher postes.** O painel lista os postes do projeto, os mais perto primeiro (use a busca para achar pelo
 nome). Clique nos postes **no mapa** ou marque na lista, **na ordem** do lançamento: cada poste escolhido ganha um
@@ -541,6 +541,16 @@ avenida** e clique em **Traçar caminho**. O caminho aparece em cinza no mapa. E
   amarelo.
 
 Sem **adicionar os postes que faltam**, o cabo segue a rua e passa só pelos postes existentes.
+
+**3. Pontos de referência.** Para quando você quer guiar o percurso: adicione os pontos por onde o cabo deve
+passar, **na ordem**. Com **Clique no mapa adiciona ponto** marcado, cada clique no mapa vira um ponto (clicar numa
+CTO, CEO, caixa ou POP no primeiro ou no último ponto deixa o cabo conectado nela). Também dá para digitar o endereço
+ou colar a coordenada em **Adicionar ponto** e clicar em **+**. O 1º ponto é o início (verde), o último é o fim
+(vermelho) e os do meio ficam roxos, numerados no mapa. Na lista, as setas mudam a ordem, o **×** tira o ponto,
+**Inverter** troca o sentido e **Limpar** começa de novo. Clique em **Traçar caminho**: o sistema liga cada ponto ao
+próximo pelas vias (com a mesma preferência BR, rodovias, estradas, avenidas e ruas) e depois funciona igual ao
+**Início e fim**: postes existentes, postes que faltam e reservas. Se o serviço de rotas não responder num trecho,
+só aquele trecho fica em linha reta e o painel avisa qual.
 
 **Reserva técnica:** marque **Reserva técnica a cada X m, com Y m**. A cada X metros de cabo o sistema escolhe o
 poste mais perto dessa marca e coloca ali uma reserva suspensa de Y metros, **fixada no poste** (anel laranja

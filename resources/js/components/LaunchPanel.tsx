@@ -1,4 +1,4 @@
-import { ArrowDownUp, Eraser, Loader2, MapPin, Route as RouteIcon, Search, Shuffle, UtilityPole, X } from 'lucide-react';
+import { ArrowDown, ArrowDownUp, ArrowUp, Eraser, Loader2, MapPin, Plus, Route as RouteIcon, Search, Shuffle, UtilityPole, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api, errorMessage, type LaunchRoute } from '../lib/api';
 import { CABLE_CATEGORIES, CABLE_MODELS, STATUSES } from '../lib/catalog';
@@ -9,7 +9,7 @@ import { LAUNCH_DEFAULTS, orderByNearest, planFromPoles, planFromRoute, polesAlo
 import type { Cable, LatLng, NetNode, Status } from '../lib/types';
 import { formatLength } from './ui';
 
-type Mode = 'poles' | 'route';
+type Mode = 'poles' | 'route' | 'refs';
 type Category = keyof typeof LAUNCH_DEFAULTS;
 
 /** Clique no mapa encaminhado ao painel (no mapa ou num objeto). */
@@ -29,6 +29,8 @@ export interface LaunchPreview {
   end?: LatLng | null;
   /** Postes escolhidos (modo pelos postes), na ordem. */
   order?: number[];
+  /** Pontos de referência (modo pontos de referência), na ordem. */
+  refs?: LatLng[];
 }
 
 interface Endpoint {
@@ -90,6 +92,27 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
   const [useExisting, setUseExisting] = useState(true);
   const [addPoles, setAddPoles] = useState(true);
 
+  // Modo pontos de referência: o percurso passa por todos, na ordem (o 1º é o início, o último o fim).
+  const [refs, setRefs] = useState<Endpoint[]>([]);
+  const [refDraft, setRefDraft] = useState<Endpoint>({ text: '', point: null });
+  const [refPicking, setRefPicking] = useState(true);
+  const addRef = (ep: Endpoint) => ep.point && setRefs((r) => [...r, ep]);
+  const moveRef = (i: number, d: -1 | 1) =>
+    setRefs((r) => {
+      const j = i + d;
+      if (j < 0 || j >= r.length) return r;
+      const next = [...r];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+
+  /** Pontas e pontos do meio do percurso (modos início e fim / pontos de referência). */
+  const ends = useMemo(() => {
+    if (mode === 'refs') return refs.length >= 2 ? { a: refs[0], b: refs[refs.length - 1], via: refs.slice(1, -1) } : null;
+    if (mode === 'route') return start.point && end.point ? { a: start, b: end, via: [] as Endpoint[] } : null;
+    return null;
+  }, [mode, refs, start, end]);
+
   const poles = useMemo(() => nodes.filter((n) => n.type === 'pole'), [nodes]);
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const color = CABLE_CATEGORIES[category].color;
@@ -118,6 +141,13 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
       setSelected((s) => (s.includes(n.id) ? s.filter((x) => x !== n.id) : [...s, n.id]));
       return;
     }
+    if (mode === 'refs') {
+      if (!refPicking) return;
+      const n = pick.node;
+      const at: LatLng = n ? [n.lat, n.lng] : pick.at;
+      addRef({ text: n ? n.name : `${formatCoord(at[0])}, ${formatCoord(at[1])}`, point: at, node: n && n.type !== 'pole' ? n : undefined });
+      return;
+    }
     if (!picking) return;
     const n = pick.node;
     const at: LatLng = n ? [n.lat, n.lng] : pick.at;
@@ -132,7 +162,7 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
   useEffect(() => {
     setRoute(null);
     setRouteOptions([]);
-  }, [start.point, end.point, follow]);
+  }, [start.point, end.point, follow, refs, mode]);
 
   const existingAlong = useMemo(() => (route ? polesAlong(route.path, poles) : []), [route, poles]);
 
@@ -149,33 +179,38 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
   useEffect(() => {
     onPreview({
       color,
-      route: mode === 'route' ? route?.path : undefined,
+      route: mode !== 'poles' ? route?.path : undefined,
       plan: plan ?? undefined,
       start: mode === 'route' ? start.point : null,
       end: mode === 'route' ? end.point : null,
       order: mode === 'poles' ? selected : undefined,
+      refs: mode === 'refs' ? refs.map((r) => r.point!) : undefined,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [color, mode, route, plan, start.point, end.point, selected]);
+  }, [color, mode, route, plan, start.point, end.point, selected, refs]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => () => onPreview(null), []);
 
   async function traceRoute() {
-    if (!start.point || !end.point) return onError('Informe o início e o fim do lançamento.');
+    if (!ends) return onError(mode === 'refs' ? 'Adicione pelo menos dois pontos de referência.' : 'Informe o início e o fim do lançamento.');
+    const pts = [ends.a, ...ends.via, ends.b].map((e) => e.point!);
     if (!follow) {
-      setRoute({ path: [start.point, end.point], source: 'line', distance_m: distance(start.point, end.point), roads: [] });
+      let d = 0;
+      for (let i = 1; i < pts.length; i++) d += distance(pts[i - 1], pts[i]);
+      setRoute({ path: pts, source: 'line', distance_m: d, roads: [] });
       setRouteOptions([]);
-      onFit([start.point, end.point]);
+      onFit(pts);
       return;
     }
     setRouting(true);
     try {
-      const r = await api.launchRoute(projectId, start.point, end.point);
+      const r = await api.launchRoute(projectId, pts[0], pts[pts.length - 1], pts.slice(1, -1));
       setRoute(r.options?.[0] ?? r);
       setRouteOptions(r.options ?? []);
       onFit(r.path);
       setUseExisting(polesAlong(r.path, poles).length > 0 || useExisting);
       if (r.source === 'line') onError('O serviço de rotas não respondeu: o caminho ficou em linha reta. Você pode tentar de novo.');
+      else if (r.straight_legs?.length) onError(`O serviço de rotas não respondeu no trecho ${r.straight_legs.join(', ')}: ficou em linha reta.`);
     } catch (e) {
       onError(errorMessage(e));
     }
@@ -199,11 +234,12 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
         },
         points: plan.points.map((p) => (p.pole_id != null ? { pole_id: p.pole_id } : { lat: p.at[0], lng: p.at[1], new_pole: !!p.new_pole })),
         slacks: plan.slacks.map((i) => ({ point: i, length_m: numbers.slackLength, kind: 'aerial' })),
-        from_node_id: mode === 'route' ? (start.node?.id ?? null) : null,
-        to_node_id: mode === 'route' ? (end.node?.id ?? null) : null,
+        from_node_id: ends?.a.node?.id ?? null,
+        to_node_id: ends?.b.node?.id ?? null,
       });
       onDone(res.cable, res.nodes);
       setSelected([]);
+      setRefs([]);
       setRoute(null);
     } catch (e) {
       onError(errorMessage(e));
@@ -226,87 +262,14 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
 
   const slackTotal = plan ? plan.slacks.length * numbers.slackLength : 0;
 
-  return (
-    <div className="absolute top-3 left-3 z-[1000] panel w-80 max-h-[calc(100%-1.5rem)] overflow-y-auto text-sm">
-      <div className="flex items-start justify-between px-4 py-3 border-b border-slate-800">
-        <div>
-          <div className="font-semibold">Lançar cabo</div>
-          <div className="text-xs text-slate-400">Cabo com postes e reservas técnicas fixadas</div>
-        </div>
-        <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer" aria-label="Fechar">
-          <X size={18} />
-        </button>
-      </div>
-
-      <div className="p-3 space-y-3">
-        <div className="grid grid-cols-2 gap-1 rounded-md bg-slate-800/60 p-1">
-          {(
-            [
-              ['route', 'Início e fim'],
-              ['poles', 'Escolher postes'],
-            ] as [Mode, string][]
-          ).map(([m, label]) => (
-            <button
-              key={m}
-              onClick={() => {
-                setMode(m);
-                setPicking(null);
-              }}
-              className={`rounded px-2 py-1 text-xs cursor-pointer ${mode === m ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-700'}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Cabo */}
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block">
-            <span className="label">Tipo</span>
-            <select className="input" value={category} onChange={(e) => changeCategory(e.target.value as Category)}>
-              {(Object.keys(LAUNCH_DEFAULTS) as Category[]).map((c) => (
-                <option key={c} value={c}>
-                  {CABLE_CATEGORIES[c].label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="label">Modelo</span>
-            <select className="input" value={model.id} onChange={(e) => setModelId(e.target.value)}>
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="label">Nome</span>
-            <input className="input" placeholder={model.name} value={name} onChange={(e) => setName(e.target.value)} />
-          </label>
-          <label className="block">
-            <span className="label">Situação</span>
-            <select className="input" value={status} onChange={(e) => setStatus(e.target.value as Status)}>
-              {(Object.keys(STATUSES) as Status[]).map((s) => (
-                <option key={s} value={s}>
-                  {STATUSES[s].label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        {mode === 'route' ? (
-          <div className="space-y-2">
-            <EndpointField label="Início" value={start} onChange={setStart} picking={picking === 'start'} onPick={() => setPicking(picking === 'start' ? null : 'start')} onFocus={onFocus} />
-            <EndpointField label="Fim" value={end} onChange={setEnd} picking={picking === 'end'} onPick={() => setPicking(picking === 'end' ? null : 'end')} onFocus={onFocus} />
-            {picking && <div className="text-xs text-amber-300">Clique no mapa (ou numa caixa/poste) para marcar o {picking === 'start' ? 'início' : 'fim'}.</div>}
+  // Seguir a via, traçar e o resultado do caminho (modos início e fim e pontos de referência).
+  const routeControls = (
+    <>
             <label className="flex items-center gap-2 text-xs">
               <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} className="accent-emerald-500" />
               Seguir o percurso da rua, estrada ou avenida
             </label>
-            <button className="btn-primary w-full justify-center" disabled={!start.point || !end.point || routing} onClick={traceRoute}>
+            <button className="btn-primary w-full justify-center" disabled={!ends || routing} onClick={traceRoute}>
               {routing ? <Loader2 size={14} className="animate-spin" /> : <RouteIcon size={14} />}
               {route ? 'Traçar de novo' : 'Traçar caminho'}
             </button>
@@ -367,6 +330,148 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
                 </label>
               </div>
             )}
+    </>
+  );
+
+  return (
+    <div className="absolute top-3 left-3 z-[1000] panel w-80 max-h-[calc(100%-1.5rem)] overflow-y-auto text-sm">
+      <div className="flex items-start justify-between px-4 py-3 border-b border-slate-800">
+        <div>
+          <div className="font-semibold">Lançar cabo</div>
+          <div className="text-xs text-slate-400">Cabo com postes e reservas técnicas fixadas</div>
+        </div>
+        <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer" aria-label="Fechar">
+          <X size={18} />
+        </button>
+      </div>
+
+      <div className="p-3 space-y-3">
+        <div className="grid grid-cols-3 gap-1 rounded-md bg-slate-800/60 p-1">
+          {(
+            [
+              ['route', 'Início e fim'],
+              ['refs', 'Pontos de referência'],
+              ['poles', 'Escolher postes'],
+            ] as [Mode, string][]
+          ).map(([m, label]) => (
+            <button
+              key={m}
+              onClick={() => {
+                setMode(m);
+                setPicking(null);
+              }}
+              className={`rounded px-1.5 py-1 text-xs leading-tight cursor-pointer ${mode === m ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-700'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Cabo */}
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block">
+            <span className="label">Tipo</span>
+            <select className="input" value={category} onChange={(e) => changeCategory(e.target.value as Category)}>
+              {(Object.keys(LAUNCH_DEFAULTS) as Category[]).map((c) => (
+                <option key={c} value={c}>
+                  {CABLE_CATEGORIES[c].label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="label">Modelo</span>
+            <select className="input" value={model.id} onChange={(e) => setModelId(e.target.value)}>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="label">Nome</span>
+            <input className="input" placeholder={model.name} value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label className="block">
+            <span className="label">Situação</span>
+            <select className="input" value={status} onChange={(e) => setStatus(e.target.value as Status)}>
+              {(Object.keys(STATUSES) as Status[]).map((s) => (
+                <option key={s} value={s}>
+                  {STATUSES[s].label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {mode === 'route' ? (
+          <div className="space-y-2">
+            <EndpointField label="Início" value={start} onChange={setStart} picking={picking === 'start'} onPick={() => setPicking(picking === 'start' ? null : 'start')} onFocus={onFocus} />
+            <EndpointField label="Fim" value={end} onChange={setEnd} picking={picking === 'end'} onPick={() => setPicking(picking === 'end' ? null : 'end')} onFocus={onFocus} />
+            {picking && <div className="text-xs text-amber-300">Clique no mapa (ou numa caixa/poste) para marcar o {picking === 'start' ? 'início' : 'fim'}.</div>}
+            {routeControls}
+          </div>
+        ) : mode === 'refs' ? (
+          <div className="space-y-2">
+            <div className="text-xs text-slate-400">
+              Adicione os pontos por onde o cabo deve passar, na ordem do percurso: clique no mapa ou digite o endereço/coordenada. O 1º ponto é o início e o
+              último, o fim. O sistema liga um ponto ao outro pelas vias.
+            </div>
+            <label className="flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={refPicking} onChange={(e) => setRefPicking(e.target.checked)} className="accent-emerald-500" />
+              Clique no mapa adiciona ponto
+            </label>
+            <div className="flex items-end gap-1">
+              <div className="flex-1 min-w-0">
+                <EndpointField label="Adicionar ponto" value={refDraft} onChange={setRefDraft} picking={refPicking} onPick={() => setRefPicking(!refPicking)} onFocus={onFocus} />
+              </div>
+              <button
+                className="btn-ghost !px-2 !py-2 mb-[1px]"
+                disabled={!refDraft.point}
+                title="Adicionar à lista"
+                onClick={() => {
+                  addRef(refDraft);
+                  setRefDraft({ text: '', point: null });
+                }}
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+            {refs.length > 0 && (
+              <ul className="rounded-md border border-slate-800 divide-y divide-slate-800 max-h-48 overflow-y-auto">
+                {refs.map((r, i) => (
+                  <li key={i} className="flex items-center gap-1.5 px-2 py-1 text-xs">
+                    <span className="w-5 text-right font-semibold text-emerald-400">{i + 1}</span>
+                    <button className="flex-1 min-w-0 text-left truncate cursor-pointer" onClick={() => onFocus(r.point!)} title="Ver no mapa">
+                      {r.text}
+                      {i === 0 && <span className="text-slate-500"> · início</span>}
+                      {i === refs.length - 1 && refs.length > 1 && <span className="text-slate-500"> · fim</span>}
+                    </button>
+                    <button className="text-slate-400 hover:text-white disabled:opacity-30 cursor-pointer" disabled={i === 0} onClick={() => moveRef(i, -1)} title="Subir">
+                      <ArrowUp size={13} />
+                    </button>
+                    <button className="text-slate-400 hover:text-white disabled:opacity-30 cursor-pointer" disabled={i === refs.length - 1} onClick={() => moveRef(i, 1)} title="Descer">
+                      <ArrowDown size={13} />
+                    </button>
+                    <button className="text-slate-400 hover:text-red-400 cursor-pointer" onClick={() => setRefs((l) => l.filter((_, k) => k !== i))} title="Remover">
+                      <X size={13} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {refs.length > 0 && (
+              <div className="flex gap-1">
+                <button className="btn-ghost !px-2 !py-1 text-xs" disabled={refs.length < 2} onClick={() => setRefs((r) => [...r].reverse())}>
+                  <ArrowDownUp size={13} /> Inverter
+                </button>
+                <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => setRefs([])}>
+                  <Eraser size={13} /> Limpar
+                </button>
+              </div>
+            )}
+            {routeControls}
           </div>
         ) : (
           <div className="space-y-2">
@@ -430,9 +535,7 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
             <div>
               {plan.slacks.length} reserva{plan.slacks.length === 1 ? '' : 's'} técnica{plan.slacks.length === 1 ? '' : 's'}
             </div>
-            {(start.node || end.node) && mode === 'route' && (
-              <div>Conectado em {[start.node?.name, end.node?.name].filter(Boolean).join(' e ')}</div>
-            )}
+            {(ends?.a.node || ends?.b.node) && <div>Conectado em {[ends.a.node?.name, ends.b.node?.name].filter(Boolean).join(' e ')}</div>}
           </div>
         )}
 

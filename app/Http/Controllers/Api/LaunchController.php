@@ -30,16 +30,25 @@ class LaunchController extends Controller
             'from.*' => ['numeric'],
             'to' => ['required', 'array', 'size:2'],
             'to.*' => ['numeric'],
+            // Pontos de referência entre o início e o fim, na ordem: o caminho passa por todos.
+            'via' => ['nullable', 'array', 'max:25'],
+            'via.*' => ['array', 'size:2'],
+            'via.*.*' => ['numeric'],
         ]);
-        $from = [(float) $data['from'][0], (float) $data['from'][1]];
-        $to = [(float) $data['to'][0], (float) $data['to'][1]];
-        foreach ([$from, $to] as $p) {
+        $pt = fn ($p) => [(float) $p[0], (float) $p[1]];
+        $from = $pt($data['from']);
+        $to = $pt($data['to']);
+        // O validador remonta os itens campo a campo: as chaves podem vir fora de ordem.
+        $via = $data['via'] ?? [];
+        ksort($via);
+        $via = array_map($pt, array_values($via));
+        foreach ([$from, $to, ...$via] as $p) {
             if (abs($p[0]) > 90 || abs($p[1]) > 180) {
                 throw ValidationException::withMessages(['from' => 'Coordenada inválida.']);
             }
         }
 
-        return response()->json($routing->route($from, $to));
+        return response()->json($via ? $routing->routeVia([$from, ...$via, $to]) : $routing->route($from, $to));
     }
 
     /**

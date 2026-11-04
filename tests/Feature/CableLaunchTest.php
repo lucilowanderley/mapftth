@@ -94,6 +94,38 @@ class CableLaunchTest extends TestCase
             ->assertOk()->assertJsonPath('source', 'line')->assertJsonCount(2, 'path');
     }
 
+    public function test_route_through_reference_points_in_order(): void
+    {
+        $user = User::factory()->create();
+        $project = $this->project($user);
+        $this->actingAs($user);
+        config(['services.routing.url' => 'http://osrm.test']);
+
+        // Roteador falso: devolve a reta entre os dois pontos pedidos, com um vértice no meio; o 2º trecho falha.
+        Http::fake(function ($request) {
+            preg_match('#driving/([-\d.]+),([-\d.]+);([-\d.]+),([-\d.]+)#', $request->url(), $m);
+            if ((float) $m[2] === -2.441) {
+                return Http::response('erro', 500);
+            }
+            $a = [(float) $m[1], (float) $m[2]];
+            $b = [(float) $m[3], (float) $m[4]];
+
+            return Http::response(['code' => 'Ok', 'routes' => [[
+                'geometry' => ['coordinates' => [$a, [($a[0] + $b[0]) / 2, ($a[1] + $b[1]) / 2], $b]],
+                'legs' => [['steps' => [['distance' => 50, 'name' => 'Avenida Brasil']]]],
+            ]]]);
+        });
+
+        $res = $this->postJson("/api/projects/{$project->id}/launch/route", [
+            'from' => [-2.44, -54.71],
+            'via' => [[-2.441, -54.71]],
+            'to' => [-2.441, -54.712],
+        ])->assertOk();
+        // 1º trecho pela via (3 pontos), 2º em linha reta (o ponto de referência não repete): 4 pontos.
+        $res->assertJsonPath('source', 'mixed')->assertJsonCount(4, 'path')->assertJsonPath('straight_legs', [2])
+            ->assertJsonPath('path.0', [-2.44, -54.71])->assertJsonPath('path.2', [-2.441, -54.71])->assertJsonPath('path.3', [-2.441, -54.712]);
+    }
+
     public function test_road_class_order(): void
     {
         $this->assertSame('br', RoutingService::roadClass('Rodovia Governador Mário Covas', 'BR-101'));

@@ -94,9 +94,9 @@ export const api = {
   createCable: (projectId: number, data: Partial<Cable>) =>
     http.post<Cable>(`/api/projects/${projectId}/cables`, data).then((r) => r.data),
   /** Lançamento de cabo: caminho pela rua entre dois pontos (source 'line' = linha reta, o roteador não respondeu). */
-  launchRoute: (projectId: number, from: LatLng, to: LatLng) =>
+  launchRoute: (projectId: number, from: LatLng, to: LatLng, via: LatLng[] = []) =>
     http
-      .post<LaunchRoute & { options: LaunchRoute[] }>(`/api/projects/${projectId}/launch/route`, { from, to })
+      .post<LaunchRoute & { options: LaunchRoute[]; straight_legs?: number[] }>(`/api/projects/${projectId}/launch/route`, { from, to, ...(via.length ? { via } : {}) })
       .then((r) => r.data),
   /** Lançamento de cabo: cria o cabo com os postes novos e as reservas fixadas nos postes. */
   launchCable: (projectId: number, data: LaunchRequest) =>
