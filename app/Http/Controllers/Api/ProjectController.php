@@ -47,6 +47,9 @@ class ProjectController extends Controller
             'project' => $project,
             'role' => $role,
             'settings' => $project->effectiveSettings(),
+            // Chave do Google Maps do dono do projeto (o navegador precisa dela para pedir os tiles).
+            'google_maps_key' => $project->user?->googleMapsKey(),
+            'google_key_source' => $this->googleKeySource($project),
             'areas' => $project->areas()->orderBy('id')->get(),
             'nodes' => $project->nodes()->orderBy('id')->get(),
             'cables' => $project->cables()->orderBy('id')->get(),
@@ -69,6 +72,24 @@ class ProjectController extends Controller
         $project->delete();
 
         return response()->json(null, 204);
+    }
+
+    /** De onde vem a chave do Google: 'account' (cadastrada pelo dono), 'env' (.env do servidor) ou null. */
+    private function googleKeySource(Project $project): ?string
+    {
+        $owner = $project->user;
+        if (! $owner) {
+            return null;
+        }
+        try {
+            if ($owner->google_maps_key) {
+                return 'account';
+            }
+        } catch (\Illuminate\Contracts\Encryption\DecryptException) {
+            // chave ilegível: cai para o .env
+        }
+
+        return config('services.google_maps.key') ? 'env' : null;
     }
 
     private function validated(Request $request, bool $partial = false): array

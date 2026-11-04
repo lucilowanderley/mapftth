@@ -12,7 +12,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
 #[Fillable(['name', 'email', 'password'])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(['password', 'remember_token', 'google_maps_key'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -28,7 +28,20 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'google_maps_key' => 'encrypted',
         ];
+    }
+
+    /** Chave do Google Maps usada nos projetos deste usuário (a da conta ou a do .env). */
+    public function googleMapsKey(): ?string
+    {
+        try {
+            $own = $this->google_maps_key;
+        } catch (\Illuminate\Contracts\Encryption\DecryptException) {
+            $own = null; // APP_KEY trocada: a chave antiga não abre mais
+        }
+
+        return $own ?: (config('services.google_maps.key') ?: null);
     }
 
     public function equipmentModels(): HasMany

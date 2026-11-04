@@ -4,8 +4,9 @@
  *  - o MOTOR (provedor) em Configurações: OpenStreetMap (padrão), Esri ou Google.
  * As duas escolhas ficam salvas neste navegador.
  *
- * OpenStreetMap e Esri não exigem chave. O Google usa a Map Tiles API oficial e só
- * aparece com GOOGLE_MAPS_KEY no .env (usar os tiles do Google sem chave viola os termos).
+ * OpenStreetMap e Esri não exigem chave. O Google usa a Map Tiles API oficial e precisa de
+ * uma chave: a do dono do projeto (cadastrada em Configurações, guardada criptografada no
+ * servidor) ou GOOGLE_MAPS_KEY no .env. Usar os tiles do Google sem chave viola os termos.
  */
 export interface BaseLayer {
   /** URL dos tiles (vazio nas camadas do Google, montada após criar a sessão). */
@@ -83,9 +84,17 @@ export const STREETS_LAYER = LAYERS.osm.streets;
 export const DEFAULT_ENGINE: MapEngine = 'osm';
 export const DEFAULT_STYLE: MapStyle = 'streets';
 
-/** Motores disponíveis: o Google só com chave configurada. */
-export function availableEngines(hasGoogleKey: boolean): MapEngine[] {
-  return (Object.keys(MAP_ENGINES) as MapEngine[]).filter((e) => hasGoogleKey || !MAP_ENGINES[e].needsKey);
+/** De onde vem a chave do Google do projeto: conta do dono, .env do servidor ou nenhuma. */
+export type GoogleKeySource = 'account' | 'env' | null;
+
+/** Motor que dá para usar agora: o Google sem chave volta para o OpenStreetMap. */
+export function usableEngine(preferred: MapEngine, hasGoogleKey: boolean): MapEngine {
+  return MAP_ENGINES[preferred].needsKey && !hasGoogleKey ? DEFAULT_ENGINE : preferred;
+}
+
+/** Mostra só o começo e o fim da chave (ex.: AIza…x9Q2). */
+export function maskKey(key: string): string {
+  return key.length <= 10 ? '••••' : `${key.slice(0, 4)}…${key.slice(-4)}`;
 }
 
 function load<T extends string>(key: string, allowed: T[], fallback: T): T {
@@ -106,10 +115,72 @@ function save(key: string, value: string) {
   }
 }
 
-export const loadEngine = (available: MapEngine[]) => load('mapftth.mapEngine', available, DEFAULT_ENGINE);
+export const loadEngine = () => load('mapftth.mapEngine', Object.keys(MAP_ENGINES) as MapEngine[], DEFAULT_ENGINE);
 export const saveEngine = (e: MapEngine) => save('mapftth.mapEngine', e);
 export const loadStyle = () => load('mapftth.mapStyle', Object.keys(MAP_STYLES) as MapStyle[], DEFAULT_STYLE);
 export const saveStyle = (s: MapStyle) => save('mapftth.mapStyle', s);
+
+/** Mensagem legível para a recusa do Google (chave errada, API desativada, domínio não liberado...). */
+async function googleError(res: Response): Promise<string> {
+  let detail = '';
+  try {
+    const data = (await res.json()) as { error?: { message?: string; status?: string } };
+    detail = data.error?.message ?? '';
+  } catch {
+    // corpo vazio
+  }
+  const hint =
+    res.status === 403
+      ? 'Confira se a Map Tiles API está ativada, se o faturamento está ligado e se este endereço está liberado nas restrições da chave.'
+      : res.status === 400
+        ? 'Confira se a chave foi copiada inteira.'
+        : 'Tente de novo em instantes.';
+  return `Google Maps recusou a chave (HTTP ${res.status}${detail ? `: ${detail}` : ''}). ${hint}`;
+}
+
+/** Testa a chave criando uma sessão de satélite (não fica em cache). */
+export async function testGoogleKey(key: string): Promise<void> {
+  const res = await fetch(`https://tile.googleapis.com/v1/createSession?key=${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mapType: 'satellite', language: 'pt-BR', region: 'BR' }),
+  }).catch(() => {
+    throw new Error('Não foi possível falar com o Google (sem internet ou bloqueado pela rede).');
+  });
+  if (!res.ok) throw new Error(await googleError(res));
+}
+
+/**
+ * Atribuição exigida pelo Google para a área visível (ex.: "Dados do mapa ©2026 Google, Maxar").
+ * Usa o endpoint viewport da Map Tiles API; devolve null se não responder.
+ */
+export async function googleViewportCopyright(
+  tileUrl: string,
+  zoom: number,
+  b: { north: number; south: number; east: number; west: number },
+): Promise<string | null> {
+  const q = new URL(tileUrl.replace('{z}/{x}/{y}', '0/0/0'));
+  const session = q.searchParams.get('session');
+  const key = q.searchParams.get('key');
+  if (!session || !key) return null;
+  const params = new URLSearchParams({
+    session,
+    key,
+    zoom: String(Math.round(zoom)),
+    north: b.north.toFixed(6),
+    south: b.south.toFixed(6),
+    east: b.east.toFixed(6),
+    west: b.west.toFixed(6),
+  });
+  try {
+    const res = await fetch(`https://tile.googleapis.com/tile/v1/viewport?${params}`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { copyright?: string };
+    return data.copyright ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /** Cria (ou reaproveita) a sessão da Google Map Tiles API e devolve a URL dos tiles. */
 export async function googleTileUrl(layer: BaseLayer, key: string): Promise<string> {
@@ -129,7 +200,7 @@ export async function googleTileUrl(layer: BaseLayer, key: string): Promise<stri
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`Google Maps recusou a chave (HTTP ${res.status}). Verifique se a Map Tiles API está ativada.`);
+    if (!res.ok) throw new Error(await googleError(res));
     const data = (await res.json()) as { session: string; expiry: string };
     session = data.session;
     try {
