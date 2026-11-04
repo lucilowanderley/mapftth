@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { anchorHost, anchorIndex, anchoredOn, attachedTo, cableTargets, cablesAtHost, isAnchored, slacksAtHost, withAnchor } from '../../resources/js/lib/anchor';
+import { anchorHost, anchorIndex, anchoredOn, attachedTo, cableTargets, cablesAtHost, isAnchored, offsetOnPath, onCableNear, slackFixation, slacksAtHost, withAnchor } from '../../resources/js/lib/anchor';
+import { distance } from '../../resources/js/lib/geo';
 import { movePath } from '../../resources/js/lib/move';
 import type { Cable, NetNode } from '../../resources/js/lib/types';
 
@@ -55,8 +56,8 @@ describe('objetos fixados (ancorados) no poste/caixa', () => {
   it('soltar tira a fixação; fixar aponta para o poste/caixa (sem attributes.anchored)', () => {
     expect(withAnchor(cto, false)).toEqual({ fixed_kind: null, fixed_id: null });
     expect(withAnchor(node(15, 'cto', { address: 'x' }), true, box)).toEqual({ address: 'x', fixed_kind: 'box', fixed_id: 2 });
-    expect(withAnchor(cam, false)).toEqual({ mount_id: null });
-    expect(withAnchor(node(16, 'camera'), true, pole)).toEqual({ mount_id: 1 });
+    expect(withAnchor(cam, false)).toEqual({ mount_kind: null, mount_id: null });
+    expect(withAnchor(node(16, 'camera'), true, pole)).toEqual({ mount_kind: 'pole', mount_id: 1 });
   });
 
   it('cabos e reservas no poste', () => {
@@ -75,5 +76,44 @@ describe('mover objeto ancorado (só as pontas)', () => {
     expect(movePath(through, 10, [0, 0], [5, 5], true)).toBe(through.path);
     expect(movePath(through, 10, [0, 0], [5, 5])[1]).toEqual([5, 5]);
     expect(movePath(drop, 10, [0, 0], [5, 5], true)[0]).toEqual([5, 5]);
+  });
+});
+
+describe('fixação no cabo e reservas fixadas', () => {
+  const p = node(1, 'pole', {}, -10, -40);
+  const line = cable(5, [[-9.999, -40], [-10, -40], [-10.001, -40]]);
+
+  it('reserva antiga perto do poste conta como do poste; explícita respeita o tipo', () => {
+    const legacy = { id: 'a', lat: -10, lng: -40, length_m: 10, kind: 'aerial' as const };
+    const onSpan = { ...legacy, id: 'b', fixed_kind: 'cable' as const };
+    const otherPole = { ...legacy, id: 'c', fixed_kind: 'pole' as const, fixed_id: 99 };
+    expect(slackFixation(legacy, [p]).host?.id).toBe(1);
+    expect(slackFixation(onSpan, [p])).toEqual({ kind: 'cable' });
+    expect(slacksAtHost(p, [{ ...line, slacks: [legacy, onSpan, otherPole] }], [p]).map((x) => x.slack.id)).toEqual(['a']);
+  });
+
+  it('CTO e reserva no cabo aparecem do lado certo do poste', () => {
+    const before = node(20, 'cto', { fixed_kind: 'cable', fixed_id: 5 }, -9.9997, -40);
+    const after = node(21, 'ceo', { fixed_kind: 'cable', fixed_id: 5 }, -10.0002, -40);
+    const far = node(22, 'cto', { fixed_kind: 'cable', fixed_id: 5 }, -9.9991, -40);
+    const span = { id: 's', lat: -10.0001, lng: -40, length_m: 15, kind: 'aerial' as const, fixed_kind: 'cable' as const };
+    const items = onCableNear(p, [{ ...line, slacks: [span] }], [p, before, after, far]);
+    expect(items.map((i) => (i.kind === 'node' ? i.node.id : i.slack.id))).toEqual(['s', 21, 20]);
+    expect(items.find((i) => i.kind === 'node' && i.node.id === 20)?.side).toBe('left');
+    expect(items.find((i) => i.kind === 'node' && i.node.id === 21)?.side).toBe('right');
+  });
+
+  it('offsetOnPath anda pelo cabo (e volta se não couber)', () => {
+    const q = offsetOnPath(line.path, [-10, -40], 8);
+    expect(distance(q, [-10, -40])).toBeCloseTo(8, 0);
+    expect(q[0]).toBeLessThan(-10);
+    const back = offsetOnPath(line.path, [-10.001, -40], 8);
+    expect(back[0]).toBeGreaterThan(-10.001);
+  });
+
+  it('câmera na parede não se funde ao poste', () => {
+    const wallCam = node(30, 'camera', { mount_kind: 'wall', mount_id: 1 });
+    expect(anchorHost(wallCam, [p])).toBeUndefined();
+    expect(anchorIndex([p, wallCam]).anchored.has(30)).toBe(false);
   });
 });

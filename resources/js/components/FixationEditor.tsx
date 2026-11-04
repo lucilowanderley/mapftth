@@ -1,21 +1,36 @@
-import { AlertTriangle, Archive, BrickWall, Home, Trees, UtilityPole } from 'lucide-react';
-import { NODE_TYPES } from '../lib/catalog';
+import { AlertTriangle, Archive, BrickWall, Cable as CableIcon, Home, Trees, UtilityPole } from 'lucide-react';
+import { CABLE_CATEGORIES, NODE_TYPES } from '../lib/catalog';
+import { nearestOnPath } from '../lib/connect';
 import { BOX_KINDS, BOX_MODELS, BOX_PLACES, FIX_HOST_TYPE, FIX_KINDS, boxNeedsAddress, boxOf, fixationIssue, fixedOn } from '../lib/fixation';
 import { distance } from '../lib/geo';
-import type { BoxAttributes, BoxKind, BoxPlace, FixAttributes, FixKind, NetNode } from '../lib/types';
+import type { BoxAttributes, BoxKind, BoxPlace, Cable, FixAttributes, FixKind, NetNode } from '../lib/types';
 import { Field, formatLength } from './ui';
 
 const FIX_ICONS: Record<FixKind, React.ReactNode> = {
   pole: <UtilityPole size={16} />,
   wall: <BrickWall size={16} />,
   box: <Archive size={16} />,
+  cable: <CableIcon size={16} />,
 };
+
+/** Cabos perto do ponto, do mais perto ao mais longe (para escolher onde fixar). */
+export function cablesByDistance(at: [number, number], cables: Cable[], max = 40): { c: Cable; d: number }[] {
+  return cables
+    .filter((c) => c.path.length > 1)
+    .map((c) => ({ c, d: nearestOnPath(c.path, at).dist }))
+    .filter((x) => x.d <= max)
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 40);
+}
 
 const segBtn = (on: boolean) =>
   `flex flex-col items-center gap-1 rounded-md border py-1.5 text-[11px] cursor-pointer ${on ? 'border-emerald-500 bg-emerald-600/20 text-emerald-300' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`;
 
-/** Campos "Fixada em" da CTO/CEO: poste, parede (com endereço) ou caixa. */
-export function FixationFields({ node, nodes, value: a, onChange: set }: { node: NetNode; nodes: NetNode[]; value: FixAttributes; onChange: (p: FixAttributes) => void }) {
+/** Campos "Fixada em" da CTO/CEO: poste, parede (com endereço), caixa ou cabo. */
+export function FixationFields({ node, nodes, cables = [], value: a, onChange: set }: { node: NetNode; nodes: NetNode[]; cables?: Cable[]; value: FixAttributes; onChange: (p: FixAttributes) => void }) {
+  const nearCables = a.fixed_kind === 'cable' ? cablesByDistance([node.lat, node.lng], cables) : [];
+  const onCable = a.fixed_kind === 'cable' ? cables.find((c) => c.id === a.fixed_id) : undefined;
+  if (onCable && !nearCables.some((x) => x.c.id === onCable.id)) nearCables.unshift({ c: onCable, d: nearestOnPath(onCable.path, [node.lat, node.lng]).dist });
   const hostType = a.fixed_kind ? FIX_HOST_TYPE[a.fixed_kind] : undefined;
   const hosts = hostType
     ? nodes
@@ -28,13 +43,13 @@ export function FixationFields({ node, nodes, value: a, onChange: set }: { node:
   const hostBox = host?.type === 'box' ? boxOf(host) : undefined;
   const askAddress = a.fixed_kind === 'wall' || (hostBox && boxNeedsAddress(hostBox));
   // Aviso calculado com os valores do formulário (antes de salvar).
-  const issue = fixationIssue({ ...node, attributes: { ...(node.attributes ?? {}), ...a } }, nodes);
+  const issue = fixationIssue({ ...node, attributes: { ...(node.attributes ?? {}), ...a } }, nodes, cables);
 
   return (
     <div className="space-y-2">
       <div>
         <div className="label">Fixada em</div>
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-4 gap-1.5">
           {(Object.keys(FIX_KINDS) as FixKind[]).map((k) => (
             <button
               key={k}
@@ -63,6 +78,19 @@ export function FixationFields({ node, nodes, value: a, onChange: set }: { node:
           </select>
         </Field>
       )}
+      {a.fixed_kind === 'cable' && (
+        <Field label="Cabo">
+          <select className="input" value={onCable ? onCable.id : ''} onChange={(e) => set({ fixed_id: e.target.value ? Number(e.target.value) : undefined })}>
+            <option value="">{nearCables.length ? '— escolha' : '— nenhum cabo a até 40 m'}</option>
+            {nearCables.map(({ c, d }) => (
+              <option key={c.id} value={c.id}>
+                {c.name} · {c.fiber_count}FO · {CABLE_CATEGORIES[c.category].label} · {formatLength(d)}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      {onCable && <div className="text-xs text-slate-400">Ao salvar, vai para cima do traçado do cabo {onCable.name}.</div>}
       {host && (
         <div className="text-xs text-slate-400">
           Fica junto ao ícone {host.type === 'box' ? 'da caixa' : 'do poste'} {host.name} no mapa e se move com {host.type === 'box' ? 'ela' : 'ele'}. Para soltar, escolha Parede.

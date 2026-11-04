@@ -52,3 +52,13 @@ describe('fixação de CTO/CEO', () => {
     expect(nearestHost([0.0005, 0], [far, pole])).toBeUndefined();
   });
 });
+
+describe('CTO/CEO fixada no cabo', () => {
+  const c = { id: 7, name: 'C7', path: [[0, 0], [0, 0.001]] } as unknown as import('../../resources/js/lib/types').Cable;
+  it('precisa do cabo e de estar perto do traçado', () => {
+    expect(fixationIssue(node(10, 'cto', { fixed_kind: 'cable' }), [])).toMatch(/cabo/);
+    expect(fixationIssue(node(10, 'cto', { fixed_kind: 'cable', fixed_id: 7 }), [], [c])).toBeNull();
+    expect(fixationIssue(node(10, 'cto', { fixed_kind: 'cable', fixed_id: 8 }), [], [c])).toMatch(/não existe/);
+    expect(fixationIssue(node(10, 'cto', { fixed_kind: 'cable', fixed_id: 7 }, 0.001, 0), [], [c])).toMatch(/m do cabo C7/);
+  });
+});

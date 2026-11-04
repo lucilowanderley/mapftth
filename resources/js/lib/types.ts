@@ -13,6 +13,12 @@ export interface Slack {
   length_m: number;
   kind: SlackKind;
   notes?: string | null;
+  /** Onde a reserva está fixada (sem valor: num poste/caixa a até 3 m, senão no cabo). */
+  fixed_kind?: FixKind | null;
+  /** Poste ou caixa (fixed_kind pole/box). */
+  fixed_id?: number | null;
+  /** Endereço do imóvel (parede). */
+  address?: string | null;
 }
 
 export interface Settings {
@@ -410,12 +416,12 @@ export interface BoxAttributes extends Record<string, unknown> {
   address?: string;
 }
 
-/** Onde a CTO/CEO está fixada: num poste, numa parede (de um imóvel) ou dentro de uma caixa. */
-export type FixKind = 'pole' | 'wall' | 'box';
+/** Onde a CTO/CEO (ou a reserva técnica) está fixada: poste, parede (de um imóvel), dentro de uma caixa ou no cabo (vão). */
+export type FixKind = 'pole' | 'wall' | 'box' | 'cable';
 
 export interface FixAttributes extends Record<string, unknown> {
   fixed_kind?: FixKind;
-  /** Poste ou caixa onde está fixada (fixed_kind pole/box). */
+  /** Poste ou caixa onde está fixada (fixed_kind pole/box) ou o cabo (fixed_kind cable). */
   fixed_id?: number;
   /** Endereço do imóvel (parede, ou caixa dentro de imóvel). */
   address?: string;
@@ -423,6 +429,7 @@ export interface FixAttributes extends Record<string, unknown> {
 
 /** Câmera: IP (rede), analógica/HD (ligada a um canal de DVR) ou o próprio gravador DVR/NVR. */
 export type CameraKind = 'ip' | 'analog' | 'dvr';
+export type CameraMount = 'pole' | 'wall';
 export type CameraProto = 'rtsp' | 'onvif' | 'http';
 export type CameraPower = 'poe' | 'poe_plus' | 'dc12' | 'ac24' | 'solar' | 'other';
 
@@ -473,8 +480,12 @@ export interface CameraAttributes extends Record<string, unknown> {
   range_m?: number;
   ir_m?: number;
   power?: CameraPower;
-  /** Objeto onde a câmera está instalada: poste, cliente, datacenter ou POP. */
+  /** Câmera fixada num poste ou numa parede (sem valor: deduzido do objeto em mount_id). */
+  mount_kind?: CameraMount;
+  /** Poste (mount_kind pole) ou imóvel da parede: cliente, condomínio, datacenter ou POP. */
   mount_id?: number;
+  /** Endereço do imóvel (parede). */
+  address?: string;
   height_m?: number;
   /** Por onde a câmera chega na rede (CTO, cliente/ONU, POP...). */
   uplink_id?: number;

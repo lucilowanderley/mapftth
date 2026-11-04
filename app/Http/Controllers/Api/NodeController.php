@@ -193,8 +193,8 @@ class NodeController extends Controller
                 'attributes.segment' => ['nullable', Rule::in(NetworkNode::CLIENT_SEGMENTS)],
                 'attributes.rx_dbm' => ['nullable', 'numeric', 'between:-60,10'],
                 'attributes.rx_at' => ['nullable', 'date'],
-                // CTO/CEO: fixada num poste, numa parede ou dentro de uma caixa. Caixa: parede/subterrânea, interna/externa.
-                'attributes.fixed_kind' => ['nullable', Rule::in(['pole', 'wall', 'box'])],
+                // CTO/CEO: fixada num poste, numa parede, dentro de uma caixa ou no cabo (vão). Caixa: parede/subterrânea, interna/externa.
+                'attributes.fixed_kind' => ['nullable', Rule::in(['pole', 'wall', 'box', 'cable'])],
                 'attributes.fixed_id' => ['nullable', 'integer'],
                 'attributes.box_kind' => ['nullable', Rule::in(['wall', 'underground'])],
                 'attributes.box_place' => ['nullable', Rule::in(['internal', 'external'])],
@@ -203,6 +203,8 @@ class NodeController extends Controller
                 'attributes.anchored' => ['nullable', 'boolean'],
                 // Câmera / DVR
                 'attributes.cam_kind' => ['nullable', Rule::in(['ip', 'analog', 'dvr'])],
+                // Câmera fixada em poste ou parede (de um imóvel).
+                'attributes.mount_kind' => ['nullable', Rule::in(['pole', 'wall'])],
                 'attributes.host' => ['nullable', 'string', 'max:253', 'regex:/^(\[?[0-9A-Fa-f:.]+\]?|[A-Za-z0-9.-]+)$/'],
                 'attributes.http_port' => ['nullable', 'integer', 'between:1,65535'],
                 'attributes.rtsp_port' => ['nullable', 'integer', 'between:1,65535'],

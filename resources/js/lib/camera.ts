@@ -1,4 +1,4 @@
-import type { CameraAttributes, CameraKind, CameraPower, CameraProto, CameraStatus, LatLng, NetNode, NodeType } from './types';
+import type { CameraAttributes, CameraKind, CameraMount, CameraPower, CameraProto, CameraStatus, LatLng, NetNode, NodeType } from './types';
 import { sectorPolygon } from './tower';
 
 /** Catálogos e funções da câmera / DVR (sem React), usados também nos testes. */
@@ -25,8 +25,24 @@ export const CAMERA_RESOLUTIONS = ['720p (1 MP)', '1080p (2 MP)', '3 MP', '4 MP 
 /** Canais comuns de DVR/NVR. */
 export const DVR_CHANNELS = [4, 8, 16, 32, 64];
 
-/** Objetos onde a câmera pode ser instalada. */
-export const CAMERA_MOUNT_TYPES: NodeType[] = ['pole', 'client', 'dc', 'pop'];
+/** Objetos onde a câmera pode ser instalada (poste, ou o imóvel da parede). */
+export const CAMERA_MOUNT_TYPES: NodeType[] = ['pole', 'client', 'condo', 'dc', 'pop'];
+/** Imóveis em cuja parede a câmera pode ficar. */
+export const CAMERA_WALL_TYPES: NodeType[] = ['client', 'condo', 'dc', 'pop'];
+
+export const CAMERA_MOUNTS: Record<CameraMount, { label: string; hint: string }> = {
+  pole: { label: 'Poste', hint: 'Presa no poste: fica junto ao ícone dele no mapa e se move com ele' },
+  wall: { label: 'Parede', hint: 'Presa na parede de um imóvel (cliente, condomínio, datacenter, POP ou só o endereço)' },
+};
+
+/** Onde a câmera está fixada: o informado, ou deduzido do objeto em mount_id (antigas). */
+export function cameraMountKind(n: NetNode, nodes: NetNode[]): CameraMount | undefined {
+  const a = cameraOf(n);
+  if (a.mount_kind) return a.mount_kind;
+  const m = a.mount_id ? nodes.find((x) => x.id === a.mount_id) : undefined;
+  if (!m) return undefined;
+  return m.type === 'pole' ? 'pole' : 'wall';
+}
 
 /** Objetos pelos quais a câmera chega na rede. */
 export const CAMERA_UPLINK_TYPES: NodeType[] = ['cto', 'ceo', 'client', 'condo', 'pop', 'dc', 'tower'];

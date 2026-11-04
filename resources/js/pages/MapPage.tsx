@@ -55,7 +55,7 @@ import { viability } from '../lib/analysis';
 import { CAMERA_COLOR, CAMERA_KINDS, CAMERA_MOUNT_TYPES, HEALTH_COLORS, cameraHealth, cameraLinks, cameraOf, fovPolygon } from '../lib/camera';
 import { destination } from '../lib/tower';
 import { BOX_KINDS, BOX_PLACES, FIXABLE_TYPES, fixTo, fixationIssue, nearestHost } from '../lib/fixation';
-import { ANCHOR_HOST_TYPES, SLACK_ON_HOST_M, UNANCHOR_OFFSET_M, anchorHost, anchorIndex, attachedTo, cableTargets, withAnchor } from '../lib/anchor';
+import { ANCHOR_HOST_TYPES, UNANCHOR_OFFSET_M, slackOnHost, anchorHost, anchorIndex, attachedTo, cableTargets, withAnchor } from '../lib/anchor';
 import HostEditor from '../components/HostEditor';
 import { LAYERS, MAP_ENGINES, MAP_STYLES, availableEngines, googleTileUrl, loadEngine, loadStyle, saveEngine, saveStyle, type MapEngine, type MapStyle } from '../lib/basemaps';
 import { appConfig } from '../lib/user';
@@ -191,7 +191,7 @@ export default function MapPage() {
   useEffect(() => setGroupsState(loadGroups(projectId)), [projectId]);
   const grouped = useMemo(() => groupView(groups, nodes, cables), [groups, nodes, cables]);
   /** CTO/CEO com fixação faltando ou incompleta (ponto âmbar no ícone). */
-  const unfixed = useMemo(() => new Set(nodes.filter((n) => fixationIssue(n, nodes)).map((n) => n.id)), [nodes]);
+  const unfixed = useMemo(() => new Set(nodes.filter((n) => fixationIssue(n, nodes, cables)).map((n) => n.id)), [nodes, cables]);
   const showNode = (n: NetNode) => visible[n.type] && !grouped.hiddenNodes.has(n.id);
   const showCable = (c: Cable) => visible[c.category] && !grouped.hiddenCables.has(c.id);
   /** Objetos fixados no poste/caixa: não têm ícone próprio, aparecem fundidos ao do poste/caixa. */
@@ -206,7 +206,7 @@ export default function MapPage() {
     for (const c of cables) {
       if (!c.slacks?.length || !showCable(c)) continue;
       for (const r of c.slacks) {
-        const h = hosts.find((n) => distance([n.lat, n.lng], [r.lat, r.lng]) <= SLACK_ON_HOST_M);
+        const h = hosts.find((n) => slackOnHost(r, n, nodes));
         if (!h) continue;
         hidden.add(r);
         byHost.set(h.id, [...(byHost.get(h.id) ?? []), { cable: c, slack: r }]);
@@ -471,7 +471,7 @@ export default function MapPage() {
         ...(type === 'camera'
           ? {
               ...(cameraKind === 'dvr' ? { name: `DVR-${dvrCount + 1}` } : {}),
-              attributes: { cam_kind: cameraKind, ...(cameraKind === 'dvr' ? { channels: 8 } : {}), ...(mount ? { mount_id: mount.id } : {}) },
+              attributes: { cam_kind: cameraKind, ...(cameraKind === 'dvr' ? { channels: 8 } : {}), ...(mount ? { mount_id: mount.id, mount_kind: mount.type === 'pole' ? 'pole' : 'wall' } : {}) },
             }
           : {}),
       });
@@ -517,6 +517,13 @@ export default function MapPage() {
       // O poste/caixa leva junto os objetos fixados nele (mesma posição; só as pontas dos cabos deles acompanham).
       if (ANCHOR_HOST_TYPES.includes(node.type)) {
         for (const child of attachedTo(node, nodes)) await moveNode(child, at, false, true);
+        // As reservas técnicas fixadas nele também vão junto.
+        for (const c of cables) {
+          if (!c.slacks?.some((r) => slackOnHost(r, node, nodes))) continue;
+          const slacks = c.slacks.map((s) => (slackOnHost(s, node, nodes) ? { ...s, lat: at[0], lng: at[1], fixed_kind: s.fixed_kind ?? (node.type === 'box' ? 'box' : 'pole'), fixed_id: node.id } : s));
+          const fresh = r.cables.find((x) => x.id === c.id) ?? c;
+          await saveSlacks(fresh, slacks);
+        }
       }
       if (record) {
         setLastMove({ id: node.id, from, name: node.name });
@@ -640,6 +647,8 @@ export default function MapPage() {
       length_m: slackDefaults.length,
       kind: slackDefaults.kind,
       notes: onNode ? onNode.name : null,
+      // Lançada sobre um poste/caixa, fica fixada nele; no meio do cabo, fixada no cabo.
+      ...(onNode && ANCHOR_HOST_TYPES.includes(onNode.type) ? { fixed_kind: onNode.type === 'box' ? ('box' as const) : ('pole' as const), fixed_id: onNode.id } : onNode ? {} : { fixed_kind: 'cable' as const }),
     };
     saveSlacks(cable, [...(cable.slacks ?? []), slack], `Reserva ${SLACK_KINDS[slack.kind].label.toLowerCase()} de ${slack.length_m} m em ${cable.name}`);
     setSelection({ kind: 'cable', id: cable.id });
@@ -2138,6 +2147,12 @@ export default function MapPage() {
             setEditorFocus(Date.now());
           }}
           onSlacksChange={(c, list, message) => saveSlacks(c, list, message)}
+          onEditCable={(c) => {
+            // Cabo/drop: painel de propriedades no mapa (o editor do poste fecha).
+            setHostEditorId(null);
+            setSelection({ kind: 'cable', id: c.id });
+            setEditorFocus(Date.now());
+          }}
         />
       )}
       {diagramNode && RACK_HOST_TYPES.includes(diagramNode.type) && (
