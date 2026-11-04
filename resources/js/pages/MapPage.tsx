@@ -144,6 +144,16 @@ function LaunchLayer({ preview, nodes }: { preview: LaunchPreview; nodes: NetNod
       {plan?.points.map((p, i) =>
         slackAt.has(i) ? <CircleMarker key={`ls${i}`} center={p.at} radius={15} interactive={false} pathOptions={{ color: '#f59e0b', weight: 2, dashArray: '3 3', fill: false }} /> : null,
       )}
+      {preview.refs?.map((p, i) => (
+        <CircleMarker key={`lr${i}`} center={p} radius={8} interactive={false} pathOptions={{ color: '#ffffff', weight: 2, fillColor: i === 0 ? '#22c55e' : i === preview.refs!.length - 1 ? '#ef4444' : '#a855f7', fillOpacity: 1 }}>
+          <Tooltip permanent direction="right" offset={[8, 0]} className="!px-1 !py-0 !text-[10px]">
+            {i + 1}
+          </Tooltip>
+        </CircleMarker>
+      ))}
+      {preview.refs && preview.refs.length > 1 && !preview.route && (
+        <Polyline positions={preview.refs} pathOptions={{ color: '#a855f7', weight: 2, dashArray: '2 6' }} interactive={false} />
+      )}
       {preview.start && <CircleMarker center={preview.start} radius={7} interactive={false} pathOptions={{ color: '#ffffff', weight: 2, fillColor: '#22c55e', fillOpacity: 1 }} />}
       {preview.end && <CircleMarker center={preview.end} radius={7} interactive={false} pathOptions={{ color: '#ffffff', weight: 2, fillColor: '#ef4444', fillOpacity: 1 }} />}
     </>
@@ -1042,7 +1052,7 @@ export default function MapPage() {
     tool === 'area'
       ? `Clique para marcar os vértices da área (${areaDraft.length}). Enter ou "Finalizar área" conclui. Esc cancela.`
       : tool === 'launch'
-        ? 'Lançar cabo: escolha os postes (clique neles no mapa) ou marque o início e o fim no painel. Esc volta para Selecionar.'
+        ? 'Lançar cabo: marque o início e o fim, adicione pontos de referência ou escolha os postes (clique no mapa). Esc volta para Selecionar.'
       : tool === 'slack'
         ? 'Clique sobre o cabo (ou no poste/caixa por onde ele passa) para posicionar a reserva técnica. Esc volta para Selecionar.'
         : tool === 'viability'

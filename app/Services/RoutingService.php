@@ -89,6 +89,52 @@ class RoutingService
     }
 
     /**
+     * Caminho passando pelos pontos de referência, na ordem. Cada trecho entre dois pontos segue a mesma
+     * preferência de vias de route(); os trechos são emendados. Um trecho sem resposta fica em linha reta.
+     */
+    public function routeVia(array $points): array
+    {
+        $path = [];
+        $meters = [];
+        $names = [];
+        $sources = [];
+        for ($i = 0; $i < count($points) - 1; $i++) {
+            $leg = $this->route($points[$i], $points[$i + 1]);
+            $sources[] = $leg['source'];
+            $legPath = $leg['path'];
+            if ($path) {
+                array_shift($legPath);
+            }
+            array_push($path, ...$legPath);
+            $roads = $leg['roads'] ?: [['class' => 'rua', 'meters' => round(Geo::pathLength($leg['path']))]];
+            foreach ($roads as $r) {
+                $meters[$r['class']] = ($meters[$r['class']] ?? 0) + $r['meters'];
+            }
+            foreach ($leg['options'][0]['names'] ?? [] as $n) {
+                $names[$n] = true;
+            }
+        }
+        $lines = count(array_filter($sources, fn ($s) => $s === 'line'));
+        $roads = [];
+        foreach (self::CLASSES as $class => $c) {
+            if (($meters[$class] ?? 0) >= 1) {
+                $roads[] = ['class' => $class, 'label' => $c['label'], 'meters' => round($meters[$class])];
+            }
+        }
+
+        return [
+            'source' => $lines === count($sources) ? 'line' : ($lines ? 'mixed' : 'osrm'),
+            'path' => $path,
+            'distance_m' => round(Geo::pathLength($path), 1),
+            'roads' => $lines === count($sources) ? [] : $roads,
+            'names' => array_slice(array_keys($names), 0, 4),
+            'options' => [],
+            // Trechos (entre pontos seguidos) que ficaram em linha reta, contados a partir de 1.
+            'straight_legs' => array_map(fn ($k) => $k + 1, array_keys(array_filter($sources, fn ($s) => $s === 'line'))),
+        ];
+    }
+
+    /**
      * Classe da via pelo número (ref) e pelo nome do trecho.
      * BR-101 → br; RN-063, SP 280 → rodovia; "Rodovia ..." → rodovia; "Estrada ..." → estrada; "Avenida ..." → avenida.
      */
