@@ -92,9 +92,13 @@ A tela tem quatro partes:
 | Onde | O que tem |
 | --- | --- |
 | **Barra lateral (esquerda)** | Nome do projeto, % implantado, seu papel, busca, menu (Meus projetos, Dashboard, Análise de rede, Relatório da rede, Tabela de postes, Equipe, Histórico, Importar KMZ/KML, Exportar KMZ, Configurações) e os totais de POPs, CEOs, CTOs, clientes e metros de cabo. |
-| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, Caixa, POP, Datacenter, Torre, Poste, Cliente, Condomínio, Câmera, Cabo, Lançar cabo, Área, Reserva, Régua, Viabilidade. |
+| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, Caixa, POP, Datacenter, Torre, Poste, Cliente, Condomínio, Câmera, Cabo, Lançar (lançar cabo), Área, Reserva, Régua, Viabilidade. |
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
+
+Quando um painel abre à esquerda do mapa (propriedades do objeto, **Lançar**, **Viabilidade** ou uma área), a barra de
+ferramentas se afasta para a direita dele, para nunca ficar coberta; se não couber numa linha, ela quebra em duas. Ao
+fechar o painel, ela volta ao centro. Se você arrastou a barra para outro lugar, ela fica onde você deixou.
 
 A barra de ferramentas e o painel de camadas podem ser arrastados para outro lugar destravando o **cadeado** (veja
 **Cadeado** mais abaixo).
@@ -519,7 +523,7 @@ O menu do botão direito no cabo também tem **Editar** (abre o painel do cabo),
 
 ### Lançar cabo com postes e reservas
 
-A ferramenta **Lançar cabo** (barra do mapa, ao lado de **Cabo**) cria o cabo já passando pelos postes, cria os
+A ferramenta **Lançar** (barra do mapa, ao lado de **Cabo**) cria o cabo já passando pelos postes, cria os
 postes que faltam e coloca as reservas técnicas fixadas nos postes, tudo de uma vez. Ao escolher a ferramenta abre
 um painel à esquerda. No alto do painel escolha o **Tipo** (Backbone ou Distribuição), o **Modelo** (6 a 144 FO),
 o **Nome** (opcional) e a **Situação**. O painel tem três jeitos de lançar:

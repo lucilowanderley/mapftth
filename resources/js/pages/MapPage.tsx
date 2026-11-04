@@ -99,7 +99,7 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'condo', label: 'Condomínio', icon: <Building2 size={18} /> },
   { id: 'camera', label: 'Câmera', icon: <Cctv size={18} /> },
   { id: 'cable', label: 'Cabo', icon: <CableIcon size={18} /> },
-  { id: 'launch', label: 'Lançar cabo', icon: <LaunchIcon size={18} /> },
+  { id: 'launch', label: 'Lançar', icon: <LaunchIcon size={18} /> },
   { id: 'area', label: 'Área', icon: <Pentagon size={18} /> },
   { id: 'slack', label: 'Reserva', icon: <SlackToolIcon size={18} /> },
   { id: 'ruler', label: 'Régua', icon: <Ruler size={18} /> },
@@ -1048,6 +1048,9 @@ export default function MapPage() {
   }
 
   const overlayOpen = !!(diagramNode || modal || budget || history || report || otdr);
+  /** Painel à esquerda aberto (propriedades, Lançar, Viabilidade, Área): a barra de ferramentas se afasta dele. */
+  const leftPanelOpen =
+    (tool === 'launch' && !readOnly) || tool === 'viability' || !!selectedArea || !!selectedNode || !!selectedCable;
   const deployed = nodes.filter((n) => n.status === 'deployed' || n.status === 'certified').length;
   const pct = nodes.length ? Math.round((deployed / nodes.length) * 100) : 0;
   const hint =
@@ -1647,13 +1650,17 @@ export default function MapPage() {
 
         {/* Barra de ferramentas, com o aviso e o painel de coordenadas empilhados logo abaixo dela */}
         <div
-          className={`absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex flex-col ${toolbarPanel.moved ? 'items-start' : 'items-center'} gap-1.5 pointer-events-none max-w-[calc(100%-1.5rem)]`}
+          className={`absolute top-3 z-[1000] flex flex-col ${toolbarPanel.moved ? 'items-start' : 'items-center'} gap-1.5 pointer-events-none ${
+            // Sem painel à esquerda: centralizada no mapa. Com painel: centralizada no espaço à direita dele (w-80 + margens),
+            // quebrando em duas linhas se não couber, para nunca ficar por baixo do painel.
+            !toolbarPanel.moved && leftPanelOpen ? 'left-[21.5rem] right-3' : 'left-1/2 -translate-x-1/2 max-w-[calc(100%-1.5rem)]'
+          }`}
           style={toolbarPanel.style}
         >
           <div
             ref={toolbarPanel.boxRef}
             onPointerDown={toolbarPanel.onPointerDown}
-            className={`panel flex p-1 gap-0.5 pointer-events-auto ${toolbarPanel.locked ? '' : 'cursor-move !border-amber-500/60'} ${toolbarPanel.dragging ? 'select-none shadow-2xl' : ''}`}
+            className={`panel flex flex-wrap justify-center p-1 gap-0.5 pointer-events-auto ${toolbarPanel.locked ? '' : 'cursor-move !border-amber-500/60'} ${toolbarPanel.dragging ? 'select-none shadow-2xl' : ''}`}
           >
             {TOOLS.filter((t) => !readOnly || READ_TOOLS.includes(t.id)).map((t) => (
               <button
