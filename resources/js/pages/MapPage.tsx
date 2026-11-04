@@ -1651,16 +1651,18 @@ export default function MapPage() {
         {/* Barra de ferramentas, com o aviso e o painel de coordenadas empilhados logo abaixo dela */}
         <div
           className={`absolute top-3 z-[1000] flex flex-col ${toolbarPanel.moved ? 'items-start' : 'items-center'} gap-1.5 pointer-events-none ${
-            // Sem painel à esquerda: centralizada no mapa. Com painel: centralizada no espaço à direita dele (w-80 + margens),
-            // quebrando em duas linhas se não couber, para nunca ficar por baixo do painel.
-            !toolbarPanel.moved && leftPanelOpen ? 'left-[21.5rem] right-3' : 'left-1/2 -translate-x-1/2 max-w-[calc(100%-1.5rem)]'
+            // Sem painel à esquerda: centralizada no mapa. Com painel: centralizada entre ele (w-80 + margens) e o painel de
+            // camadas (w-48, se estiver no lugar padrão), quebrando em duas linhas se não couber, para nunca ficar por baixo.
+            !toolbarPanel.moved && leftPanelOpen
+              ? `left-[21.5rem] ${layersPanel.moved ? 'right-3' : 'right-[13.5rem]'}`
+              : 'left-1/2 -translate-x-1/2 max-w-[calc(100%-1.5rem)]'
           }`}
           style={toolbarPanel.style}
         >
           <div
             ref={toolbarPanel.boxRef}
             onPointerDown={toolbarPanel.onPointerDown}
-            className={`panel flex flex-wrap justify-center p-1 gap-0.5 pointer-events-auto ${toolbarPanel.locked ? '' : 'cursor-move !border-amber-500/60'} ${toolbarPanel.dragging ? 'select-none shadow-2xl' : ''}`}
+            className={`panel flex ${!toolbarPanel.moved && leftPanelOpen ? 'flex-wrap justify-center' : ''} p-1 gap-0.5 pointer-events-auto ${toolbarPanel.locked ? '' : 'cursor-move !border-amber-500/60'} ${toolbarPanel.dragging ? 'select-none shadow-2xl' : ''}`}
           >
             {TOOLS.filter((t) => !readOnly || READ_TOOLS.includes(t.id)).map((t) => (
               <button

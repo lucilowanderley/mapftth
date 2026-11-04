@@ -145,7 +145,8 @@ aparece sempre).
 direito. Com o cadeado **fechado** (padrão) a caixa fica fixa. Clique nele para **abrir**: o cadeado fica amarelo, a
 borda da caixa também, e você pode **arrastar a caixa** para outro lugar do mapa (segure em qualquer ponto dela,
 até sobre um botão, e arraste). Clique de novo para fechar e fixar na nova posição. Ao lado do cadeado aparece
-a **seta circular** (Posição padrão), que devolve a caixa ao lugar original. A posição e o cadeado ficam salvos
+a **seta circular** (Posição padrão), que devolve a caixa ao lugar original; ela só funciona com o cadeado **aberto** (com o cadeado fechado
+fica apagada, para a caixa não sair do lugar sem querer). A posição e o cadeado ficam salvos
 neste navegador (valem para todos os projetos), e a caixa nunca sai da área do mapa, mesmo ao diminuir a janela.
 Quando a barra de ferramentas é movida, os avisos e os campos que aparecem logo abaixo dela vão junto. Se o painel
 da direita for levado para a metade de baixo da tela, a lista de **Elementos** abre para cima.

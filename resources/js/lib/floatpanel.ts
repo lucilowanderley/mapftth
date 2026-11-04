@@ -155,7 +155,10 @@ export function useFloatPanel(id: string) {
     style,
     onPointerDown,
     toggleLock: () => update({ ...state, locked: !state.locked }),
-    reset: () => update({ ...state, pos: null }),
+    /** Volta à posição padrão; só com o cadeado aberto. */
+    reset: () => {
+      if (!state.locked) update({ ...state, pos: null });
+    },
   };
 }
 
