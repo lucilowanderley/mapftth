@@ -552,9 +552,16 @@ Clique em **Lançar cabo**: o cabo fica selecionado e os postes novos entram no 
 situação do cabo. Depois disso é um cabo como qualquer outro: dá para editar o traçado, ligar CTOs com as 3 formas
 acima e mexer nas reservas.
 
-**De onde vem o caminho da rua:** o servidor do MapFTTH consulta o **OSRM** com os dados de ruas do
-**OpenStreetMap** (serviço público e gratuito, sem chave; primeiro o perfil a pé, que não respeita contramão, depois
-o de carro). Se o serviço não responder, o caminho fica em **linha reta** e o painel avisa. Confira o caminho no mapa
+**Preferência de vias:** o caminho prefere as vias nesta ordem: **BR** (rodovias federais), **rodovias** estaduais
+(RN-063, SP-280...), **estradas**, **avenidas** e **ruas**. Cada metro de via tem um peso (BR 1,0; rodovia 1,15;
+estrada 1,3; avenida 1,45; rua 1,6) e vence o caminho de menor soma: um caminho um pouco mais longo pela BR ganha de um
+mais curto por ruas, mas um desvio grande não compensa. Quando há mais de uma opção, o painel lista até 3
+**caminhos** (o primeiro é o recomendado) com a metragem por tipo de via e os nomes das principais (ex.: BR-101,
+Avenida Prudente de Morais). Clique num caminho para trocar; o mapa e os postes acompanham.
+
+**De onde vem o caminho:** o servidor do MapFTTH consulta o **OSRM** com os dados de vias do **OpenStreetMap**
+(serviço público e gratuito, sem chave), pedindo caminhos alternativos ao perfil de carro e ao perfil a pé. O tipo de
+via sai do número e do nome da via no OpenStreetMap. Se o serviço não responder, o caminho fica em **linha reta** e o painel avisa. Confira o caminho no mapa
 antes de lançar: em ruas que não estão no OpenStreetMap ele pode dar volta. Quem tiver um servidor OSRM próprio pode
 apontar para ele com `ROUTING_URL` no `.env`.
 

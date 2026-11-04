@@ -20,6 +20,15 @@ export function errorMessage(error: unknown): string {
   return e.response?.data?.message ?? 'Algo deu errado. Tente novamente.';
 }
 
+/** Caminho pelas vias: metros por classe (BR, rodovias, estradas, avenidas, ruas) e nomes das vias principais. */
+export interface LaunchRoute {
+  source: string;
+  path: LatLng[];
+  distance_m: number;
+  roads: { class: 'br' | 'rodovia' | 'estrada' | 'avenida' | 'rua'; label: string; meters: number }[];
+  names?: string[];
+}
+
 export interface LaunchRequest {
   cable: Pick<Cable, 'category' | 'fiber_count' | 'fibers_per_tube'> & Partial<Pick<Cable, 'name' | 'model' | 'status' | 'color' | 'width'>>;
   points: { pole_id?: number; new_pole?: boolean; lat?: number; lng?: number }[];
@@ -67,7 +76,7 @@ export const api = {
   /** Lançamento de cabo: caminho pela rua entre dois pontos (source 'line' = linha reta, o roteador não respondeu). */
   launchRoute: (projectId: number, from: LatLng, to: LatLng) =>
     http
-      .post<{ source: string; path: LatLng[]; distance_m: number }>(`/api/projects/${projectId}/launch/route`, { from, to })
+      .post<LaunchRoute & { options: LaunchRoute[] }>(`/api/projects/${projectId}/launch/route`, { from, to })
       .then((r) => r.data),
   /** Lançamento de cabo: cria o cabo com os postes novos e as reservas fixadas nos postes. */
   launchCable: (projectId: number, data: LaunchRequest) =>

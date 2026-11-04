@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Project;
 use App\Models\User;
+use App\Services\RoutingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -60,21 +61,47 @@ class CableLaunchTest extends TestCase
         $this->assertSame(0, $project->cables()->count());
     }
 
-    public function test_route_follows_street_or_falls_back_to_straight_line(): void
+    public function test_route_prefers_br_then_rodovias_and_falls_back_to_straight_line(): void
     {
         $user = User::factory()->create();
         $project = $this->project($user);
         $this->actingAs($user);
 
+        config(['services.routing.url' => null]);
+        $route = fn (array $coords, array $steps) => [
+            'geometry' => ['coordinates' => $coords],
+            'legs' => [['steps' => array_map(fn ($s) => ['distance' => $s[0], 'name' => $s[1], 'ref' => $s[2] ?? null], $steps)]],
+        ];
+        // Pelas ruas é mais curto, mas pela BR compensa: 1100 m de BR vale mais que 1000 m de rua.
+        $streets = $route([[-54.71, -2.44], [-54.71, -2.449]], [[1000, 'Rua das Flores']]);
+        $br = $route([[-54.71, -2.44], [-54.7125, -2.4445], [-54.71, -2.449]], [[944, 'Rodovia Santarém-Cuiabá', 'BR-163'], [200, 'Avenida Brasil']]);
         $down = false;
-        Http::fake(function () use (&$down) { return $down ? Http::response('erro', 500) : Http::response(['code' => 'Ok', 'routes' => [[
-            'geometry' => ['coordinates' => [[-54.71, -2.44], [-54.71, -2.441], [-54.711, -2.441]]],
-        ]]]); });
-        $this->postJson("/api/projects/{$project->id}/launch/route", ['from' => [-2.44, -54.71], 'to' => [-2.441, -54.711]])
-            ->assertOk()->assertJsonPath('source', 'osrm-foot')->assertJsonCount(3, 'path');
+        Http::fake(function ($request) use (&$down, $streets, $br) {
+            if ($down || str_contains($request->url(), 'routed-foot')) {
+                return Http::response('erro', 500);
+            }
+
+            return Http::response(['code' => 'Ok', 'routes' => [$streets, $br]]);
+        });
+        $res = $this->postJson("/api/projects/{$project->id}/launch/route", ['from' => [-2.44, -54.71], 'to' => [-2.449, -54.71]])->assertOk();
+        $res->assertJsonPath('source', 'osrm-car')->assertJsonCount(3, 'path')->assertJsonCount(2, 'options')
+            ->assertJsonPath('roads.0.class', 'br')->assertJsonPath('roads.0.meters', 944)
+            ->assertJsonPath('roads.1.class', 'avenida')->assertJsonPath('options.1.roads.0.class', 'rua')
+            ->assertJsonPath('options.0.names.0', 'BR-163');
 
         $down = true;
         $this->postJson("/api/projects/{$project->id}/launch/route", ['from' => [-2.5, -54.7], 'to' => [-2.51, -54.7]])
             ->assertOk()->assertJsonPath('source', 'line')->assertJsonCount(2, 'path');
+    }
+
+    public function test_road_class_order(): void
+    {
+        $this->assertSame('br', RoutingService::roadClass('Rodovia Governador Mário Covas', 'BR-101'));
+        $this->assertSame('br', RoutingService::roadClass('BR-304', null));
+        $this->assertSame('rodovia', RoutingService::roadClass('', 'RN-063'));
+        $this->assertSame('rodovia', RoutingService::roadClass('Rodovia dos Bandeirantes', null));
+        $this->assertSame('estrada', RoutingService::roadClass('Estrada da Redinha', null));
+        $this->assertSame('avenida', RoutingService::roadClass('Avenida Prudente de Morais', null));
+        $this->assertSame('rua', RoutingService::roadClass('Rua Apodi', null));
     }
 }
