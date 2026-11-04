@@ -60,7 +60,7 @@ const groupBadge = (count: number) =>
   `<div class="group-badge" style="position:absolute;right:-9px;top:-9px;min-width:17px;height:17px;padding:0 4px;border-radius:9999px;background:#facc15;color:#0f172a;border:1.5px solid #0f172a;font:700 10px/14px system-ui,sans-serif;text-align:center;pointer-events:none;box-shadow:0 1px 2px rgba(0,0,0,.5)">+${count > 999 ? '999' : count}</div>`;
 
 /**
- * Objetos ancorados no poste/caixa: faixa escura grudada à direita do ícone, com os mini ícones de cada
+ * Objetos fixados no poste/caixa: faixa escura grudada à direita do ícone, com os mini ícones de cada
  * objeto e das reservas técnicas guardadas ali (até 4) e "+N" para o resto. Faz parte do mesmo marcador, então clicar nela seleciona o poste/caixa.
  */
 const MINI = 15;

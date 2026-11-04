@@ -1,13 +1,15 @@
+import { anchorIndex } from './anchor';
 import type { Cable, NetNode, NodeType } from './types';
 
 /**
- * Agrupamento no mapa: um objeto "agrupado" esconde tudo o que está à frente dele (a jusante)
- * pelos cabos de saída e derivações. Os membros não ficam gravados, são calculados pelos cabos,
+ * Agrupamento no mapa: um objeto "agrupado" esconde tudo o que está à frente dele
+ * pelos cabos de saída e derivações. Poste/caixa e os objetos fixados nele (CTO/CEO/câmera) contam
+ * como um ponto só: os cabos da CTO fixada no poste valem para o poste, e vice-versa. Os membros não ficam gravados, são calculados pelos cabos,
  * então o que for ligado depois entra sozinho no grupo. Só a lista de objetos agrupados é salva
  * (neste navegador, por projeto), porque agrupar muda apenas a visualização.
  */
 
-/** Objetos de onde a rede parte (o sentido "a jusante" é para longe deles). */
+/** Objetos de onde a rede parte (o sentido "à frente" é para longe deles). */
 const ROOT_TYPES: NodeType[] = ['pop', 'dc', 'tower'];
 
 export interface Downstream {
@@ -18,9 +20,13 @@ export interface Downstream {
 interface Edge {
   cable: Cable;
   other: number | null;
+  /** O cabo termina (to_node_id) neste ponto. */
+  incoming: boolean;
 }
 
-function adjacency(cables: Cable[]) {
+type Alias = (id: number | null) => number | null;
+
+function adjacency(cables: Cable[], alias: Alias) {
   const adj = new Map<number, Edge[]>();
   const add = (id: number | null, e: Edge) => {
     if (id === null) return;
@@ -29,9 +35,11 @@ function adjacency(cables: Cable[]) {
     else adj.set(id, [e]);
   };
   for (const c of cables) {
-    if (c.from_node_id !== null && c.from_node_id === c.to_node_id) continue;
-    add(c.from_node_id, { cable: c, other: c.to_node_id });
-    add(c.to_node_id, { cable: c, other: c.from_node_id });
+    const from = alias(c.from_node_id);
+    const to = alias(c.to_node_id);
+    if (from !== null && from === to) continue;
+    add(from, { cable: c, other: to, incoming: false });
+    add(to, { cable: c, other: from, incoming: true });
   }
   return adj;
 }
@@ -66,21 +74,25 @@ function distanceFromRoots(nodes: NetNode[], adj: Map<number, Edge[]>): Map<numb
 
 /** Contexto calculado uma vez por rede, reaproveitado para vários grupos. */
 export function groupContext(nodes: NetNode[], cables: Cable[]) {
-  const adj = adjacency(cables);
-  return { adj, dist: distanceFromRoots(nodes, adj) };
+  const { hostOf, byHost } = anchorIndex(nodes);
+  const alias: Alias = (id) => (id === null ? null : (hostOf.get(id)?.id ?? id));
+  const adj = adjacency(cables, alias);
+  return { adj, dist: distanceFromRoots(nodes, adj), alias, byHost };
 }
 
 export type GroupContext = ReturnType<typeof groupContext>;
 
 /**
- * Objetos e cabos a jusante de `rootId`.
+ * Objetos e cabos à frente de `id` (objeto fixado num poste/caixa: à frente do poste/caixa).
  * - Rede ligada a um POP/Datacenter/Torre: segue só para objetos cada vez mais longe da origem
  *   (o cabo de chegada e os anéis de volta ficam fora).
  * - Rede sem origem: o cabo de chegada é o que termina no objeto (to_node_id); os demais são saídas.
  * - POP/Datacenter/Torre agrupado: esconde tudo o que sai dele.
  */
-export function downstreamOf(rootId: number, ctx: GroupContext): Downstream {
-  const { adj, dist } = ctx;
+export function downstreamOf(id: number, ctx: GroupContext): Downstream {
+  const { adj, dist, byHost } = ctx;
+  // Objeto fixado num poste/caixa: agrupa a partir do poste/caixa.
+  const rootId = ctx.alias(id) ?? id;
   const out: Downstream = { nodes: new Set(), cables: new Set() };
   const rootDist = dist.get(rootId);
   const rooted = rootDist !== undefined;
@@ -97,13 +109,15 @@ export function downstreamOf(rootId: number, ctx: GroupContext): Downstream {
           const dv = dist.get(e.other);
           if (dv === undefined || du === undefined || dv <= du) continue;
         }
-      } else if (u === rootId && e.cable.to_node_id === rootId && e.other !== null) {
+      } else if (u === rootId && e.incoming && e.other !== null) {
         continue; // cabo de chegada
       }
       out.cables.add(e.cable.id);
       if (e.other === null || visited.has(e.other)) continue;
       visited.add(e.other);
       out.nodes.add(e.other);
+      // O que está fixado no poste/caixa à frente some junto com ele.
+      for (const ch of byHost.get(e.other) ?? []) out.nodes.add(ch.id);
       stack.push(e.other);
     }
   }
@@ -128,7 +142,10 @@ export function groupView(groups: number[], nodes: NetNode[], cables: Cable[]): 
     const d = downstreamOf(g, ctx);
     d.nodes.forEach((n) => view.hiddenNodes.add(n));
     d.cables.forEach((c) => view.hiddenCables.add(c));
+    // Grupo de um objeto fixado: o selo aparece no poste/caixa (que é quem tem ícone no mapa).
+    const at = ctx.alias(g) ?? g;
     view.counts.set(g, d.nodes.size);
+    if (at !== g) view.counts.set(at, Math.max(view.counts.get(at) ?? 0, d.nodes.size));
   }
   return view;
 }

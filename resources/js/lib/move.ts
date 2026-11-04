@@ -6,7 +6,7 @@ const same = (a: LatLng, b: LatLng) => Math.abs(a[0] - b[0]) < 1e-8 && Math.abs(
  * Traçado de um cabo depois de mover o objeto `nodeId` de `from` para `to`.
  * Acompanham o movimento: as pontas ligadas ao objeto e os vértices que passam
  * exatamente por ele (ex.: cabo apoiado num poste). Pontas ligadas a outro objeto
- * nunca se movem. endsOnly: só as pontas ligadas (objeto ancorado num poste/caixa; os cabos que passam
+ * nunca se movem. endsOnly: só as pontas ligadas (objeto fixado num poste/caixa; os cabos que passam
  * pelo poste ficam nele). Mesma regra do servidor (NodeController@update).
  */
 export function movePath(cable: Cable, nodeId: number, from: LatLng, to: LatLng, endsOnly = false): LatLng[] {

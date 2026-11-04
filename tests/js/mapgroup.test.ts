@@ -46,3 +46,31 @@ describe('agrupamento no mapa', () => {
     expect([...v.hiddenNodes].sort()).toEqual([4, 5, 7]);
   });
 });
+
+describe('agrupar com CTO fixada no poste', () => {
+  // POP 1 → poste 2 (CTO 3 fixada nele; o cabo chega na CTO) → clientes 4 e 5 (drops saem da CTO).
+  const at = (id: number, type: NodeType, attributes: Record<string, unknown> | null = null) => ({ ...node(id, type), attributes }) as NetNode;
+  const net = [at(1, 'pop'), at(2, 'pole'), at(3, 'cto', { fixed_kind: 'pole', fixed_id: 2 }), at(4, 'client'), at(5, 'client')];
+  const links = [cable(20, 1, 3), cable(21, 3, 4, 30), cable(22, 3, 5, 30)];
+
+  it('o poste agrupa o que sai da CTO fixada nele', () => {
+    const ctx = groupContext(net, links);
+    expect([...downstreamOf(2, ctx).nodes].sort()).toEqual([4, 5]);
+    // Agrupar pela própria CTO dá o mesmo resultado.
+    expect([...downstreamOf(3, ctx).nodes].sort()).toEqual([4, 5]);
+  });
+
+  it('o selo aparece no poste e a CTO de um poste à frente some junto', () => {
+    expect(groupView([2], net, links).counts.get(2)).toBe(2);
+    expect(groupView([3], net, links).counts.get(2)).toBe(2);
+    const far = [...net, at(6, 'pole'), at(7, 'cto', { fixed_kind: 'pole', fixed_id: 6 })];
+    const v = groupView([2], far, [...links, cable(23, 3, 7)]);
+    expect([...v.hiddenNodes].sort()).toEqual([4, 5, 6, 7]);
+  });
+
+  it('sem POP, o cabo que chega na CTO fixada conta como chegada no poste', () => {
+    const noPop = net.filter((n) => n.type !== 'pop');
+    const d = downstreamOf(2, groupContext(noPop, [cable(30, 9, 3), ...links.slice(1)]));
+    expect([...d.nodes].sort()).toEqual([4, 5]);
+  });
+});

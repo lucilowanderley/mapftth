@@ -104,14 +104,3 @@ export function nearestHost(at: LatLng, nodes: NetNode[], maxM = AUTO_FIX_M): Ne
 export function fixTo(host: NetNode): FixAttributes {
   return { fixed_kind: host.type === 'box' ? 'box' : 'pole', fixed_id: host.id };
 }
-
-/** Linhas tracejadas no mapa: CTO/CEO → poste ou caixa onde está fixada. */
-export function fixLinks(nodes: NetNode[]): { key: string; from: NetNode; to: NetNode }[] {
-  const out: { key: string; from: NetNode; to: NetNode }[] = [];
-  for (const n of nodes) {
-    if (!FIXABLE_TYPES.includes(n.type)) continue;
-    const host = fixHost(n, nodes);
-    if (host) out.push({ key: `f${n.id}`, from: n, to: host });
-  }
-  return out;
-}

@@ -9,7 +9,7 @@ const node = (id: number, type: NetNode['type'], attributes: Record<string, unkn
 const cable = (id: number, path: [number, number][], from: number | null = null, to: number | null = null, extra: Partial<Cable> = {}): Cable =>
   ({ id, project_id: 1, name: `C${id}`, path, from_node_id: from, to_node_id: to, category: 'distribution', fiber_count: 12, color: '#0ea5e9', slacks: [], ...extra }) as Cable;
 
-describe('objetos ancorados no poste/caixa', () => {
+describe('objetos fixados (ancorados) no poste/caixa', () => {
   const pole = node(1, 'pole', {}, -10, -40);
   const box = node(2, 'box', {}, -10.001, -40);
   const cto = node(10, 'cto', { fixed_kind: 'pole', fixed_id: 1, anchored: true }, -10, -40);
@@ -26,33 +26,37 @@ describe('objetos ancorados no poste/caixa', () => {
     expect(anchorHost(inBox, nodes)?.id).toBe(2);
     expect(anchorHost(camOnClient, nodes)).toBeUndefined();
     expect(isAnchored(camOnClient, nodes)).toBe(false);
-    expect(isAnchored(ceo, nodes)).toBe(false);
+    // Fixar = ancorar: o antigo attributes.anchored não importa.
+    expect(isAnchored(ceo, nodes)).toBe(true);
     expect(isAnchored(cto, nodes)).toBe(true);
   });
 
-  it('poste segura vários objetos; separa ancorados e soltos', () => {
+  it('poste segura vários objetos, todos fundidos ao ícone dele', () => {
     expect(attachedTo(pole, nodes).map((n) => n.id)).toEqual([10, 11, 12]);
-    expect(anchoredOn(pole, nodes).map((n) => n.id)).toEqual([10, 12]);
+    expect(anchoredOn(pole, nodes).map((n) => n.id)).toEqual([10, 11, 12]);
     expect(anchoredOn(box, nodes).map((n) => n.id)).toEqual([13]);
     expect(attachedTo(cto, nodes)).toEqual([]);
   });
 
   it('índice para o mapa: quem some e quem aparece fundido em cada poste/caixa', () => {
     const idx = anchorIndex(nodes);
-    expect([...idx.anchored].sort()).toEqual([10, 12, 13]);
-    expect(idx.byHost.get(1)?.map((n) => n.id)).toEqual([10, 12]);
+    expect([...idx.anchored].sort()).toEqual([10, 11, 12, 13]);
+    expect(idx.byHost.get(1)?.map((n) => n.id)).toEqual([10, 11, 12]);
     expect(idx.hostOf.get(13)?.id).toBe(2);
     // Poste apagado: o objeto volta a ter ícone próprio.
     expect(anchorIndex(nodes.filter((n) => n.id !== 1)).anchored.has(10)).toBe(false);
   });
 
-  it('cabo clicado no poste liga na CTO/CEO ancorada (câmera não conta)', () => {
-    expect(cableTargets(pole, nodes).map((n) => n.id)).toEqual([10]);
+  it('cabo clicado no poste liga na CTO/CEO fixada (câmera não conta)', () => {
+    expect(cableTargets(pole, nodes).map((n) => n.id)).toEqual([10, 11]);
     expect(cableTargets(node(3, 'pole'), nodes)).toEqual([]);
   });
 
-  it('desancorar/ancorar só mexe em attributes.anchored', () => {
-    expect(withAnchor(cto, false)).toEqual({ fixed_kind: 'pole', fixed_id: 1, anchored: false });
+  it('soltar tira a fixação; fixar aponta para o poste/caixa (sem attributes.anchored)', () => {
+    expect(withAnchor(cto, false)).toEqual({ fixed_kind: null, fixed_id: null });
+    expect(withAnchor(node(15, 'cto', { address: 'x' }), true, box)).toEqual({ address: 'x', fixed_kind: 'box', fixed_id: 2 });
+    expect(withAnchor(cam, false)).toEqual({ mount_id: null });
+    expect(withAnchor(node(16, 'camera'), true, pole)).toEqual({ mount_id: 1 });
   });
 
   it('cabos e reservas no poste', () => {

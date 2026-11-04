@@ -4,11 +4,12 @@ import { distance } from './geo';
 import type { Cable, LatLng, NetNode, NodeType, Slack } from './types';
 
 /**
- * Objetos ancorados num poste ou numa caixa (sem React, usado também nos testes).
+ * Objetos fixados num poste ou numa caixa (sem React, usado também nos testes).
  *
- * CTO/CEO fixadas num poste/caixa e câmeras instaladas num poste podem ficar "ancoradas": ficam na mesma
- * posição do poste/caixa, o ícone some do mapa e aparece fundido ao do poste/caixa, e só se movem junto
- * com ele. Para soltar e mover sozinho é preciso desancorar. Tudo em `attributes.anchored` (sem migração).
+ * Fixar e ancorar são a mesma coisa: CTO/CEO com "Fixada em" um poste/caixa e câmera "Instalada em" um poste
+ * ficam na mesma posição do poste/caixa, o ícone aparece fundido ao dele e só se movem junto com ele.
+ * Para mover sozinho é preciso soltar (CTO/CEO: Parede ou sem fixação; câmera: sem poste).
+ * O antigo `attributes.anchored` não é mais usado.
  */
 
 /** Objetos que recebem outros ancorados. */
@@ -20,7 +21,7 @@ export const ANCHOR_CHILD_TYPES: Record<'pole' | 'box', NodeType[]> = {
   box: ['cto', 'ceo'],
 };
 
-/** Afastamento (m) do objeto desancorado, para o ícone sair de cima do poste/caixa (para baixo/oeste: a faixa dos ancorados fica à direita). */
+/** Afastamento (m) do objeto solto do poste/caixa, para o ícone sair de cima do poste/caixa (para baixo/oeste: a faixa dos ancorados fica à direita). */
 export const UNANCHOR_OFFSET_M = 12;
 /** Reservas técnicas até essa distância (m) contam como "no poste/caixa". */
 export const SLACK_ON_HOST_M = 3;
@@ -38,30 +39,27 @@ export function anchorHost(n: NetNode, nodes: NetNode[]): NetNode | undefined {
   return undefined;
 }
 
-/** O objeto está ancorado (marcado e o poste/caixa ainda existe). */
+/** O objeto está fixado num poste/caixa que ainda existe (ícone fundido ao dele). */
 export function isAnchored(n: NetNode, nodes: NetNode[]): boolean {
-  return n.attributes?.anchored === true && !!anchorHost(n, nodes);
+  return !!anchorHost(n, nodes);
 }
 
-/** Tudo o que está preso ao poste/caixa (ancorado ou não), na ordem de criação. */
+/** Tudo o que está fixado no poste/caixa, na ordem de criação. */
 export function attachedTo(host: NetNode, nodes: NetNode[]): NetNode[] {
   if (!ANCHOR_HOST_TYPES.includes(host.type)) return [];
   return nodes.filter((n) => n.id !== host.id && anchorHost(n, nodes)?.id === host.id).sort((a, b) => a.id - b.id);
 }
 
-/** Só os ancorados no poste/caixa (os que se fundem ao ícone dele). */
-export function anchoredOn(host: NetNode, nodes: NetNode[]): NetNode[] {
-  return attachedTo(host, nodes).filter((n) => n.attributes?.anchored === true);
-}
+/** Os fixados no poste/caixa (todos se fundem ao ícone dele). */
+export const anchoredOn = attachedTo;
 
-/** Mapa poste/caixa → objetos ancorados, e o conjunto de ids ancorados (que não ganham ícone próprio). */
+/** Mapa poste/caixa → objetos fixados, e o conjunto de ids fixados (que não ganham ícone próprio). */
 export function anchorIndex(nodes: NetNode[]): { byHost: Map<number, NetNode[]>; anchored: Set<number>; hostOf: Map<number, NetNode> } {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const byHost = new Map<number, NetNode[]>();
   const anchored = new Set<number>();
   const hostOf = new Map<number, NetNode>();
   for (const n of nodes) {
-    if (n.attributes?.anchored !== true) continue;
     let host: NetNode | undefined;
     if (n.type === 'cto' || n.type === 'ceo') {
       const a = fixationOf(n);
@@ -80,8 +78,16 @@ export function anchorIndex(nodes: NetNode[]): { byHost: Map<number, NetNode[]>;
   return { byHost, anchored, hostOf };
 }
 
-/** Atributos ao ancorar/desancorar (o resto de `attributes` continua igual). */
-export const withAnchor = (n: NetNode, on: boolean): Record<string, unknown> => ({ ...(n.attributes ?? {}), anchored: on });
+/**
+ * Atributos ao fixar no poste/caixa `host` (on) ou soltar (o resto de `attributes` continua igual).
+ * CTO/CEO solta fica sem fixação (aviso âmbar até escolher parede, poste ou caixa); câmera fica sem poste.
+ */
+export function withAnchor(n: NetNode, on: boolean, host?: NetNode): Record<string, unknown> {
+  const { anchored: _old, ...rest } = (n.attributes ?? {}) as Record<string, unknown>;
+  if (n.type === 'camera') return { ...rest, mount_id: on && host ? host.id : null };
+  if (on && host) return { ...rest, fixed_kind: host.type === 'box' ? 'box' : 'pole', fixed_id: host.id };
+  return { ...rest, fixed_kind: null, fixed_id: null };
+}
 
 /** Cabos com ponta no objeto ou que passam pelo poste/caixa. */
 export function cablesAtHost(host: NetNode, cables: Cable[], ids: number[] = []): Cable[] {
@@ -99,8 +105,8 @@ export function slacksAtHost(host: NetNode, cables: Cable[]): { cable: Cable; sl
 }
 
 /**
- * Ponta de cabo ao clicar (ou soltar) num poste/caixa com objetos ancorados: se houver uma única CTO/CEO
- * ancorada, o cabo liga nela (é o que se quer quase sempre); com várias, quem chama pergunta qual.
+ * Ponta de cabo ao clicar (ou soltar) num poste/caixa com objetos fixados: se houver uma única CTO/CEO
+ * fixada, o cabo liga nela (é o que se quer quase sempre); com várias, quem chama pergunta qual.
  */
 export function cableTargets(host: NetNode, nodes: NetNode[]): NetNode[] {
   return anchoredOn(host, nodes).filter((n) => n.type === 'cto' || n.type === 'ceo');

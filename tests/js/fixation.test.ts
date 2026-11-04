@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boxNeedsAddress, fixLinks, fixTo, fixationIssue, fixedAddress, fixedOn, nearestHost } from '../../resources/js/lib/fixation';
+import { boxNeedsAddress, fixTo, fixationIssue, fixedAddress, fixedOn, nearestHost } from '../../resources/js/lib/fixation';
 import type { NetNode } from '../../resources/js/lib/types';
 
 const node = (id: number, type: NetNode['type'], attributes: Record<string, unknown> = {}, lat = 0, lng = 0): NetNode => ({
@@ -40,14 +40,13 @@ describe('fixação de CTO/CEO', () => {
     expect(boxNeedsAddress({ box_kind: 'wall' })).toBe(true);
   });
 
-  it('conteúdo da caixa, poste mais próximo e linhas no mapa', () => {
+  it('conteúdo da caixa e poste mais próximo', () => {
     const a = node(10, 'cto', fixTo(street));
     const b = node(11, 'ceo', fixTo(street));
     const c = node(12, 'cto', fixTo(pole));
     const all = [...nodes, a, b, c];
     expect(fixedOn(street, all).map((n) => n.id)).toEqual([10, 11]);
     expect(fixedOn(pole, all).map((n) => n.id)).toEqual([12]);
-    expect(fixLinks(all).map((l) => l.to.id)).toEqual([2, 2, 1]);
     const far = node(20, 'pole', {}, 0.001, 0); // ~110 m
     expect(nearestHost([0.00003, 0], [far, pole])?.id).toBe(1);
     expect(nearestHost([0.0005, 0], [far, pole])).toBeUndefined();

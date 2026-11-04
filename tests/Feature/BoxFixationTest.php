@@ -76,4 +76,28 @@ class BoxFixationTest extends TestCase
 
         $this->putJson("/api/nodes/{$cto['id']}", ['attributes' => ['anchored' => 'talvez']])->assertUnprocessable();
     }
+
+    public function test_migration_snaps_loose_fixed_objects_to_their_pole(): void
+    {
+        $user = User::factory()->create();
+        $project = $this->project($user);
+        $pole = $project->nodes()->create(['type' => 'pole', 'name' => 'P-1', 'lat' => 0, 'lng' => 0, 'status' => 'planned']);
+        $loose = $project->nodes()->create(['type' => 'cto', 'name' => 'CTO-1', 'lat' => 0.0001, 'lng' => 0.0001, 'status' => 'planned',
+            'attributes' => ['fixed_kind' => 'pole', 'fixed_id' => $pole->id, 'anchored' => false]]);
+        $wall = $project->nodes()->create(['type' => 'cto', 'name' => 'CTO-2', 'lat' => 0.0002, 'lng' => 0, 'status' => 'planned',
+            'attributes' => ['fixed_kind' => 'wall', 'address' => 'Rua A']]);
+        $cable = $project->cables()->create(['name' => 'C1', 'category' => 'distribution', 'fiber_count' => 12,
+            'path' => [[0.001, 0.001], [0.0001, 0.0001]], 'to_node_id' => $loose->id]);
+        $through = $project->cables()->create(['name' => 'C2', 'category' => 'distribution', 'fiber_count' => 12,
+            'path' => [[0.001, 0], [0.0001, 0.0001], [-0.001, 0]]]);
+
+        (require database_path('migrations/2026_11_04_000100_snap_fixed_objects_to_host.php'))->up();
+
+        $loose->refresh();
+        $this->assertSame([0.0, 0.0], [$loose->lat, $loose->lng]);
+        $this->assertArrayNotHasKey('anchored', $loose->getAttribute('attributes'));
+        $this->assertEquals([0, 0], $cable->refresh()->path[1]);
+        $this->assertEquals([0.0001, 0.0001], $through->refresh()->path[1]);
+        $this->assertSame(0.0002, $wall->refresh()->lat);
+    }
 }
