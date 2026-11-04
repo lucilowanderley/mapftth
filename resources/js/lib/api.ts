@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { Activity, Area, CameraStatus, Cable, EquipmentModel, LatLng, Member, NetNode, Project, Role, Settings } from './types';
+import type { GoogleKeySource } from './basemaps';
 
 export const http = axios.create({
   headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
@@ -40,6 +41,9 @@ export const api = {
     return http.post<EquipmentModel>(`/api/equipment-models/${id}/image`, fd).then((r) => r.data);
   },
   deleteEquipmentImage: (id: number) => http.delete<EquipmentModel>(`/api/equipment-models/${id}/image`).then((r) => r.data),
+  /** Grava (ou apaga, com null) a chave do Google Maps da conta logada. */
+  saveGoogleKey: (key: string | null) =>
+    http.put<{ google_maps_key: string | null; google_key_source: GoogleKeySource }>('/api/me/google-maps-key', { key }).then((r) => r.data),
   projects: () => http.get<Project[]>('/api/projects').then((r) => r.data),
   createProject: (data: Partial<Project>) => http.post<Project>('/api/projects', data).then((r) => r.data),
   updateProject: (id: number, data: Partial<Project> & { settings?: Partial<Settings> }) =>
@@ -47,7 +51,7 @@ export const api = {
   deleteProject: (id: number) => http.delete(`/api/projects/${id}`),
   project: (id: number) =>
     http
-      .get<{ project: Project; role: Role; settings: Settings; nodes: NetNode[]; cables: Cable[]; areas: Area[] }>(`/api/projects/${id}`)
+      .get<{ project: Project; role: Role; settings: Settings; nodes: NetNode[]; cables: Cable[]; areas: Area[]; google_maps_key?: string | null; google_key_source?: GoogleKeySource }>(`/api/projects/${id}`)
       .then((r) => r.data),
 
   createNode: (projectId: number, data: Partial<NetNode>) =>

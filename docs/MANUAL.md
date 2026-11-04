@@ -108,7 +108,7 @@ depois de fechar ou apertar F5.
 | --- | --- | --- | --- | --- |
 | **OpenStreetMap** (padrão) | Imagens da Esri (o OpenStreetMap não tem satélite) | OpenStreetMap | OpenTopoMap | Não precisa |
 | **Esri (ArcGIS)** | World Imagery | World Street Map | World Topo Map | Não precisa |
-| **Google Maps** | Google Satélite | Google Mapa | Google Relevo | Só aparece com a chave configurada (abaixo) |
+| **Google Maps** | Google Satélite | Google Mapa | Google Relevo | Precisa de chave (abaixo); sem ela aparece apagado |
 
 O zoom vai até 21; acima do zoom máximo de cada mapa a imagem é ampliada.
 
@@ -119,11 +119,17 @@ Se algum quadrado do mapa base não carregar (internet lenta ou servidor de mapa
 sozinho algumas vezes. Se continuar faltando, mova um pouco o mapa ou troque o motor em **Configurações**.
 
 > **Mapas do Google**: o Google só permite usar os mapas dele com uma chave da **Map Tiles API** (o uso direto dos
-> tiles, sem chave, é proibido pelos termos do Google). Para ativar: no Google Cloud Console crie um projeto, ative
-> a cobrança e a **Map Tiles API**, crie uma chave de API e restrinja-a ao domínio do sistema (restrição por site
-> HTTP). Depois coloque `GOOGLE_MAPS_KEY=sua-chave` no `.env` do servidor e rode `php artisan config:cache` (no
-> Laragon, `php artisan config:clear`). O Google dá uma cota mensal gratuita e cobra acima dela. Se a chave for
-> recusada, o sistema avisa e volta para o OpenStreetMap.
+> tiles, sem chave, é proibido pelos termos do Google). Para conseguir a chave: no Google Cloud Console crie um
+> projeto, ative a cobrança e a **Map Tiles API**, crie uma chave de API e restrinja-a ao endereço do sistema
+> (restrição por site HTTP, ex.: `https://mapftth.seudominio.com.br/*` e, no Laragon, `http://mapftth.test/*`).
+> Depois, o **dono do projeto** abre **Configurações**, clica em **Cadastrar chave do Google**, cola a chave e clica
+> em **Testar e salvar**. O sistema testa a chave no Google antes de salvar; ela fica **criptografada** no banco e
+> vale para **todos os projetos de que você é dono** (os membros da equipe usam a chave do dono ao abrir o projeto).
+> Em seguida o motor muda para **Google Maps**. **Trocar chave** e **Remover** ficam no mesmo lugar.
+> Alternativa para o servidor inteiro: `GOOGLE_MAPS_KEY=sua-chave` no `.env` (rode `php artisan config:cache`; no
+> Laragon, `php artisan config:clear`); ela vale para quem não cadastrou chave própria. O Google dá uma cota mensal
+> gratuita e cobra acima dela. Com o Google, o canto do mapa mostra **Google** e os créditos das imagens da área
+> visível, como o Google exige. Se a chave for recusada, o sistema avisa o motivo e volta para o OpenStreetMap.
 
 **Elementos** (painel da direita): a lista fica recolhida; clique na **seta para baixo** ao lado de **Elementos**
 para abri-la flutuando abaixo do painel (clique de novo, fora dela ou tecle Esc para fechar). Nela você liga e
@@ -1342,9 +1348,14 @@ Cada criação, alteração, movimentação e edição de diagrama aparece com o
 
 Barra lateral → **Configurações**.
 
-**Motor de mapas** (todos os usuários): escolha **OpenStreetMap** (padrão), **Esri (ArcGIS)** ou **Google Maps**
-(este só com a chave configurada, veja a [seção 4](#4-a-tela-do-mapa)). A troca vale na hora e fica salva neste
-navegador. Embaixo da lista aparece de onde vem cada estilo (Satélite, Ruas, Relevo) no motor escolhido.
+**Motor de mapas** (todos os usuários): escolha **OpenStreetMap** (padrão), **Esri (ArcGIS)** ou **Google Maps**.
+O Google aparece sempre na lista, mas fica apagado com "(precisa de chave)" enquanto o projeto não tem chave. A troca
+vale na hora e fica salva neste navegador. Embaixo da lista aparece de onde vem cada estilo (Satélite, Ruas, Relevo)
+no motor escolhido.
+
+**Chave do Google** (logo abaixo): mostra se há chave (os 4 primeiros e 4 últimos caracteres, ex.: `AIza…x9Q2`) e de
+onde ela vem (sua conta, o dono do projeto ou o `.env` do servidor). Só o **dono do projeto** vê **Cadastrar chave do
+Google**, **Trocar chave** e **Remover**; os outros membros veem só a situação. Passo a passo na [seção 4](#4-a-tela-do-mapa).
 
 **Projeto** (só dono e administradores): **Nome do projeto**, **Cidade** e os **parâmetros do orçamento óptico**:
 

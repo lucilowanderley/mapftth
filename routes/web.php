@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AccountController;
 use App\Http\Controllers\Api\ActivityController;
 use App\Http\Controllers\Api\AreaController;
 use App\Http\Controllers\Api\CameraController;
@@ -31,6 +32,7 @@ Route::middleware('auth')->group(function () {
     // API JSON usada pelo frontend (sessão + CSRF)
     Route::prefix('api')->group(function () {
         Route::get('/me', fn () => auth()->user()->only('id', 'name', 'email'));
+        Route::put('/me/google-maps-key', [AccountController::class, 'googleKey']);
         Route::apiResource('projects', ProjectController::class);
         Route::post('/projects/{project}/nodes', [NodeController::class, 'store']);
         Route::post('/projects/{project}/nodes/bulk', [NodeController::class, 'bulk']);

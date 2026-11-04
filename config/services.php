@@ -35,7 +35,7 @@ return [
         ],
     ],
 
-    // Mapas do Google (Map Tiles API). Opcional: sem chave as opções do Google não aparecem.
+    // Mapas do Google (Map Tiles API). Opcional: chave do servidor todo; o dono do projeto pode cadastrar a própria em Configurações.
     'google_maps' => [
         'key' => env('GOOGLE_MAPS_KEY'),
     ],
