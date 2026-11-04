@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { anchorHost, anchorIndex, anchoredOn, attachedTo, cableTargets, cablesAtHost, isAnchored, offsetOnPath, onCableNear, slackFixation, slacksAtHost, withAnchor } from '../../resources/js/lib/anchor';
+import { anchorHost, anchorIndex, anchoredOn, attachedTo, cableRuns, cableTargets, cablesAtHost, isAnchored, offsetOnPath, onCableNear, slackFixation, slacksAtHost, withAnchor } from '../../resources/js/lib/anchor';
 import { distance } from '../../resources/js/lib/geo';
 import { movePath } from '../../resources/js/lib/move';
 import type { Cable, NetNode } from '../../resources/js/lib/types';
@@ -115,5 +115,17 @@ describe('fixação no cabo e reservas fixadas', () => {
     const wallCam = node(30, 'camera', { mount_kind: 'wall', mount_id: 1 });
     expect(anchorHost(wallCam, [p])).toBeUndefined();
     expect(anchorIndex([p, wallCam]).anchored.has(30)).toBe(false);
+  });
+});
+
+describe('mesmo cabo uma vez só no poste', () => {
+  it('junta os trechos que entram e saem pelas CTO/CEO do poste', () => {
+    const p = node(1, 'pole');
+    const a = cable(1, [[0, -1], [0, 0]], null, 10, { name: 'Cabo 12FO' });
+    const b = cable(2, [[0, 0], [0, 0]], 10, 11, { name: 'Cabo 12FO' });
+    const c = cable(3, [[0, 0], [0, 1]], 11, null, { name: 'Cabo 12FO · T3' });
+    const other = cable(4, [[1, 0], [-1, 0]], null, null, { name: 'Cabo 36FO', fiber_count: 36 });
+    const drop = cable(5, [[0, 0], [1, 1]], 10, 20, { name: 'Cabo 12FO', fiber_count: 1, category: 'drop' });
+    expect(cableRuns(p, [a, b, c, other, drop], [10, 11]).map((r) => r.map((x) => x.id))).toEqual([[1, 2, 3], [4], [5]]);
   });
 });

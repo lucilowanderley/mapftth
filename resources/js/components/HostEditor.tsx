@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Archive, Camera, ChevronUp, ExternalLink, Info, Network, Plus, Trash2, Unlink, X } from 'lucide-react';
-import { ANCHOR_CHILD_TYPES, attachedTo, cablesAtHost, offsetOnPath, onCableNear, slacksAtHost, type OnCableItem } from '../lib/anchor';
+import { ANCHOR_CHILD_TYPES, attachedTo, baseCableName, cableRuns, cablesAtHost, offsetOnPath, onCableNear, slacksAtHost, type OnCableItem } from '../lib/anchor';
 import { CAMERA_KINDS, HEALTH_COLORS, HEALTH_LABEL, cameraHealth, cameraOf } from '../lib/camera';
 import { CABLE_CATEGORIES, NODE_TYPES, SLACK_KINDS, STATUSES, splitterModel } from '../lib/catalog';
 import { BOX_KINDS, BOX_PLACES, FIXABLE_TYPES, FIX_OFFSET_M, boxOf, fixationOf } from '../lib/fixation';
@@ -55,6 +55,8 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
   const lines = isPole ? here.filter((c) => !ownDrops.has(c.id)) : here;
   // CTO/CEO e reservas fixadas no cabo, perto do poste: ficam sobre a linha do cabo.
   const onCable = isPole ? onCableNear(host, lines, nodes) : [];
+  // O mesmo cabo aparece uma vez só, mesmo cortado em trechos pelas CTO/CEO do poste/caixa.
+  const runs = cableRuns(host, lines, ids);
   // Objeto recolhido (ícone) ou aberto (cartão), como no rack. Clique abre/fecha, duplo clique abre o editor.
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const clickTimer = useRef<number | undefined>(undefined);
@@ -279,7 +281,7 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
           <PoleView
             host={host}
             nodes={nodes}
-            lines={lines}
+            runs={runs}
             onCable={onCable}
             children={children}
             slacks={slacks}
@@ -315,8 +317,8 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
               <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cabos na caixa</div>
               {here.length ? (
                 <div className="mt-1 space-y-1.5">
-                  {here.map((c) => (
-                    <CableLine key={c.id} cable={c} host={host} nodes={nodes} onEdit={onEditCable} />
+                  {runs.map((run) => (
+                    <CableLine key={run[0].id} run={run} host={host} nodes={nodes} onEdit={onEditCable} />
                   ))}
                 </div>
               ) : (
@@ -530,7 +532,7 @@ function SlackCard({
 }
 
 /** Rótulo do cabo no mesmo estilo do drop do diagrama: fundo branco, borda na cor do cabo, nome em negrito. */
-function CablePill({ cable: c, extra, onEdit, title }: { cable: Cable; extra?: string; onEdit?: (c: Cable) => void; title?: string }) {
+function CablePill({ cable: c, name, extra, onEdit, title }: { cable: Cable; name?: string; extra?: string; onEdit?: (c: Cable) => void; title?: string }) {
   return (
     <div
       className={`shrink-0 whitespace-nowrap rounded-full border bg-white px-2.5 py-0.5 text-[11px] text-slate-600 shadow-sm ${onEdit ? 'cursor-pointer hover:bg-slate-50' : ''}`}
@@ -542,25 +544,34 @@ function CablePill({ cable: c, extra, onEdit, title }: { cable: Cable; extra?: s
         onEdit?.(c);
       }}
     >
-      <span className="font-bold text-slate-900">{c.name}</span>
+      <span className="font-bold text-slate-900">{name ?? c.name}</span>
       {extra ? ` · ${extra}` : ''}
     </div>
   );
 }
 
-/** Onde o cabo termina (ou se só passa) no poste/caixa. */
-function cableRole(c: Cable, host: NetNode, nodes: NetNode[]): string {
-  const ends = [c.from_node_id, c.to_node_id].map((id) => nodes.find((n) => n.id === id)).filter(Boolean) as NetNode[];
+/** Onde o cabo (ou os trechos dele) termina no poste/caixa, ou se só passa. */
+function cableRole(run: Cable[], host: NetNode, nodes: NetNode[]): string {
+  const ids = [...new Set(run.flatMap((c) => [c.from_node_id, c.to_node_id]))];
+  const ends = ids.map((id) => nodes.find((n) => n.id === id)).filter(Boolean) as NetNode[];
   const atHost = ends.filter((n) => n.id === host.id || distance([n.lat, n.lng], [host.lat, host.lng]) < 0.5);
-  return atHost.length ? `chega em ${atHost.map((n) => n.name).join(' e ')}` : 'passa (apoio)';
+  if (!atHost.length) return 'passa (apoio)';
+  const names = atHost.map((n) => n.name).join(' e ');
+  return run.length > 1 ? `entra e sai por ${names}` : `chega em ${names}`;
 }
 
+/** O trecho mais longo representa o cabo no rótulo. */
+const mainOf = (run: Cable[]) => run.reduce((a, b) => ((b.length_m ?? 0) > (a.length_m ?? 0) ? b : a));
+const runLabel = (run: Cable[], host: NetNode, nodes: NetNode[]) =>
+  `${run[0].fiber_count}FO · ${CABLE_CATEGORIES[run[0].category].label} · ${cableRole(run, host, nodes)}${run.length > 1 ? ` · ${run.length} trechos` : ''}`;
+
 /** Linha de um cabo na caixa: cor do cabo, nome e onde ele termina (ou se só passa). */
-function CableLine({ cable: c, host, nodes, onEdit }: { cable: Cable; host: NetNode; nodes: NetNode[]; onEdit?: (c: Cable) => void }) {
+function CableLine({ run, host, nodes, onEdit }: { run: Cable[]; host: NetNode; nodes: NetNode[]; onEdit?: (c: Cable) => void }) {
+  const c = mainOf(run);
   return (
     <div className="flex items-center gap-2">
       <div className="h-1.5 flex-1 rounded-full" style={{ background: c.color }} />
-      <CablePill cable={c} extra={`${c.fiber_count}FO · ${CABLE_CATEGORIES[c.category].label} · ${cableRole(c, host, nodes)}`} onEdit={onEdit} />
+      <CablePill cable={c} name={baseCableName(c.name)} extra={runLabel(run, host, nodes)} onEdit={onEdit} />
       <div className="h-1.5 flex-1 rounded-full" style={{ background: c.color }} />
     </div>
   );
@@ -620,7 +631,7 @@ const nodeGlyphEl = (n: NetNode, size = 26) => <span className="inline-flex" dan
 interface PoleViewProps {
   host: NetNode;
   nodes: NetNode[];
-  lines: Cable[];
+  runs: Cable[][];
   onCable: OnCableItem[];
   children: NetNode[];
   slacks: { cable: Cable; slack: Slack }[];
@@ -647,7 +658,7 @@ const LINE_H = 60;
  * Objetos fixados no cabo ficam sobre a linha do cabo, do lado em que estão.
  */
 function PoleView(p: PoleViewProps) {
-  const { host, nodes, lines, onCable, children, slacks, sel, open } = p;
+  const { host, nodes, runs, onCable, children, slacks, sel, open } = p;
   const items: ({ kind: 'node'; node: NetNode } | { kind: 'slack'; cable: Cable; slack: Slack })[] = [
     ...children.map((node) => ({ kind: 'node' as const, node })),
     ...slacks.map((x) => ({ kind: 'slack' as const, ...x })),
@@ -702,7 +713,7 @@ function PoleView(p: PoleViewProps) {
   const placed = onCable.map((it) => ({ it, slot: sideCount[it.side]++ }));
 
   const linesTop = 64;
-  const linesH = Math.max(1, lines.length) * LINE_H;
+  const linesH = Math.max(1, runs.length) * LINE_H;
 
   return (
     <div className="relative mx-auto mb-8 max-w-6xl px-4" style={{ minHeight: linesTop + linesH + 420 }}>
@@ -716,17 +727,19 @@ function PoleView(p: PoleViewProps) {
 
       {/* Cabos sobre o poste, abaixo da cruzeta */}
       <div className="relative" style={{ paddingTop: linesTop }}>
-        {lines.length === 0 && <div className="relative z-[1] mx-auto w-fit rounded bg-white/90 px-2 py-1 text-xs text-slate-500 shadow-sm">Nenhum cabo passa neste poste.</div>}
-        {lines.map((c) => (
-          <div key={c.id} className="relative" style={{ height: LINE_H }}>
+        {runs.length === 0 && <div className="relative z-[1] mx-auto w-fit rounded bg-white/90 px-2 py-1 text-xs text-slate-500 shadow-sm">Nenhum cabo passa neste poste.</div>}
+        {runs.map((run) => {
+          const c = mainOf(run);
+          return (
+          <div key={run[0].id} className="relative" style={{ height: LINE_H }}>
             <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full" style={{ background: c.color }} />
             {/* Braçadeira que prende o cabo no poste */}
             <div className="absolute left-1/2 top-1/2 h-3.5 w-8 -translate-x-1/2 -translate-y-1/2 rounded-sm border border-slate-700 bg-slate-600/90" />
             <div className="absolute left-0 top-1/2 -translate-y-1/2">
-              <CablePill cable={c} extra={`${c.fiber_count}FO · ${CABLE_CATEGORIES[c.category].label} · ${cableRole(c, host, nodes)}`} onEdit={p.onEditCable} />
+              <CablePill cable={c} name={baseCableName(c.name)} extra={runLabel(run, host, nodes)} onEdit={p.onEditCable} />
             </div>
             {placed
-              .filter(({ it }) => it.cable.id === c.id)
+              .filter(({ it }) => run.some((x) => x.id === it.cable.id))
               .map(({ it, slot }) => {
                 const key = it.kind === 'node' ? `n${it.node.id}` : slackKey(it.cable, it.slack);
                 const offset = 90 + slot * 96;
@@ -742,7 +755,8 @@ function PoleView(p: PoleViewProps) {
                 );
               })}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Objetos presos no poste, abaixo da linha dos cabos */}
