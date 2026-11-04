@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Activity, Area, CameraStatus, Cable, EquipmentModel, LatLng, Member, NetNode, Project, Role, Settings } from './types';
+import type { Activity, Area, CameraStatus, Cable, Duct, EquipmentModel, LatLng, Member, NetNode, Project, Role, Settings } from './types';
 import type { GoogleKeySource } from './basemaps';
 
 export const http = axios.create({
@@ -76,14 +76,14 @@ export const api = {
   },
   project: (id: number) =>
     http
-      .get<{ project: Project; role: Role; settings: Settings; nodes: NetNode[]; cables: Cable[]; areas: Area[]; google_maps_key?: string | null; google_key_source?: GoogleKeySource }>(`/api/projects/${id}`)
+      .get<{ project: Project; role: Role; settings: Settings; nodes: NetNode[]; cables: Cable[]; ducts?: Duct[]; areas: Area[]; google_maps_key?: string | null; google_key_source?: GoogleKeySource }>(`/api/projects/${id}`)
       .then((r) => r.data),
 
   createNode: (projectId: number, data: Partial<NetNode>) =>
     http.post<NetNode>(`/api/projects/${projectId}/nodes`, data).then((r) => r.data),
   /** ends_only: ao mover, só as pontas dos cabos ligados ao objeto acompanham (objeto fixado no poste/caixa). */
   updateNode: (id: number, data: Partial<NetNode> & { ends_only?: boolean }) =>
-    http.put<{ node: NetNode; cables: Cable[]; clients?: NetNode[] }>(`/api/nodes/${id}`, data).then((r) => r.data),
+    http.put<{ node: NetNode; cables: Cable[]; ducts?: Duct[]; clients?: NetNode[] }>(`/api/nodes/${id}`, data).then((r) => r.data),
   deleteNode: (id: number) => http.delete(`/api/nodes/${id}`),
   /** Câmera: o servidor testa HTTP/RTSP/ONVIF e guarda o resultado em attributes.cam_status. */
   checkCamera: (id: number) => http.post<{ node: NetNode; status: CameraStatus }>(`/api/nodes/${id}/camera/check`).then((r) => r.data),
@@ -105,14 +105,14 @@ export const api = {
     http.put<{ cable: Cable; nodes: NetNode[] }>(`/api/cables/${id}`, data).then((r) => r.data),
   /** Sangria: divide o cabo nas caixas dos vértices indicados. */
   splitCable: (id: number, path: LatLng[], cuts: { index: number; node_id: number }[]) =>
-    http.post<{ cables: Cable[]; nodes: NetNode[] }>(`/api/cables/${id}/split`, { path, cuts }).then((r) => r.data),
+    http.post<{ cables: Cable[]; nodes: NetNode[]; ducts?: Duct[] }>(`/api/cables/${id}/split`, { path, cuts }).then((r) => r.data),
   deleteCable: (id: number) => http.delete<{ nodes: NetNode[] }>(`/api/cables/${id}`).then((r) => r.data),
 
   importKmz: (projectId: number, file: File) => {
     const form = new FormData();
     form.append('file', file);
     return http
-      .post<{ nodes: number; cables: number; areas?: number; skipped?: number }>(`/api/projects/${projectId}/import`, form)
+      .post<{ nodes: number; cables: number; ducts?: number; areas?: number; skipped?: number }>(`/api/projects/${projectId}/import`, form)
       .then((r) => r.data);
   },
   exportUrl: (projectId: number) => `/api/projects/${projectId}/export`,
@@ -123,6 +123,10 @@ export const api = {
   createArea: (projectId: number, data: Partial<Area>) => http.post<Area>(`/api/projects/${projectId}/areas`, data).then((r) => r.data),
   updateArea: (id: number, data: Partial<Area>) => http.put<Area>(`/api/areas/${id}`, data).then((r) => r.data),
   deleteArea: (id: number) => http.delete(`/api/areas/${id}`),
+
+  createDuct: (projectId: number, data: Partial<Duct>) => http.post<Duct>(`/api/projects/${projectId}/ducts`, data).then((r) => r.data),
+  updateDuct: (id: number, data: Partial<Duct>) => http.put<Duct>(`/api/ducts/${id}`, data).then((r) => r.data),
+  deleteDuct: (id: number) => http.delete(`/api/ducts/${id}`),
 
   members: (projectId: number) =>
     http.get<{ owner: { id: number; name: string; email: string }; members: Member[] }>(`/api/projects/${projectId}/members`).then((r) => r.data),

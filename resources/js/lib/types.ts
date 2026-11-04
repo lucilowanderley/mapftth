@@ -307,6 +307,33 @@ export interface Cable {
   notes: string | null;
 }
 
+export type DuctMaterial = 'pead' | 'pvc' | 'corrugated' | 'steel' | 'concrete' | 'other';
+export type DuctPlacement = 'buried' | 'directional' | 'surface';
+
+/** Duto: tubulação (geralmente subterrânea) por onde passam cabos, entre caixas, POP e datacenter. */
+export interface Duct {
+  id: number;
+  project_id: number;
+  name: string;
+  material: DuctMaterial;
+  /** Diâmetro externo nominal (mm). */
+  diameter_mm: number;
+  /** Quantidade de subdutos (tritubo = 3). 0 = duto simples. */
+  subducts: number;
+  placement: DuctPlacement;
+  /** Profundidade (m), para dutos enterrados. */
+  depth_m: number | null;
+  status: Status;
+  color: string;
+  path: LatLng[];
+  from_node_id: number | null;
+  to_node_id: number | null;
+  length_m: number;
+  /** Cabos que passam pelo duto. */
+  cable_ids: number[] | null;
+  notes: string | null;
+}
+
 export interface Network {
   nodes: NetNode[];
   cables: Cable[];
