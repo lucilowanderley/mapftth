@@ -169,6 +169,9 @@ function LaunchLayer({ preview, nodes }: { preview: LaunchPreview; nodes: NetNod
   const { plan, route, color } = preview;
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const slackAt = new Set(plan?.slacks ?? []);
+  // Numeração só dos postes/caixas escolhidos (os vértices do duto não contam).
+  const stopNo = new Map<number, number>();
+  plan?.points.forEach((p, i) => (p.pole_id != null || p.box_id != null || p.new_pole) && stopNo.set(i, stopNo.size + 1));
   return (
     <>
       {route && route.length > 1 && <Polyline positions={route} pathOptions={{ color: '#94a3b8', weight: 7, opacity: 0.35 }} interactive={false} />}
@@ -178,7 +181,7 @@ function LaunchLayer({ preview, nodes }: { preview: LaunchPreview; nodes: NetNod
         preview.order.length === 1 &&
         byId.get(preview.order[0]) && <CircleMarker center={[byId.get(preview.order[0])!.lat, byId.get(preview.order[0])!.lng]} radius={11} pathOptions={{ color: '#fde047', weight: 3, fill: false }} interactive={false} />}
       {plan?.points.map((p, i) =>
-        p.pole_id != null || p.new_pole ? (
+        p.pole_id != null || p.box_id != null || p.new_pole ? (
           <CircleMarker
             key={`lp${i}`}
             center={p.at}
@@ -188,7 +191,7 @@ function LaunchLayer({ preview, nodes }: { preview: LaunchPreview; nodes: NetNod
           >
             {preview.order && (
               <Tooltip permanent direction="top" offset={[0, -8]} className="!px-1 !py-0 !text-[10px]">
-                {i + 1}
+                {stopNo.get(i)}
               </Tooltip>
             )}
           </CircleMarker>
@@ -2460,6 +2463,8 @@ export default function MapPage() {
           <LaunchPanel
             projectId={projectId}
             nodes={nodes}
+            cables={cables}
+            ducts={ducts}
             center={() => {
               const c = mapRef.current?.getCenter();
               return c ? [c.lat, c.lng] : null;
@@ -2469,13 +2474,14 @@ export default function MapPage() {
             onFocus={(p) => mapRef.current?.setView(p, Math.max(mapRef.current.getZoom(), 17))}
             onFit={(path) => mapRef.current?.fitBounds(L.latLngBounds(path), { paddingTopLeft: [340, 60], paddingBottomRight: [40, 60], maxZoom: 18 })}
             onError={(m) => notify(m, 'error')}
-            onDone={(cable, created) => {
+            onDone={(cable, created, usedDucts) => {
               setNodes((list) => [...list, ...created]);
               setCables((list) => [...list, cable]);
+              mergeDucts(usedDucts);
               setTool('select');
               setSelection({ kind: 'cable', id: cable.id });
               const r = cable.slacks?.length ?? 0;
-              notify(`Cabo lançado${created.length ? ` com ${created.length} poste${created.length > 1 ? 's' : ''} novo${created.length > 1 ? 's' : ''}` : ''}${r ? ` e ${r} reserva${r > 1 ? 's' : ''} técnica${r > 1 ? 's' : ''}` : ''}.`);
+              notify(`Cabo lançado${created.length ? ` com ${created.length} poste${created.length > 1 ? 's' : ''} novo${created.length > 1 ? 's' : ''}` : ''}${r ? ` e ${r} reserva${r > 1 ? 's' : ''} técnica${r > 1 ? 's' : ''}` : ''}${usedDucts.length ? `, por dentro de ${usedDucts.map((d) => d.name).join(', ')}` : ''}.`);
             }}
             onClose={() => setTool('select')}
           />

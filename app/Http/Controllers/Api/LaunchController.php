@@ -70,15 +70,18 @@ class LaunchController extends Controller
             'cable.width' => ['sometimes', 'integer', 'between:1,12'],
             'points' => ['required', 'array', 'min:2', 'max:5000'],
             'points.*.pole_id' => ['nullable', 'integer'],
+            'points.*.box_id' => ['nullable', 'integer'],
             'points.*.new_pole' => ['sometimes', 'boolean'],
-            'points.*.lat' => ['required_without:points.*.pole_id', 'numeric', 'between:-90,90'],
-            'points.*.lng' => ['required_without:points.*.pole_id', 'numeric', 'between:-180,180'],
+            'points.*.lat' => ['required_without_all:points.*.pole_id,points.*.box_id', 'numeric', 'between:-90,90'],
+            'points.*.lng' => ['required_without_all:points.*.pole_id,points.*.box_id', 'numeric', 'between:-180,180'],
             'slacks' => ['nullable', 'array', 'max:200'],
             'slacks.*.point' => ['required', 'integer', 'min:0'],
             'slacks.*.length_m' => ['required', 'integer', 'between:1,5000'],
             'slacks.*.kind' => ['sometimes', Rule::in(Cable::SLACK_KINDS)],
             'from_node_id' => ['nullable', 'integer', $project->nodeRule()],
             'to_node_id' => ['nullable', 'integer', $project->nodeRule()],
+            'duct_ids' => ['nullable', 'array', 'max:200'],
+            'duct_ids.*' => ['integer'],
         ]);
 
         // O validador remonta os itens campo a campo: as chaves podem vir fora de ordem.
@@ -89,6 +92,16 @@ class LaunchController extends Controller
         $poles = $project->visibleNodes()->whereIn('id', $poleIds)->where('type', 'pole')->get()->keyBy('id');
         if ($poles->count() !== count($poleIds)) {
             throw ValidationException::withMessages(['points' => 'Algum poste escolhido não existe mais neste projeto.']);
+        }
+        $boxIds = array_values(array_unique(array_filter(array_column($points, 'box_id'))));
+        $boxes = $project->visibleNodes()->whereIn('id', $boxIds)->where('type', 'box')->get()->keyBy('id');
+        if ($boxes->count() !== count($boxIds)) {
+            throw ValidationException::withMessages(['points' => 'Alguma caixa escolhida não existe mais neste projeto.']);
+        }
+        $ductIds = array_values(array_unique(array_map('intval', $data['duct_ids'] ?? [])));
+        $ducts = $project->ducts()->whereIn('id', $ductIds)->get();
+        if ($ducts->count() !== count($ductIds)) {
+            throw ValidationException::withMessages(['duct_ids' => 'Algum duto do caminho não existe mais neste projeto.']);
         }
         foreach ($data['slacks'] ?? [] as $s) {
             if ($s['point'] >= count($points)) {
@@ -101,14 +114,17 @@ class LaunchController extends Controller
 
         $c = $data['cable'];
         $status = $c['status'] ?? 'planned';
-        [$cable, $created] = DB::transaction(function () use ($project, $points, $poles, $data, $c, $status) {
+        [$cable, $created] = DB::transaction(function () use ($project, $points, $poles, $boxes, $ducts, $data, $c, $status) {
             $count = $project->nodes()->where('type', 'pole')->count();
             $created = [];
             $ids = [];
+            $kinds = [];
             $path = [];
             foreach ($points as $i => $p) {
                 if (! empty($p['pole_id'])) {
                     $pole = $poles[$p['pole_id']];
+                } elseif (! empty($p['box_id'])) {
+                    $pole = $boxes[$p['box_id']];
                 } elseif (! empty($p['new_pole'])) {
                     $pole = $project->nodes()->create([
                         'type' => 'pole',
@@ -122,6 +138,7 @@ class LaunchController extends Controller
                     $pole = null;
                 }
                 $ids[$i] = $pole?->id;
+                $kinds[$i] = $pole?->type;
                 $path[] = $pole ? [(float) $pole->lat, (float) $pole->lng] : [round((float) $p['lat'], 7), round((float) $p['lng'], 7)];
             }
             // As pontas ligadas a uma caixa ficam exatamente sobre ela.
@@ -135,14 +152,15 @@ class LaunchController extends Controller
             foreach ($data['slacks'] ?? [] as $s) {
                 [$lat, $lng] = $path[$s['point']];
                 $poleId = $ids[$s['point']] ?? null;
+                $host = $kinds[$s['point']] ?? null;
                 $slacks[] = [
                     'id' => 'r'.Str::lower(Str::random(10)),
                     'lat' => $lat,
                     'lng' => $lng,
                     'length_m' => (int) $s['length_m'],
-                    'kind' => $s['kind'] ?? 'aerial',
+                    'kind' => $s['kind'] ?? ($host === 'box' ? 'underground' : 'aerial'),
                     'notes' => null,
-                    'fixed_kind' => $poleId ? 'pole' : 'cable',
+                    'fixed_kind' => $poleId ? ($host === 'box' ? 'box' : 'pole') : 'cable',
                     'fixed_id' => $poleId,
                     'address' => null,
                 ];
@@ -164,10 +182,21 @@ class LaunchController extends Controller
                 'slack_m' => (int) array_sum(array_column($slacks, 'length_m')),
             ]);
 
+            // O cabo passa por dentro dos dutos do caminho.
+            foreach ($ducts as $duct) {
+                $duct->cable_ids = [...($duct->cable_ids ?? []), $cable->id];
+                $duct->save();
+            }
+
             $existing = count(array_filter($points, fn ($p) => ! empty($p['pole_id'])));
-            ActivityLog::record($project, 'cable', $cable, 'created', [
-                'lançamento' => count($created).' postes novos, '.$existing.' existentes, '.count($slacks).' reservas',
-            ]);
+            $summary = count($created).' postes novos, '.$existing.' existentes, '.count($slacks).' reservas';
+            if ($boxes->count()) {
+                $summary .= ', '.$boxes->count().' caixas';
+            }
+            if ($ducts->count()) {
+                $summary .= ', dutos '.$ducts->pluck('name')->join(', ');
+            }
+            ActivityLog::record($project, 'cable', $cable, 'created', ['lançamento' => $summary]);
             $project->touch();
 
             return [$cable, $created];
@@ -176,6 +205,7 @@ class LaunchController extends Controller
         return response()->json([
             'cable' => $cable->fresh(),
             'nodes' => collect($created)->map->fresh()->values(),
+            'ducts' => $ducts->map->fresh()->values(),
         ], 201);
     }
 }

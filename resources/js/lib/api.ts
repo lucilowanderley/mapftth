@@ -33,10 +33,12 @@ export interface LaunchRoute {
 
 export interface LaunchRequest {
   cable: Pick<Cable, 'category' | 'fiber_count' | 'fibers_per_tube'> & Partial<Pick<Cable, 'name' | 'model' | 'status' | 'color' | 'width'>>;
-  points: { pole_id?: number; new_pole?: boolean; lat?: number; lng?: number }[];
+  points: { pole_id?: number; box_id?: number; new_pole?: boolean; lat?: number; lng?: number }[];
   slacks?: { point: number; length_m: number; kind?: 'aerial' | 'underground' }[];
   from_node_id?: number | null;
   to_node_id?: number | null;
+  /** Dutos por onde o cabo passa (o cabo entra na lista de cabos do duto). */
+  duct_ids?: number[];
 }
 
 export type ImportResult = {
@@ -118,7 +120,7 @@ export const api = {
       .then((r) => r.data),
   /** Lançamento de cabo: cria o cabo com os postes novos e as reservas fixadas nos postes. */
   launchCable: (projectId: number, data: LaunchRequest) =>
-    http.post<{ cable: Cable; nodes: NetNode[] }>(`/api/projects/${projectId}/launch`, data).then((r) => r.data),
+    http.post<{ cable: Cable; nodes: NetNode[]; ducts?: Duct[] }>(`/api/projects/${projectId}/launch`, data).then((r) => r.data),
   /** Fixar em massa (e desfazer): só posição e chaves de fixação mudam. */
   fixBulk: (projectId: number, data: BulkPayload & { label?: string }) =>
     http.post<{ nodes: NetNode[]; cables: Cable[] }>(`/api/projects/${projectId}/fix-bulk`, data).then((r) => r.data),

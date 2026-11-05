@@ -1,12 +1,14 @@
-import { ArrowDown, ArrowDownUp, ArrowUp, Eraser, Loader2, MapPin, Plus, Route as RouteIcon, Search, Shuffle, UtilityPole, X } from 'lucide-react';
+import { ArrowDown, ArrowDownUp, ArrowUp, Box as BoxIcon, Cylinder, Eraser, Loader2, MapPin, Plus, Route as RouteIcon, Search, Shuffle, UtilityPole, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api, errorMessage, type LaunchRoute } from '../lib/api';
 import { CABLE_CATEGORIES, CABLE_MODELS, STATUSES } from '../lib/catalog';
 import { formatCoord, parsePair } from '../lib/coords';
 import { searchPlaces, type Place } from '../lib/geocode';
 import { distance } from '../lib/geo';
-import { LAUNCH_DEFAULTS, orderByNearest, planFromPoles, planFromRoute, polesAlong, type LaunchPlan } from '../lib/launch';
-import type { Cable, LatLng, NetNode, Status } from '../lib/types';
+import { anchorHost } from '../lib/anchor';
+import { occupancy, OCCUPANCY_COLORS } from '../lib/duct';
+import { isStop, LAUNCH_DEFAULTS, orderByNearest, planFromRoute, planFromStops, polesAlong, type LaunchPlan } from '../lib/launch';
+import type { Cable, Duct, LatLng, NetNode, Status } from '../lib/types';
 import { formatLength } from './ui';
 
 type Mode = 'poles' | 'route' | 'refs';
@@ -43,13 +45,15 @@ interface Endpoint {
 interface Props {
   projectId: number;
   nodes: NetNode[];
+  cables: Cable[];
+  ducts: Duct[];
   center: () => LatLng | null;
   pick: LaunchPick | null;
   onPreview: (p: LaunchPreview | null) => void;
   onFocus: (p: LatLng) => void;
   /** Enquadra o caminho no mapa. */
   onFit: (path: LatLng[]) => void;
-  onDone: (cable: Cable, created: NetNode[]) => void;
+  onDone: (cable: Cable, created: NetNode[], ducts: Duct[]) => void;
   onError: (msg: string) => void;
   onClose: () => void;
 }
@@ -64,7 +68,7 @@ function loadDefaults(cat: Category) {
   }
 }
 
-export default function LaunchPanel({ projectId, nodes, center, pick, onPreview, onFocus, onFit, onDone, onError, onClose }: Props) {
+export default function LaunchPanel({ projectId, nodes, cables, ducts, center, pick, onPreview, onFocus, onFit, onDone, onError, onClose }: Props) {
   const [mode, setMode] = useState<Mode>('route');
   const models = CABLE_MODELS.filter((m) => m.category !== 'drop');
   const [modelId, setModelId] = useState('as-48');
@@ -79,6 +83,8 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
   // Modo pelos postes
   const [selected, setSelected] = useState<number[]>([]);
   const [filter, setFilter] = useState('');
+  /** Entre duas caixas ligadas por um duto, o cabo passa por dentro dele. */
+  const [useDucts, setUseDucts] = useState(true);
 
   // Modo início e fim
   const [start, setStart] = useState<Endpoint>({ text: '', point: null });
@@ -106,15 +112,28 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
       return next;
     });
 
+  const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const byIdRef = (id: number | undefined) => (id == null ? undefined : byId.get(id));
+
   /** Pontas e pontos do meio do percurso (modos início e fim / pontos de referência). */
   const ends = useMemo(() => {
+    if (mode === 'poles') {
+      // Caixa na ponta: o cabo nasce/termina conectado nela.
+      const first = byIdRef(selected[0]);
+      const last = byIdRef(selected[selected.length - 1]);
+      if (selected.length < 2 || !first || !last) return null;
+      const ep = (n: NetNode): Endpoint => ({ text: n.name, point: [n.lat, n.lng], node: n.type === 'box' ? n : undefined });
+      return { a: ep(first), b: ep(last), via: [] as Endpoint[] };
+    }
     if (mode === 'refs') return refs.length >= 2 ? { a: refs[0], b: refs[refs.length - 1], via: refs.slice(1, -1) } : null;
     if (mode === 'route') return start.point && end.point ? { a: start, b: end, via: [] as Endpoint[] } : null;
     return null;
-  }, [mode, refs, start, end]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, refs, start, end, selected, nodes]);
 
   const poles = useMemo(() => nodes.filter((n) => n.type === 'pole'), [nodes]);
-  const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  /** Postes e caixas (modo "Postes e caixas"). */
+  const stops = useMemo(() => nodes.filter(isStop), [nodes]);
   const color = CABLE_CATEGORIES[category].color;
 
   const changeCategory = (c: Category) => {
@@ -135,10 +154,13 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
   useEffect(() => {
     if (!pick) return;
     if (mode === 'poles') {
-      const n = pick.node;
+      let n = pick.node;
       if (!n) return;
-      if (n.type !== 'pole') return onError('Escolha postes. Clique nos postes do mapa ou marque na lista.');
-      setSelected((s) => (s.includes(n.id) ? s.filter((x) => x !== n.id) : [...s, n.id]));
+      // CTO/CEO fixada no poste/caixa: vale o poste/caixa.
+      if (!isStop(n)) n = anchorHost(n, nodes) ?? n;
+      if (!isStop(n)) return onError('Escolha postes ou caixas. Clique neles no mapa ou marque na lista.');
+      const id = n.id;
+      setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
       return;
     }
     if (mode === 'refs') {
@@ -170,11 +192,26 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
     const every = slacksOn ? numbers.slackEvery : 0;
     if (mode === 'poles') {
       const list = selected.map((id) => byId.get(id)).filter((n): n is NetNode => !!n);
-      return list.length >= 2 ? planFromPoles(list, every) : null;
+      return list.length >= 2 ? planFromStops(list, every, useDucts ? ducts : []) : null;
     }
     if (!route) return null;
     return planFromRoute(route.path, { poles, useExisting, addPoles, spacing: numbers.spacing, slackEvery: every });
-  }, [mode, selected, byId, route, poles, useExisting, addPoles, numbers, slacksOn]);
+  }, [mode, selected, byId, route, poles, useExisting, addPoles, numbers, slacksOn, useDucts, ducts]);
+
+  /** Dutos que o cabo vai ocupar, com a ocupação depois do lançamento. */
+  const ductUse = useMemo(() => {
+    if (!plan?.ducts.length) return [];
+    const fiber = model.fibers;
+    const probe = { id: -1, category, fiber_count: fiber } as Cable;
+    return plan.ducts
+      .map((u) => {
+        const d = ducts.find((x) => x.id === u.id);
+        if (!d) return null;
+        const occ = occupancy({ ...d, cable_ids: [...(d.cable_ids ?? []), -1] }, [...cables, probe]);
+        return { duct: d, meters: u.meters, occ };
+      })
+      .filter((x): x is NonNullable<typeof x> => !!x);
+  }, [plan, ducts, cables, model.fibers, category]);
 
   useEffect(() => {
     onPreview({
@@ -232,12 +269,16 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
           color,
           width: 4,
         },
-        points: plan.points.map((p) => (p.pole_id != null ? { pole_id: p.pole_id } : { lat: p.at[0], lng: p.at[1], new_pole: !!p.new_pole })),
-        slacks: plan.slacks.map((i) => ({ point: i, length_m: numbers.slackLength, kind: 'aerial' })),
+        points: plan.points.map((p) =>
+          p.pole_id != null ? { pole_id: p.pole_id } : p.box_id != null ? { box_id: p.box_id } : { lat: p.at[0], lng: p.at[1], new_pole: !!p.new_pole },
+        ),
+        // Reserva na caixa é subterrânea; no poste, aérea.
+        slacks: plan.slacks.map((i) => ({ point: i, length_m: numbers.slackLength, kind: plan.points[i].box_id != null ? 'underground' : 'aerial' })),
         from_node_id: ends?.a.node?.id ?? null,
         to_node_id: ends?.b.node?.id ?? null,
+        duct_ids: plan.ducts.map((d) => d.id),
       });
-      onDone(res.cable, res.nodes);
+      onDone(res.cable, res.nodes, res.ducts ?? []);
       setSelected([]);
       setRefs([]);
       setRoute(null);
@@ -254,11 +295,11 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
     const last = chosen[chosen.length - 1];
     const ref: LatLng | null = last ? [last.lat, last.lng] : center();
     const q = filter.trim().toLowerCase();
-    const rest = poles.filter((p) => !selected.includes(p.id) && (!q || p.name.toLowerCase().includes(q)));
+    const rest = stops.filter((p) => !selected.includes(p.id) && (!q || p.name.toLowerCase().includes(q)));
     const sorted = ref ? rest.map((p) => ({ p, d: distance(ref, [p.lat, p.lng]) })).sort((a, b) => a.d - b.d) : rest.map((p) => ({ p, d: 0 }));
     return { chosen, others: sorted.slice(0, LIST_LIMIT), total: sorted.length };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, selected, byId, poles, filter]);
+  }, [mode, selected, byId, stops, filter]);
 
   const slackTotal = plan ? plan.slacks.length * numbers.slackLength : 0;
 
@@ -338,7 +379,7 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
       <div className="flex items-start justify-between px-4 py-3 border-b border-slate-800">
         <div>
           <div className="font-semibold">Lançar cabo</div>
-          <div className="text-xs text-slate-400">Cabo com postes e reservas técnicas fixadas</div>
+          <div className="text-xs text-slate-400">Cabo por postes, caixas e dutos, com reservas técnicas fixadas</div>
         </div>
         <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer" aria-label="Fechar">
           <X size={18} />
@@ -351,7 +392,7 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
             [
               ['route', 'Início e fim'],
               ['refs', 'Pontos de referência'],
-              ['poles', 'Escolher postes'],
+              ['poles', 'Postes e caixas'],
             ] as [Mode, string][]
           ).map(([m, label]) => (
             <button
@@ -475,7 +516,14 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="text-xs text-slate-400">Clique nos postes do mapa ou marque na lista, na ordem do lançamento.</div>
+            <div className="text-xs text-slate-400">
+              Clique nos postes e caixas do mapa ou marque na lista, na ordem do lançamento. Entre duas caixas ligadas por um duto, o cabo segue o traçado
+              do duto, por dentro dele.
+            </div>
+            <label className="flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={useDucts} onChange={(e) => setUseDucts(e.target.checked)} className="accent-emerald-500" />
+              Passar por dentro dos dutos entre as caixas
+            </label>
             <div className="flex gap-1">
               <button className="btn-ghost !px-2 !py-1 text-xs" disabled={selected.length < 3} onClick={() => setSelected(orderByNearest(list.chosen).map((n) => n.id))} title="Reordena pelo caminho mais curto a partir do primeiro">
                 <Shuffle size={13} /> Ordenar
@@ -489,7 +537,7 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
             </div>
             <div className="relative">
               <Search size={14} className="absolute left-3 top-2.5 text-slate-500" />
-              <input className="input pl-8" placeholder={`Buscar entre ${poles.length} postes`} value={filter} onChange={(e) => setFilter(e.target.value)} />
+              <input className="input pl-8" placeholder={`Buscar entre ${stops.length} postes e caixas`} value={filter} onChange={(e) => setFilter(e.target.value)} />
             </div>
             <ul className="max-h-56 overflow-y-auto rounded-md border border-slate-800 divide-y divide-slate-800">
               {list.chosen.map((p, i) => (
@@ -498,7 +546,9 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
               {list.others.map(({ p, d }) => (
                 <PoleRow key={p.id} pole={p} dist={d} checked={false} onToggle={() => setSelected((s) => [...s, p.id])} onFocus={onFocus} />
               ))}
-              {!poles.length && <li className="px-3 py-2 text-xs text-slate-400">Não há postes no projeto. Use "Início e fim" para criar, ou importe a tabela de postes.</li>}
+              {!stops.length && (
+                <li className="px-3 py-2 text-xs text-slate-400">Não há postes nem caixas no projeto. Use "Início e fim" para criar, ou importe a tabela de postes.</li>
+              )}
             </ul>
             {list.total > LIST_LIMIT && <div className="text-[11px] text-slate-500">Mostrando os {LIST_LIMIT} mais próximos de {list.total}. Use a busca para achar outros.</div>}
           </div>
@@ -514,7 +564,7 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
             <input type="number" min={1} max={200} className="input !w-14 !px-1 !py-0.5 text-xs" value={numbers.slackLength} onChange={(e) => changeNumber('slackLength', Math.max(1, Number(e.target.value) || 0))} />
             m
           </label>
-          <div className="text-slate-500">A reserva fica fixada no poste mais perto de cada marca.</div>
+          <div className="text-slate-500">A reserva fica fixada no poste (ou na caixa) mais perto de cada marca.</div>
         </div>
 
         {plan && (
@@ -532,6 +582,23 @@ export default function LaunchPanel({ projectId, nodes, center, pick, onPreview,
               <UtilityPole size={12} /> {plan.existing} poste{plan.existing === 1 ? '' : 's'} existente{plan.existing === 1 ? '' : 's'}
               {plan.created > 0 && <>, {plan.created} novo{plan.created === 1 ? '' : 's'}</>}
             </div>
+            {plan.boxes > 0 && (
+              <div className="flex items-center gap-1">
+                <BoxIcon size={12} /> {plan.boxes} caixa{plan.boxes === 1 ? '' : 's'}
+              </div>
+            )}
+            {ductUse.map(({ duct, meters, occ }) => (
+              <div key={duct.id} className="flex items-start gap-1">
+                <Cylinder size={12} className="mt-0.5 shrink-0" />
+                <span>
+                  Dentro do duto <b>{duct.name}</b> por {formatLength(meters)} ·{' '}
+                  <span style={{ color: OCCUPANCY_COLORS[occ.level] }}>
+                    {occ.subducts.total > 0 ? `${occ.subducts.used}/${occ.subducts.total} subdutos` : `${occ.fill}% ocupado`}
+                  </span>
+                  {occ.level === 'full' && <span className="block text-red-400">{occ.message}</span>}
+                </span>
+              </div>
+            ))}
             <div>
               {plan.slacks.length} reserva{plan.slacks.length === 1 ? '' : 's'} técnica{plan.slacks.length === 1 ? '' : 's'}
             </div>
@@ -559,11 +626,13 @@ function RoadSummary({ route }: { route: LaunchRoute }) {
 }
 
 function PoleRow({ pole, index, dist, checked, onToggle, onFocus }: { pole: NetNode; index?: number; dist?: number; checked: boolean; onToggle: () => void; onFocus: (p: LatLng) => void }) {
+  const Icon = pole.type === 'box' ? BoxIcon : UtilityPole;
   return (
     <li className="flex items-center gap-2 px-2 py-1 text-xs hover:bg-slate-800/60">
       <input type="checkbox" checked={checked} onChange={onToggle} className="accent-emerald-500" />
       <span className="w-5 text-right text-emerald-400 font-semibold">{index ?? ''}</span>
-      <button className="flex-1 text-left truncate cursor-pointer" onClick={() => onFocus([pole.lat, pole.lng])} title="Ver no mapa">
+      <Icon size={12} className="shrink-0 text-slate-500" />
+      <button className="flex-1 text-left truncate cursor-pointer" onClick={() => onFocus([pole.lat, pole.lng])} title={pole.type === 'box' ? 'Caixa · ver no mapa' : 'Poste · ver no mapa'}>
         {pole.name}
       </button>
       {dist != null && dist > 0 && <span className="text-slate-500">{formatLength(dist)}</span>}
