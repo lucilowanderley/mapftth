@@ -95,7 +95,11 @@ export const api = {
   updateNode: (id: number, data: Partial<NetNode> & { ends_only?: boolean }) =>
     http.put<{ node: NetNode; cables: Cable[]; ducts?: Duct[]; clients?: NetNode[] }>(`/api/nodes/${id}`, data, { params: ctx() }).then((r) => r.data),
   /** No projeto de origem apaga o objeto; num projeto com quem foi compartilhado, só tira o objeto dele. */
-  deleteNode: (id: number) => http.delete(`/api/nodes/${id}`, { params: ctx() }),
+  /** Exclui o objeto. Os fixados nele voltam soltos (sem fixação) em `nodes`/`cables`. */
+  deleteNode: (id: number) =>
+    http
+      .delete<{ nodes: NetNode[]; cables: Cable[] } | ''>(`/api/nodes/${id}`, { params: ctx() })
+      .then((r) => ({ nodes: r.data ? r.data.nodes : [], cables: r.data ? r.data.cables : [] })),
   /** Compartilha com outro projeto (objetos fixados no poste/caixa vão junto). */
   shareNode: (id: number, projectId: number) =>
     http.post<{ nodes: NetNode[] }>(`/api/nodes/${id}/shares`, { project_id: projectId }, { params: ctx() }).then((r) => r.data.nodes),
