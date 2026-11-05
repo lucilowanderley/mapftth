@@ -103,7 +103,7 @@ class CableController extends Controller
             'path.*.*' => ['numeric'],
             'cuts' => ['required', 'array', 'min:1'],
             'cuts.*.index' => ['required', 'integer', 'min:1'],
-            'cuts.*.node_id' => ['required', 'integer', Rule::exists('network_nodes', 'id')->where('project_id', $project->id)],
+            'cuts.*.node_id' => ['required', 'integer', $project->nodeRule()],
         ]);
         $path = array_map(fn ($p) => [(float) $p[0], (float) $p[1]], $data['path']);
         $last = count($path) - 1;
@@ -323,7 +323,7 @@ class CableController extends Controller
     private function validated(Request $request, Project $project, bool $partial = false): array
     {
         $req = $partial ? 'sometimes' : 'required';
-        $nodeRule = Rule::exists('network_nodes', 'id')->where('project_id', $project->id);
+        $nodeRule = $project->nodeRule();
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
             'category' => ['sometimes', Rule::in(Cable::CATEGORIES)],

@@ -52,7 +52,7 @@ class DuctController extends Controller
     private function validated(Request $request, Project $project, bool $partial = false): array
     {
         $req = $partial ? 'sometimes' : 'required';
-        $nodeRule = Rule::exists('network_nodes', 'id')->where('project_id', $project->id);
+        $nodeRule = $project->nodeRule();
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
             'material' => ['sometimes', Rule::in(Duct::MATERIALS)],

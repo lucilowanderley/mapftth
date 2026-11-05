@@ -46,7 +46,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Circle, CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import { Link, useParams } from 'react-router-dom';
 import L from 'leaflet';
-import { api, errorMessage } from '../lib/api';
+import { api, errorMessage, setContextProject } from '../lib/api';
 import { POWER_COLORS, clientBudget, powerLevel, type BudgetResult } from '../lib/budget';
 import { analyzeSignal, measuredClients, type SignalAnalysis } from '../lib/signal';
 import { BOX_TYPES, CABLE_CATEGORIES, CABLE_MODELS, CONDO_KINDS, NODE_TYPES, NODE_TYPE_LIST, RACK_HOST_TYPES, SLACK_KINDS, effectiveLineStyle, lineDash } from '../lib/catalog';
@@ -405,8 +405,9 @@ export default function MapPage() {
   const initialView = useMemo(() => loadView(projectId), [projectId]);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const load = () =>
-    api.project(projectId).then((d) => {
+  const load = () => {
+    setContextProject(projectId);
+    return api.project(projectId).then((d) => {
       setProject(d.project);
       setSettings(d.settings);
       setNodes(d.nodes);
@@ -416,6 +417,7 @@ export default function MapPage() {
       setRole(d.role);
       setGoogleKey({ key: d.google_maps_key ?? null, source: d.google_key_source ?? null });
     });
+  };
 
   useEffect(() => {
     load();
@@ -491,6 +493,8 @@ export default function MapPage() {
 
   const notify = (message: string, kind: 'ok' | 'error' = 'ok') => setToast({ message, kind });
   const readOnly = role === 'viewer';
+  /** Objeto compartilhado de outro projeto onde o usuário não pode editar: só consulta. */
+  const nodeLocked = (n?: NetNode) => !!n && n.share?.can_edit === false;
   const canManage = role === 'owner' || role === 'admin';
 
   const viaOptions = useMemo(() => (network && viaPoint ? viability(network, viaPoint, viaRadius) : []), [network, viaPoint, viaRadius]);
@@ -519,7 +523,14 @@ export default function MapPage() {
   }
 
   const mergeCables = (updated: Cable[]) => setCables((list) => list.map((c) => updated.find((u) => u.id === c.id) ?? c));
-  const mergeNodes = (updated: NetNode[]) => setNodes((list) => list.map((n) => updated.find((u) => u.id === n.id) ?? n));
+  // A marca de compartilhado só vem em algumas respostas: mantém a que já estava quando não vier.
+  const mergeNodes = (updated: NetNode[]) =>
+    setNodes((list) =>
+      list.map((n) => {
+        const u = updated.find((x) => x.id === n.id);
+        return u ? { ...u, share: u.share !== undefined ? u.share : n.share } : n;
+      }),
+    );
   const mergeDucts = (updated: Duct[]) => setDucts((list) => list.map((d) => updated.find((u) => u.id === d.id) ?? d));
 
   async function addNode(type: NodeType, at: LatLng, mount?: NetNode): Promise<NetNode | null> {
@@ -1519,6 +1530,7 @@ export default function MapPage() {
                     selected: selection?.kind === 'node' && (selection.id === n.id || stack.some((c) => c.id === selection.id)),
                     fill: level ? POWER_COLORS[level] : undefined,
                     group: grouped.counts.get(n.id),
+                    shared: !!n.share,
                     dot:
                       n.type === 'camera' && cameraOf(n).cam_status
                         ? HEALTH_COLORS[cameraHealth(cameraOf(n).cam_status)]
@@ -1526,7 +1538,7 @@ export default function MapPage() {
                           ? '#f59e0b'
                           : undefined,
                   })}
-                  draggable={tool === 'select' && !readOnly}
+                  draggable={tool === 'select' && !readOnly && !nodeLocked(n)}
                   eventHandlers={{
                     click: (e) => {
                       L.DomEvent.stopPropagation(e);
@@ -2401,7 +2413,18 @@ export default function MapPage() {
 
         {(selectedNode || selectedCable) && tool !== 'viability' && (
           <Inspector
-            readOnly={readOnly}
+            readOnly={readOnly || nodeLocked(selectedNode)}
+            projectId={projectId}
+            canEditProject={!readOnly}
+            onShared={(ns) => {
+              mergeNodes(ns);
+              notify(ns.length > 1 ? `Compartilhado (com ${ns.length - 1} objeto(s) fixado(s))` : 'Objeto compartilhado');
+            }}
+            onUnshared={(n, cs) => {
+              mergeNodes([n]);
+              mergeCables(cs);
+              notify('Objeto tirado do projeto');
+            }}
             cables={cables}
             onHistory={(kind, id, name) =>
               setHistory({

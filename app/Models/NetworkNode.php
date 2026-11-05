@@ -4,7 +4,9 @@ namespace App\Models;
 
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Facades\Crypt;
 
 class NetworkNode extends Model
@@ -67,5 +69,30 @@ class NetworkNode extends Model
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
+    }
+
+    /** Outros projetos onde este objeto também aparece (compartilhado). O de origem é project_id. */
+    public function sharedProjects(): BelongsToMany
+    {
+        return $this->belongsToMany(Project::class, 'node_shares')->withTimestamps();
+    }
+
+    /** Objetos visíveis num projeto: os dele e os compartilhados com ele. */
+    public function scopeVisibleIn(Builder $query, int $projectId): Builder
+    {
+        return $query->where(fn ($q) => $q
+            ->where('network_nodes.project_id', $projectId)
+            ->orWhereIn('network_nodes.id', fn ($s) => $s->select('network_node_id')->from('node_shares')->where('project_id', $projectId)));
+    }
+
+    /** IDs de todos os projetos onde o objeto aparece (origem primeiro). */
+    public function projectIds(): array
+    {
+        return array_values(array_unique([(int) $this->project_id, ...$this->sharedProjects()->pluck('projects.id')->map(fn ($id) => (int) $id)->all()]));
+    }
+
+    public function isVisibleIn(int $projectId): bool
+    {
+        return (int) $this->project_id === $projectId || $this->sharedProjects()->where('projects.id', $projectId)->exists();
     }
 }

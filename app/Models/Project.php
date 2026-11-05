@@ -30,6 +30,28 @@ class Project extends Model
         return $this->hasMany(NetworkNode::class);
     }
 
+    /** Objetos do projeto mais os compartilhados com ele por outros projetos. */
+    public function visibleNodes()
+    {
+        return NetworkNode::query()->visibleIn($this->id);
+    }
+
+    /** Regra de validação: o ID é de um objeto visível neste projeto (dele ou compartilhado). */
+    public function nodeRule(): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail) {
+            if ($value !== null && ! NetworkNode::visibleIn($this->id)->whereKey((int) $value)->exists()) {
+                $fail('O objeto escolhido não está neste projeto.');
+            }
+        };
+    }
+
+    /** Objetos de outros projetos compartilhados com este. */
+    public function sharedNodes(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(NetworkNode::class, 'node_shares')->withTimestamps();
+    }
+
     public function cables(): HasMany
     {
         return $this->hasMany(Cable::class);

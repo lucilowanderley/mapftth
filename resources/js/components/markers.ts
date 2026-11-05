@@ -56,6 +56,10 @@ const groupRing = (size: number) => {
 };
 
 /** Selo com a quantidade de objetos escondidos pelo grupo (canto superior direito). */
+/** Objeto compartilhado com outros projetos: selo com elos de corrente no canto inferior esquerdo. */
+const sharedBadge = () =>
+  `<div class="shared-badge" style="position:absolute;left:-5px;bottom:-5px;width:12px;height:12px;border-radius:9999px;background:#0f172a;border:1px solid #fff;display:flex;align-items:center;justify-content:center;pointer-events:none"><svg viewBox="0 0 24 24" width="8" height="8" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></div>`;
+
 const groupBadge = (count: number) =>
   `<div class="group-badge" style="position:absolute;right:-9px;top:-9px;min-width:17px;height:17px;padding:0 4px;border-radius:9999px;background:#facc15;color:#0f172a;border:1.5px solid #0f172a;font:700 10px/14px system-ui,sans-serif;text-align:center;pointer-events:none;box-shadow:0 1px 2px rgba(0,0,0,.5)">+${count > 999 ? '999' : count}</div>`;
 
@@ -94,7 +98,7 @@ const cache = new Map<string, L.DivIcon>();
  * opts.group: objeto agrupado (esconde o que está a jusante); mostra um selo com a quantidade
  * de objetos ocultos e um anel tracejado em volta do ícone.
  */
-export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: string; group?: number; dot?: string; stack?: NetNode[]; coils?: string[] } = {}) {
+export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: string; group?: number; dot?: string; stack?: NetNode[]; coils?: string[]; shared?: boolean } = {}) {
   const size = SIZES[node.type];
   const fill = opts.fill ?? NODE_TYPES[node.type].color;
   const ring = opts.selected ? '#facc15' : STATUSES[node.status].color;
@@ -107,13 +111,13 @@ export function nodeIcon(node: NetNode, opts: { selected?: boolean; fill?: strin
   const stack = opts.stack?.length || opts.coils?.length ? (opts.stack ?? []) : undefined;
   const coils = opts.coils ?? [];
   const stackKey = stack ? stack.map((c) => `${c.type}${c.type === 'camera' && c.attributes?.cam_kind === 'dvr' ? 'd' : ''}${c.status[0]}`).join(',') + `|${coils.join(',')}` : '';
-  const key = `${node.type}${variant}|${fill}|${ring}|${opts.selected ? 1 : 0}|${group ?? ''}|${opts.dot ?? ''}|${stackKey}`;
+  const key = `${node.type}${variant}|${fill}|${ring}|${opts.selected ? 1 : 0}|${group ?? ''}|${opts.dot ?? ''}|${stackKey}|${opts.shared ? 's' : ''}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const glow = opts.selected ? 'filter:drop-shadow(0 0 6px #facc15);' : 'filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));';
   const icon = L.divIcon({
     className: 'node-marker',
-    html: `${group !== undefined ? groupRing(size) : ''}${stack ? anchorStrip(size, stack, coils, !!opts.selected) : ''}<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}${group !== undefined || stack ? 'position:relative;' : ''}">${(houses ? CONDO_HOUSES : dvr ? CAMERA_DVR : wallBox ? BOX_WALL : variant === '-business' ? CLIENT_BUSINESS : variant === '-corporate' ? CLIENT_CORPORATE : SHAPES[node.type])(fill, ring)}</svg>${group !== undefined ? groupBadge(group) : ''}${opts.dot ? healthDot(opts.dot) : ''}`,
+    html: `${group !== undefined ? groupRing(size) : ''}${stack ? anchorStrip(size, stack, coils, !!opts.selected) : ''}<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="${glow}${group !== undefined || stack || opts.shared ? 'position:relative;' : ''}">${(houses ? CONDO_HOUSES : dvr ? CAMERA_DVR : wallBox ? BOX_WALL : variant === '-business' ? CLIENT_BUSINESS : variant === '-corporate' ? CLIENT_CORPORATE : SHAPES[node.type])(fill, ring)}</svg>${group !== undefined ? groupBadge(group) : ''}${opts.dot ? healthDot(opts.dot) : ''}${opts.shared ? sharedBadge() : ''}`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
