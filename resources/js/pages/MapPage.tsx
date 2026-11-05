@@ -43,7 +43,7 @@ import {
   Magnet,
   Cylinder,
 } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Circle, CircleMarker, MapContainer, Marker, Pane, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import { Link, useParams } from 'react-router-dom';
 import L from 'leaflet';
@@ -1037,7 +1037,8 @@ export default function MapPage() {
       addNode('camera', [node.lat, node.lng], node);
       return;
     }
-    setSelection({ kind: 'node', id: node.id });
+    // 1 clique abre o painel de propriedades; outro clique no mesmo objeto fecha.
+    setSelection((s) => (s?.kind === 'node' && s.id === node.id ? null : { kind: 'node', id: node.id }));
   }
 
   async function finishCable(path = draft?.path ?? [], to: number | null = null) {
@@ -1340,6 +1341,12 @@ export default function MapPage() {
         >
           <AutoResize />
           <RememberView projectId={projectId} />
+          {pendingMove && (
+            <MoveConfirm at={pendingMove.at} onConfirm={confirmPendingMove} onCancel={cancelPendingMove}>
+              Mover <b>{pendingMove.node.name}</b> {formatLength(distance([pendingMove.node.lat, pendingMove.node.lng], pendingMove.at))} para{' '}
+              {formatCoord(roundLatLng(pendingMove.at)[0])}, {formatCoord(roundLatLng(pendingMove.at)[1])}?
+            </MoveConfirm>
+          )}
           <BaseTiles
             engine={engine}
             mapStyle={mapStyle}
@@ -1466,11 +1473,10 @@ export default function MapPage() {
                     if (tool !== 'select') return;
                     L.DomEvent.stopPropagation(e);
                     setCableMenu(null);
-                    setSelection({
-                      kind: 'cable',
-                      id: c.id,
-                    });
                     const double = isDoubleClick(`c${c.id}`);
+                    // 1 clique abre as propriedades; outro clique no mesmo cabo fecha (duplo clique abre a edição).
+                    const toggleOff = !connectId && !double && selection?.kind === 'cable' && selection.id === c.id;
+                    setSelection(toggleOff ? null : { kind: 'cable', id: c.id });
                     if (connectId) {
                       // No modo conectar: clicar em outro cabo passa a trabalhar nele; duplo clique cria um ponto.
                       if (connectId !== c.id) return setConnectId(c.id);
@@ -2157,19 +2163,6 @@ export default function MapPage() {
                 <Check size={14} /> Concluir
               </button>
             </div>
-          ) : pendingMove ? (
-            <div className="panel px-3 py-1.5 text-xs text-slate-200 flex items-center gap-2 !border-yellow-500">
-              <span>
-                Mover <b>{pendingMove.node.name}</b> {formatLength(distance([pendingMove.node.lat, pendingMove.node.lng], pendingMove.at))} para{' '}
-                {formatCoord(roundLatLng(pendingMove.at)[0])}, {formatCoord(roundLatLng(pendingMove.at)[1])}?
-              </span>
-              <button className="btn-primary !py-1 text-xs" onClick={confirmPendingMove} title="Enter">
-                Confirmar
-              </button>
-              <button className="btn-ghost !py-1 text-xs" onClick={cancelPendingMove} title="Esc">
-                Cancelar
-              </button>
-            </div>
           ) : (
             <div className="panel px-3 py-1.5 text-xs text-slate-300">{hint}</div>
           )}
@@ -2816,6 +2809,57 @@ function GoogleAttribution({ tileUrl, fallback }: { tileUrl: string; fallback: s
     };
   }, [map, tileUrl, fallback]);
   return null;
+}
+
+/**
+ * Barra "Mover ... ? Confirmar / Cancelar" logo abaixo do objeto arrastado, centralizada nele.
+ * Acompanha o mapa ao arrastar/dar zoom e não sai da área visível.
+ */
+function MoveConfirm({ at, onConfirm, onCancel, children }: { at: LatLng; onConfirm: () => void; onCancel: () => void; children: React.ReactNode }) {
+  const map = useMap();
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [, setTick] = useState(0);
+  // 1º desenho mede a largura da barra; o 2º já centraliza.
+  useLayoutEffect(() => setTick((t) => t + 1), []);
+  useEffect(() => {
+    const redraw = () => setTick((t) => t + 1);
+    map.on('move zoom resize', redraw);
+    return () => {
+      map.off('move zoom resize', redraw);
+    };
+  }, [map]);
+  useEffect(() => {
+    // Cliques e rolagem na barra não chegam ao mapa.
+    if (!ref.current) return;
+    L.DomEvent.disableClickPropagation(ref.current);
+    L.DomEvent.disableScrollPropagation(ref.current);
+  }, []);
+  const p = map.latLngToContainerPoint(at);
+  const size = map.getSize();
+  const w = ref.current?.offsetWidth ?? 0;
+  const h = ref.current?.offsetHeight ?? 36;
+  const pad = 8;
+  // 26 px abaixo do centro do ícone; se não couber embaixo, vai para cima.
+  let top = p.y + 26;
+  if (top + h > size.y - pad) top = p.y - 26 - h;
+  top = Math.max(pad, Math.min(size.y - h - pad, top));
+  let left = p.x - w / 2;
+  left = Math.max(pad, Math.min(size.x - w - pad, left));
+  return (
+    <div
+      ref={ref}
+      className="panel absolute z-[1000] px-3 py-1.5 text-xs text-slate-200 flex items-center gap-2 !border-yellow-500 whitespace-nowrap shadow-lg"
+      style={{ left, top, visibility: w ? 'visible' : 'hidden' }}
+    >
+      <span>{children}</span>
+      <button className="btn-primary !py-1 text-xs" onClick={onConfirm} title="Enter">
+        Confirmar
+      </button>
+      <button className="btn-ghost !py-1 text-xs" onClick={onCancel} title="Esc">
+        Cancelar
+      </button>
+    </div>
+  );
 }
 
 function MapEvents({
