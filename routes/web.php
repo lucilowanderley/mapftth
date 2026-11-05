@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\EquipmentModelController;
 use App\Http\Controllers\Api\FixBulkController;
 use App\Http\Controllers\Api\KmzController;
 use App\Http\Controllers\Api\LaunchController;
+use App\Http\Controllers\Api\MergeController;
 use App\Http\Controllers\Api\MemberController;
 use App\Http\Controllers\Api\NodeController;
 use App\Http\Controllers\Api\ProjectController;
@@ -57,6 +58,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/projects/{project}/launch', [LaunchController::class, 'store']);
         Route::post('/projects/{project}/fix-bulk', [FixBulkController::class, 'store']);
         Route::post('/cables/{cable}/split', [CableController::class, 'split']);
+        Route::post('/projects/{project}/cables/merge', [MergeController::class, 'cables']);
+        Route::post('/projects/{project}/ducts/merge', [MergeController::class, 'ducts']);
         Route::post('/projects/{project}/import', [KmzController::class, 'import']);
         Route::get('/projects/{project}/export', [KmzController::class, 'export']);
         Route::post('/projects/{project}/areas', [AreaController::class, 'store']);

@@ -14,6 +14,7 @@ import {
   Save,
   Server,
   Spline,
+  Split,
   SquareStack,
   Trash2,
   Triangle,
@@ -287,7 +288,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const [view, setView] = useState({ x: 40, y: 40, k: 1 });
   const [pending, setPending] = useState<End | null>(null);
   const [selected, setSelected] = useState<{ kind: 'conn' | 'block' | 'tray'; key: string } | null>(null);
-  const [dialog, setDialog] = useState<'splitter' | 'olt' | 'dio' | 'auto' | 'trays' | 'trayEdit' | 'client' | null>(null);
+  const [dialog, setDialog] = useState<'splitter' | 'olt' | 'dio' | 'auto' | 'sangria' | 'trays' | 'trayEdit' | 'client' | null>(null);
   const [trayFocus, setTrayFocus] = useState<string | null>(null);
   /** Cliente em edição na janela de cliente (null = novo cliente). */
   const [clientEdit, setClientEdit] = useState<string | null>(null);
@@ -920,6 +921,26 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     setError(created.length ? '' : 'Nenhuma fusão criada: as fibras já estão ocupadas.');
   }
 
+  /**
+   * Sangria: o cabo de entrada continua no de saída. As fibras com emenda ficam como estão; as livres
+   * nos dois cabos (mesmo número) passam direto, sem fusão e sem perda.
+   */
+  function sangria(fromKey: string, toKey: string) {
+    const from = blocks.find((b) => b.key === fromKey);
+    const to = blocks.find((b) => b.key === toKey);
+    if (!from || !to || from.kind !== 'cable' || to.kind !== 'cable') return;
+    const toPorts = new Map(blockPorts(to).filter((p) => p.end.p.startsWith('f')).map((p) => [p.end.p, p]));
+    const created: Connection[] = [];
+    for (const fp of blockPorts(from).filter((p) => p.end.p.startsWith('f'))) {
+      const tp = toPorts.get(fp.end.p);
+      if (!tp || connectedTo(fp.end) || connectedTo(tp.end)) continue;
+      created.push({ id: uid(), a: fp.end, b: tp.end, pass: true });
+    }
+    update((d) => ({ ...d, connections: [...d.connections, ...created] }));
+    setDialog(null);
+    setError(created.length ? '' : 'Nenhuma passagem criada: as fibras já estão ocupadas.');
+  }
+
   async function save(close: boolean) {
     try {
       const trays = diagram.trays?.length ? pruneTrays(diagram.trays, cables) : undefined;
@@ -1227,6 +1248,15 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
           />
         )}
         <IconTool icon={<Wand2 size={16} />} label="Auto-fusão: funde as fibras em sequência entre dois cabos" onClick={() => setDialog('auto')} />
+        {!isPop && !readOnly && (
+          <IconTool
+            icon={<Split size={16} />}
+            label="Sangria: o cabo de entrada segue no de saída; as fibras livres passam direto (passagem) e as emendas ficam como estão"
+            text="Sangria"
+            onClick={() => setDialog('sangria')}
+            disabled={blocks.filter((b) => b.kind === 'cable').length < 2}
+          />
+        )}
         <IconTool
           icon={<Layers size={16} />}
           label="Bandejas de emenda (B): criar bandejas e vincular os tubos loose dos cabos"
@@ -2238,6 +2268,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         />
       )}
       {dialog === 'auto' && <AutoFuseDialog blocks={blocks} onClose={() => setDialog(null)} onRun={autoFuse} />}
+      {dialog === 'sangria' && <SangriaDialog blocks={blocks} onClose={() => setDialog(null)} onRun={sangria} />}
     </div>
   );
 }
@@ -3163,6 +3194,46 @@ function AutoFuseDialog({ blocks, onClose, onRun }: { blocks: Block[]; onClose: 
         </Field>
         <button className="btn-primary w-full" disabled={!from || !to} onClick={() => onRun(from, to, offset)}>
           <Wand2 size={15} /> Fundir
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function SangriaDialog({ blocks, onClose, onRun }: { blocks: Block[]; onClose: () => void; onRun: (from: string, to: string) => void }) {
+  const cablesB = blocks.filter((b) => b.kind === 'cable');
+  const [from, setFrom] = useState(cablesB[0]?.key ?? '');
+  const [to, setTo] = useState(cablesB.find((b) => b.key !== cablesB[0]?.key)?.key ?? '');
+  const label = (b: Block) => (b.kind === 'cable' ? `${b.cable.name} (${b.label})` : '');
+  return (
+    <Modal title="Sangria" onClose={onClose} width="max-w-sm">
+      <p className="text-sm text-slate-400 mb-3">
+        O cabo de entrada segue no cabo de saída. As fibras que já têm emenda ficam como estão; as livres nos dois cabos passam direto (passagem: sem fusão e sem
+        perda), 1↔1, 2↔2...
+      </p>
+      <div className="space-y-3">
+        <Field label="Cabo que chega">
+          <select className="input" value={from} onChange={(e) => setFrom(e.target.value)}>
+            {cablesB.map((b) => (
+              <option key={b.key} value={b.key}>
+                {label(b)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Cabo que segue à frente">
+          <select className="input" value={to} onChange={(e) => setTo(e.target.value)}>
+            {cablesB
+              .filter((b) => b.key !== from)
+              .map((b) => (
+                <option key={b.key} value={b.key}>
+                  {label(b)}
+                </option>
+              ))}
+          </select>
+        </Field>
+        <button className="btn-primary w-full" disabled={!from || !to || from === to} onClick={() => onRun(from, to)}>
+          <Split size={15} /> Fazer sangria
         </button>
       </div>
     </Modal>

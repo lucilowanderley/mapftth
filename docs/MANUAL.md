@@ -11,7 +11,7 @@ seções como consulta.
 3. [Meus projetos](#3-meus-projetos)
 4. [A tela do mapa](#4-a-tela-do-mapa)
 5. [Adicionar POP, datacenter, torre, CEO, CTO, caixa, poste, cliente e condomínio](#5-adicionar-pop-datacenter-torre-ceo-cto-caixa-poste-cliente-e-condomínio) (inclui a [Caixa de parede ou subterrânea](#caixa-de-parede-ou-subterrânea), a [Fixação da CTO/CEO](#fixação-da-ctoceo-poste-parede-ou-caixa), o [Fixar em massa](#fixar-em-massa), os [Objetos fixados no poste/caixa e o editor do poste/caixa](#objetos-fixados-no-postecaixa-e-o-editor-do-postecaixa) a [Câmera: IP, analógica e DVR/NVR](#câmera-ip-analógica-e-dvrnvr) e o [Mesmo objeto em mais de um projeto](#mesmo-objeto-em-mais-de-um-projeto-compartilhado))
-6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos) (inclui as [3 formas de ligar a CTO no cabo](#ligar-a-cto-no-cabo-3-formas), o [Lançar cabo](#lançar-cabo-com-postes-e-reservas) e os [Dutos](#dutos-subterrâneos))
+6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos) (inclui as [3 formas de ligar a CTO no cabo](#ligar-a-cto-no-cabo-3-formas), o [Lançar cabo](#lançar-cabo-com-postes-e-reservas), os [Dutos](#dutos-subterrâneos) e o [Unir cabos ou dutos](#unir-cabos-ou-dutos))
 7. [Editor do POP: rack, OLT e DIO](#7-editor-do-pop-rack-olt-e-dio)
 8. [Diagrama de fusão da CEO e da CTO (splitters)](#8-diagrama-de-fusão-da-ceo-e-da-cto)
 9. [Ligar o cliente e ver o sinal](#9-ligar-o-cliente-e-ver-o-sinal)
@@ -788,6 +788,33 @@ Excluir um cabo tira ele dos dutos. Numa **sangria**, os trechos novos que conti
 nele. Os dutos aparecem na **camada Dutos** (painel de camadas › Elementos), na **busca**, no total da barra
 lateral, nos **relatórios** e no **KMZ**.
 
+### Unir cabos ou dutos
+
+A ferramenta **Unir** (barra do mapa) junta vários cabos, ou vários dutos, ligados **ponta com ponta** num objeto
+só. Serve, por exemplo, para juntar cabos importados do KMZ em pedaços ou trechos que ficaram separados.
+
+1. Clique em **Unir** na barra, ou segure **Ctrl** e clique nos cabos (ou dutos) no modo Selecionar.
+2. Clique nos cabos que quer unir: cada um ganha um destaque amarelo e entra na lista do painel. Clicar de novo
+   desmarca. No painel escolha **Cabos** ou **Dutos**.
+3. Clique em **Unir**. A ordem dos cliques não importa: os cabos só precisam formar um caminho contínuo, sem
+   ramificação, encontrando-se no mesmo objeto ou com as pontas a até 3 m.
+
+O que acontece com os **cabos**:
+
+- Fica o **cabo que você marcou primeiro**, com o tipo, as fibras, a cor, o status e o sentido dele. O nome perde o sufixo de
+  trecho (" · T2").
+- Tudo o que estava preso nos cabos passa para o cabo unido: **CTO/CEO fixadas no cabo**, **reservas técnicas**,
+  os **dutos** por onde eles passam e as emendas das **caixas das pontas**.
+- Onde os cabos se encontram numa **CTO, CEO, caixa ou POP sem emenda**, o cabo só passa pela caixa (passagem) e
+  vira um cabo só.
+- Onde se encontram numa **CTO, CEO, caixa ou POP com emendas** (fusão, conector, splitter, bandeja...), ali vira
+  **sangria**: o cabo continua em trechos (*Nome · T1*, *Nome · T2*...) ligados na caixa, as emendas ficam como
+  estão e as **demais fibras seguem em passagem** (sem fusão e sem perda).
+- Cabos com quantidades de fibras diferentes só se unem numa caixa com emendas (sangria).
+
+Nos **dutos**, fica o duto que você marcou primeiro, com as características dele, e os cabos de todos passam a correr
+nele.
+
 ---
 
 ## 7. Editor do POP: rack, OLT e DIO
@@ -1094,6 +1121,7 @@ como um bloco (*de POP...* / *para CTO...*), com as fibras nas cores ABNT.
 | pessoa | **Cliente** (K) | Adiciona um cliente (assinante) no diagrama, para ligar a uma saída de splitter (veja abaixo). |
 | grupo | **Grupo** (G) | Com um **cabo** (ou a **emenda de uma fibra** dele) selecionado, junta tudo o que vem à frente dele num objeto **Grupo** recolhido (veja abaixo). Com um grupo selecionado, o botão vira **Expandir grupo / Recolher grupo**. |
 | varinha | **Auto-fusão** | Funde as fibras em sequência entre dois cabos. |
+| bifurcação | **Sangria** | O cabo que chega segue no cabo que vai à frente: as fibras livres passam direto (passagem) e as emendas ficam como estão (veja abaixo). |
 | camadas | **Bandejas** (B) | Cria as bandejas de emenda da caixa e vincula os tubos loose dos cabos a cada uma (veja abaixo). |
 | ↻ | **Girar** (R) | Splitter: gira **90°** a cada clique (entrada à esquerda, em cima, à direita, embaixo). Cabo: passa para o outro lado. Cliente: a porta troca de lado. |
 | ⧉ | **Duplicar** (Ctrl+D) | Cria uma cópia do splitter selecionado. |
@@ -1285,6 +1313,14 @@ equipamentos recolhidos num rack do POP.
 3. Em **Começar na porta/fibra do destino**, informe onde a sequência começa (ex.: 1 para 1↔1, 2↔2...; 13 para
    começar no segundo tubo).
 4. Clique em **Fundir**. As fibras que já estiverem ocupadas são puladas.
+
+<a id="sangria-no-diagrama"></a>
+**Sangria** (dentro da CTO, CEO ou caixa)
+
+1. Clique em **Sangria** na barra do diagrama (precisa de pelo menos dois cabos na caixa).
+2. Escolha o **Cabo que chega** e o **Cabo que segue à frente**.
+3. Clique em **Fazer sangria**. Cada fibra livre nos dois cabos ganha uma **passagem** para a fibra de mesmo
+   número (1↔1, 2↔2...). As fibras que já têm emenda (splitter, fusão, conector) ficam como estão.
 
 **Potência**: o botão **Potência** liga ou desliga os valores de sinal em dBm em cada porta.
 
@@ -1578,6 +1614,7 @@ Ao salvar, todos os sinais, cores e relatórios são recalculados.
 | **Arrastar** elemento | Mapa | Move o elemento e os cabos ligados a ele. |
 | **Enter** / **Esc** ao soltar | Mapa | Confirma ou cancela o novo lugar do elemento arrastado. |
 | **Ctrl+Z** | Mapa | Desfaz o último movimento de elemento. |
+| **Ctrl+clique** em cabos ou dutos | Mapa | Marca vários para **Unir** num só. |
 | **Arrastar** alça do cabo | Mapa | Move ou cria um ponto do traçado (botão direito remove). |
 | **Botão direito** desenhando cabo ou duto | Mapa | Desfaz o último ponto. |
 | **Botão direito** no cabo | Mapa | Menu: Editar, Conectar a caixa, poste ou POP, Conectar caixas no traçado, Excluir. |

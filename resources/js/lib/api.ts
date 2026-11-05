@@ -127,6 +127,14 @@ export const api = {
   /** Sangria: divide o cabo nas caixas dos vértices indicados. */
   splitCable: (id: number, path: LatLng[], cuts: { index: number; node_id: number }[]) =>
     http.post<{ cables: Cable[]; nodes: NetNode[]; ducts?: Duct[] }>(`/api/cables/${id}/split`, { path, cuts }).then((r) => r.data),
+  /** Unir cabos ligados ponta com ponta: caixas com emenda viram sangria (trechos), o resto vira um cabo só. */
+  mergeCables: (projectId: number, ids: number[]) =>
+    http
+      .post<{ cables: Cable[]; removed: number[]; nodes: NetNode[]; ducts: Duct[]; sangrias: { node_id: number; name: string; passes: number }[] }>(
+        `/api/projects/${projectId}/cables/merge`,
+        { ids },
+      )
+      .then((r) => r.data),
   deleteCable: (id: number) => http.delete<{ nodes: NetNode[] }>(`/api/cables/${id}`).then((r) => r.data),
 
   importKmz: (projectId: number, file: File) => {
@@ -147,6 +155,8 @@ export const api = {
 
   createDuct: (projectId: number, data: Partial<Duct>) => http.post<Duct>(`/api/projects/${projectId}/ducts`, data).then((r) => r.data),
   updateDuct: (id: number, data: Partial<Duct>) => http.put<Duct>(`/api/ducts/${id}`, data).then((r) => r.data),
+  mergeDucts: (projectId: number, ids: number[]) =>
+    http.post<{ duct: Duct; removed: number[] }>(`/api/projects/${projectId}/ducts/merge`, { ids }).then((r) => r.data),
   deleteDuct: (id: number) => http.delete(`/api/ducts/${id}`),
 
   members: (projectId: number) =>
