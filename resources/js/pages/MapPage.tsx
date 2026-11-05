@@ -92,32 +92,72 @@ import { useFloatPanel } from '../lib/floatpanel';
 import PanelLock from '../components/PanelLock';
 import LaunchPanel, { type LaunchPick, type LaunchPreview } from '../components/LaunchPanel';
 import BulkFixPanel, { type BulkPreview } from '../components/BulkFixPanel';
+import ToolFan, { type FanGroup } from '../components/ToolFan';
 import MergePanel, { type MergeKind, type MergeSelection } from '../components/MergePanel';
 
 type Tool = 'select' | NodeType | 'cable' | 'duct' | 'launch' | 'bulkfix' | 'merge' | 'slack' | 'ruler' | 'area' | 'viability' | 'otdr';
 
-const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
-  { id: 'select', label: 'Selecionar', icon: <MousePointer2 size={18} /> },
-  { id: 'cto', label: 'CTO', icon: <SquareStack size={18} /> },
-  { id: 'ceo', label: 'CEO', icon: <Hexagon size={18} /> },
-  { id: 'box', label: 'Caixa', icon: <Archive size={18} /> },
-  { id: 'pop', label: 'POP', icon: <Server size={18} /> },
-  { id: 'dc', label: 'Datacenter', icon: <Warehouse size={18} /> },
-  { id: 'tower', label: 'Torre', icon: <RadioTower size={18} /> },
-  { id: 'pole', label: 'Poste', icon: <UtilityPole size={20} strokeWidth={2.2} /> },
-  { id: 'client', label: 'Cliente', icon: <User size={18} /> },
-  { id: 'condo', label: 'Condomínio', icon: <Building2 size={18} /> },
-  { id: 'camera', label: 'Câmera', icon: <Cctv size={18} /> },
-  { id: 'cable', label: 'Cabo', icon: <CableIcon size={18} /> },
-  { id: 'launch', label: 'Lançar', icon: <LaunchIcon size={18} /> },
-  { id: 'bulkfix', label: 'Fixar', icon: <Magnet size={18} /> },
-  { id: 'merge', label: 'Unir', icon: <Merge size={18} /> },
-  { id: 'duct', label: 'Duto', icon: <Cylinder size={18} className="rotate-90" /> },
-  { id: 'area', label: 'Área', icon: <Pentagon size={18} /> },
-  { id: 'slack', label: 'Reserva', icon: <SlackToolIcon size={18} /> },
-  { id: 'ruler', label: 'Régua', icon: <Ruler size={18} /> },
-  { id: 'viability', label: 'Viabilidade', icon: <Radar size={18} /> },
-  { id: 'otdr', label: 'OTDR', icon: <Activity size={18} /> },
+/**
+ * Barra de ferramentas agrupada por contexto; cada grupo abre em leque. Ferramentas com a mesma função ficam num
+ * botão só (CTO/CEO: mesma forma de lançar; Cabo: desenhar à mão ou lançar pelos postes) e a escolha entre elas
+ * fica na faixa abaixo da barra.
+ */
+const TOOL_GROUPS: FanGroup<Tool>[] = [
+  { key: 'select', label: 'Selecionar', items: [{ key: 'select', label: 'Selecionar', icon: <MousePointer2 size={18} />, tools: ['select'] }] },
+  {
+    key: 'infra',
+    label: 'Infraestrutura',
+    items: [
+      { key: 'pole', label: 'Poste', icon: <UtilityPole size={20} strokeWidth={2.2} />, tools: ['pole'] },
+      { key: 'box', label: 'Caixa', icon: <Archive size={18} />, tools: ['box'] },
+      { key: 'duct', label: 'Duto', icon: <Cylinder size={18} className="rotate-90" />, tools: ['duct'] },
+    ],
+  },
+  {
+    key: 'fiber',
+    label: 'Rede óptica',
+    items: [
+      { key: 'closure', label: 'CTO / CEO', icon: <SquareStack size={18} />, tools: ['cto', 'ceo'] },
+      { key: 'cable', label: 'Cabo', icon: <CableIcon size={18} />, tools: ['cable', 'launch'] },
+      { key: 'slack', label: 'Reserva', icon: <SlackToolIcon size={18} />, tools: ['slack'] },
+    ],
+  },
+  {
+    key: 'sites',
+    label: 'Centrais',
+    items: [
+      { key: 'pop', label: 'POP', icon: <Server size={18} />, tools: ['pop'] },
+      { key: 'dc', label: 'Datacenter', icon: <Warehouse size={18} />, tools: ['dc'] },
+      { key: 'tower', label: 'Torre', icon: <RadioTower size={18} />, tools: ['tower'] },
+    ],
+  },
+  {
+    key: 'clients',
+    label: 'Clientes',
+    items: [
+      { key: 'client', label: 'Cliente', icon: <User size={18} />, tools: ['client'] },
+      { key: 'condo', label: 'Condomínio', icon: <Building2 size={18} />, tools: ['condo'] },
+      { key: 'camera', label: 'Câmera', icon: <Cctv size={18} />, tools: ['camera'] },
+    ],
+  },
+  {
+    key: 'edit',
+    label: 'Ajustar',
+    items: [
+      { key: 'bulkfix', label: 'Fixar', icon: <Magnet size={18} />, tools: ['bulkfix'] },
+      { key: 'merge', label: 'Unir', icon: <Merge size={18} />, tools: ['merge'] },
+    ],
+  },
+  {
+    key: 'measure',
+    label: 'Medir',
+    items: [
+      { key: 'ruler', label: 'Régua', icon: <Ruler size={18} />, tools: ['ruler'] },
+      { key: 'area', label: 'Área', icon: <Pentagon size={18} />, tools: ['area'] },
+      { key: 'viability', label: 'Viabilidade', icon: <Radar size={18} />, tools: ['viability'] },
+      { key: 'otdr', label: 'OTDR', icon: <Activity size={18} />, tools: ['otdr'] },
+    ],
+  },
 ];
 
 /** Ferramentas que só leem a rede (liberadas para quem tem acesso de leitura). */
@@ -601,6 +641,41 @@ export default function MapPage() {
 
   const notify = (message: string, kind: 'ok' | 'error' = 'ok') => setToast({ message, kind });
   const readOnly = role === 'viewer';
+  /** Grupos da barra visíveis para o papel do usuário (leitura: só o que não altera a rede). */
+  const toolGroups = useMemo(
+    () =>
+      readOnly
+        ? TOOL_GROUPS.map((g) => ({ ...g, items: g.items.filter((it) => it.tools.some((t) => READ_TOOLS.includes(t))).map((it) => ({ ...it, tools: it.tools.filter((t) => READ_TOOLS.includes(t)) })) }))
+        : TOOL_GROUPS,
+    [readOnly],
+  );
+  /** Troca de ferramenta pela barra (leque ou as escolhas fundidas CTO/CEO e Desenhar/Lançar). */
+  function pickTool(id: Tool) {
+    setTool(id);
+    setSlackCableId(null);
+    setConnectId(null);
+    setCableMenu(null);
+    setDraft(null);
+    setDuctDraft(null);
+    setAreaDraft([]);
+    if (id !== 'ruler') setRuler([]);
+    if (id === 'viability' || id === 'launch' || id === 'bulkfix') setSelection(null);
+    if (id === 'otdr') {
+      // Entra no OTDR já com o cabo ou a caixa selecionada como ponto de disparo.
+      setOtdrPick(null);
+      if (selectedCable) pickOtdrCable(selectedCable);
+      else if (selectedNode) pickOtdrAt(selectedNode);
+      setSelection(null);
+    }
+    if (id === 'merge') {
+      // Entra no Unir já com o cabo/duto selecionado.
+      if (selection?.kind === 'cable' || selection?.kind === 'duct') setMergeSel({ kind: selection.kind, ids: [selection.id] });
+      else setMergeSel((m) => ({ ...m, ids: [] }));
+      setSelection(null);
+    }
+    // Lançar cabo escolhe postes no mapa: a camada de postes precisa estar visível.
+    if (id === 'launch') setVisible((v) => ({ ...v, pole: true }));
+  }
   /** Objeto compartilhado de outro projeto onde o usuário não pode editar: só consulta. */
   const nodeLocked = (n?: NetNode) => !!n && n.share?.can_edit === false;
   const canManage = role === 'owner' || role === 'admin';
@@ -2187,46 +2262,9 @@ export default function MapPage() {
           <div
             ref={toolbarPanel.boxRef}
             onPointerDown={toolbarPanel.onPointerDown}
-            className={`panel flex ${!toolbarPanel.moved && leftPanelOpen ? 'flex-wrap justify-center' : ''} p-1 gap-0.5 pointer-events-auto ${toolbarPanel.locked ? '' : 'cursor-move !border-amber-500/60'} ${toolbarPanel.dragging ? 'select-none shadow-2xl' : ''}`}
+            className={`panel relative z-10 flex ${!toolbarPanel.moved && leftPanelOpen ? 'flex-wrap justify-center' : ''} p-1 gap-0.5 pointer-events-auto ${toolbarPanel.locked ? '' : 'cursor-move !border-amber-500/60'} ${toolbarPanel.dragging ? 'select-none shadow-2xl' : ''}`}
           >
-            {TOOLS.filter((t) => !readOnly || READ_TOOLS.includes(t.id)).map((t) => (
-              <button
-                key={t.id}
-                onClick={() => {
-                  setTool(t.id);
-                  setSlackCableId(null);
-                  setConnectId(null);
-                  setCableMenu(null);
-                  setDraft(null);
-                  setDuctDraft(null);
-                  setAreaDraft([]);
-                  if (t.id !== 'ruler') setRuler([]);
-                  if (t.id === 'viability' || t.id === 'launch' || t.id === 'bulkfix') setSelection(null);
-                  if (t.id === 'otdr') {
-                    // Entra no OTDR já com o cabo ou a caixa selecionada como ponto de disparo.
-                    setOtdrPick(null);
-                    if (selectedCable) pickOtdrCable(selectedCable);
-                    else if (selectedNode) pickOtdrAt(selectedNode);
-                    setSelection(null);
-                  }
-                  if (t.id === 'merge') {
-                    // Entra no Unir já com o cabo/duto selecionado.
-                    if (selection?.kind === 'cable' || selection?.kind === 'duct') setMergeSel({ kind: selection.kind, ids: [selection.id] });
-                    else setMergeSel((m) => ({ ...m, ids: [] }));
-                    setSelection(null);
-                  }
-                  // Lançar cabo escolhe postes no mapa: a camada de postes precisa estar visível.
-                  if (t.id === 'launch') setVisible((v) => ({ ...v, pole: true }));
-                }}
-                className={`flex flex-col items-center gap-0.5 rounded-md px-2.5 py-1.5 text-[10px] uppercase tracking-wide cursor-pointer ${
-                  tool === t.id ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800'
-                }`}
-                title={t.label}
-              >
-                {t.icon}
-                {t.label}
-              </button>
-            ))}
+            <ToolFan groups={toolGroups} tool={tool} onPick={pickTool} />
             <div className="self-start pl-0.5">
               <PanelLock panel={toolbarPanel} vertical />
             </div>
@@ -2285,9 +2323,16 @@ export default function MapPage() {
           {/* CTO/CEO: como fixar */}
           {!readOnly && (tool === 'cto' || tool === 'ceo') && (
             <div className="panel flex items-center gap-2 p-2 text-xs pointer-events-auto">
-              <span className="text-slate-300 flex items-center gap-1">
-                <UtilityPole size={14} /> {NODE_TYPES[tool].label}
-              </span>
+              {(['cto', 'ceo'] as const).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setTool(k)}
+                  title={NODE_TYPES[k].label}
+                  className={`flex items-center gap-1 rounded px-2 py-1 cursor-pointer ${tool === k ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  {k === 'cto' ? <SquareStack size={13} /> : <Hexagon size={13} />} {k.toUpperCase()}
+                </button>
+              ))}
               <span className="text-slate-400">Clique num poste ou numa caixa para fixar nele. Na parede: clique no mapa e informe o endereço.</span>
             </div>
           )}
@@ -2343,11 +2388,28 @@ export default function MapPage() {
           )}
 
           {/* Tipo do cabo lançado pela ferramenta Cabo */}
-          {!readOnly && tool === 'cable' && (
+          {!readOnly && (tool === 'cable' || tool === 'launch') && (
             <div className="panel flex items-center gap-2 p-2 text-xs pointer-events-auto">
-              <span className="text-slate-300 flex items-center gap-1">
-                <CableIcon size={14} /> Tipo de cabo
-              </span>
+              {(
+                [
+                  ['cable', 'Desenhar', <CableIcon key="c" size={13} />, 'Desenhar o cabo clicando nos pontos do trajeto'],
+                  ['launch', 'Lançar', <LaunchIcon key="l" size={13} />, 'Lançar o cabo pelas ruas, postes, caixas e dutos, com reservas'],
+                ] as const
+              ).map(([k, label, icon, hint]) => (
+                <button
+                  key={k}
+                  onClick={() => tool !== k && pickTool(k)}
+                  title={hint}
+                  className={`flex items-center gap-1 rounded px-2 py-1 cursor-pointer ${tool === k ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  {icon} {label}
+                </button>
+              ))}
+              {tool === 'launch' && <span className="text-slate-500 hidden lg:inline">Siga o painel à esquerda.</span>}
+              {tool === 'cable' && (
+                <>
+              <span className="text-slate-600">|</span>
+              <span className="text-slate-300">Tipo de cabo</span>
               <select className="input !py-1 !w-40" value={cableModelId} onChange={(e) => setCableModelId(e.target.value)} disabled={!!draft}>
                 {CABLE_MODELS.map((m) => (
                   <option key={m.id} value={m.id}>
@@ -2356,6 +2418,8 @@ export default function MapPage() {
                 ))}
               </select>
               <span className="text-slate-500 hidden lg:inline">Ligado a um cliente vira Drop.</span>
+                </>
+              )}
             </div>
           )}
 

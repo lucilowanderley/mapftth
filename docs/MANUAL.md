@@ -94,13 +94,37 @@ A tela tem quatro partes:
 | Onde | O que tem |
 | --- | --- |
 | **Barra lateral (esquerda)** | Nome do projeto, % implantado, seu papel, busca, menu (Meus projetos, Dashboard, Análise de rede, Relatório da rede, Tabela de postes, Equipe, Histórico, Importar KMZ/KML, Exportar KMZ, Configurações) e os totais de POPs, CEOs, CTOs, clientes e metros de cabo. |
-| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, Caixa, POP, Datacenter, Torre, Poste, Cliente, Condomínio, Câmera, Cabo, Lançar (lançar cabo), Fixar (fixar em massa), Duto, Área, Reserva, Régua, Viabilidade, OTDR. |
+| **Barra de ferramentas (topo)** | Selecionar e seis grupos que abrem em leque: **Infraestrutura**, **Rede óptica**, **Centrais**, **Clientes**, **Ajustar** e **Medir** (veja abaixo). |
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
 
 Quando um painel abre à esquerda do mapa (propriedades do objeto, **Lançar**, **Fixar**, **Viabilidade** ou uma área), a barra de
 ferramentas se afasta para a direita dele, para nunca ficar coberta; se não couber numa linha, ela quebra em duas. Ao
 fechar o painel, ela volta ao centro. Se você arrastou a barra para outro lugar, ela fica onde você deixou.
+
+**Grupos em leque**: as ferramentas ficam agrupadas por contexto. Clique num grupo e as opções dele se abrem em
+leque logo abaixo; clique na que quiser (clique fora ou **Esc** fecha o leque sem escolher). O botão do grupo
+mostra o ícone da última ferramenta usada nele e fica verde enquanto uma ferramenta dele está em uso.
+
+| Grupo | Ferramentas |
+| --- | --- |
+| **Selecionar** | Selecionar (botão direto, sem leque). |
+| **Infraestrutura** | Poste, Caixa (parede ou subterrânea), Duto. |
+| **Rede óptica** | CTO / CEO, Cabo (Desenhar ou Lançar), Reserva. |
+| **Centrais** | POP, Datacenter, Torre. |
+| **Clientes** | Cliente, Condomínio, Câmera. |
+| **Ajustar** | Fixar (fixar em massa), Unir (cabos ou dutos). |
+| **Medir** | Régua, Área, Viabilidade, OTDR. |
+
+Algumas ferramentas faziam a mesma coisa e viraram um botão só, com a escolha na faixa que aparece abaixo da barra:
+
+- **CTO / CEO**: as duas se lançam do mesmo jeito (clique num poste ou numa caixa para fixar, ou no mapa para parede).
+  Abaixo da barra escolha **CTO** ou **CEO**.
+- **Cabo**: abaixo da barra escolha **Desenhar** (clicar nos pontos do trajeto, com o **Tipo de cabo** ao lado) ou
+  **Lançar** (o antigo botão Lançar: pelas ruas, postes, caixas e dutos, com reservas; veja
+  [Lançar cabo](#lançar-cabo-com-postes-e-reservas)).
+
+Quem tem só acesso de leitura vê **Selecionar** e o grupo **Medir** com **Régua**, **Viabilidade** e **OTDR**.
 
 A barra de ferramentas e o painel de camadas podem ser arrastados para outro lugar destravando o **cadeado** (veja
 **Cadeado** mais abaixo).
@@ -157,7 +181,7 @@ da direita for levado para a metade de baixo da tela, a lista de **Elementos** a
 até ele e já o seleciona. Também aceita coordenadas, como `-8.0476, -34.8770` (formato do Google Maps) ou
 `8°03'12"S 34°52'37"W`: clique em **Ir para coordenada** e o ponto fica marcado no mapa (**Limpar marcação** tira).
 
-**Régua**: escolha **Régua** e clique nos pontos do trajeto. A distância total aparece na dica do rodapé.
+**Régua**: escolha **Medir** › **Régua** e clique nos pontos do trajeto. A distância total aparece na dica do rodapé.
 **Esc** limpa a medição.
 
 ### Agrupar objetos no mapa
@@ -189,7 +213,9 @@ ocultos). O ícone volta ao normal e os objetos voltam a ser desenhados.
 
 ## 5. Adicionar POP, datacenter, torre, CEO, CTO, caixa, poste, cliente e condomínio
 
-1. Na barra de ferramentas, escolha **POP**, **Datacenter**, **Torre**, **CEO**, **CTO**, **Caixa**, **Poste**, **Cliente**, **Condomínio** ou **Câmera**.
+1. Na barra de ferramentas, abra o grupo e escolha **POP**, **Datacenter** ou **Torre** (grupo **Centrais**), **CTO / CEO**
+   (grupo **Rede óptica**), **Poste** ou **Caixa** (grupo **Infraestrutura**), **Cliente**, **Condomínio** ou **Câmera**
+   (grupo **Clientes**).
 2. Clique no mapa onde o elemento fica. Ele é criado na hora com um nome automático e o painel de edição abre
    à esquerda. Você pode continuar clicando para colocar vários do mesmo tipo.
 3. Volte para **Selecionar** (ou aperte **Esc**) quando terminar.
@@ -294,7 +320,7 @@ CTO/CEO só grava depois que a fixação (e o endereço, quando pedido) estiver 
 
 ### Fixar em massa
 
-A ferramenta **Fixar** (barra do mapa, ao lado de **Lançar**) fixa muitos objetos de uma vez, cada um no alvo mais
+A ferramenta **Fixar** (barra do mapa, grupo **Ajustar**) fixa muitos objetos de uma vez, cada um no alvo mais
 perto. É útil depois de importar uma rede (por exemplo, a exportação do ISM), quando as CTOs, CEOs e reservas vêm
 soltas, perto dos postes, mas sem fixação. O painel à esquerda faz três perguntas:
 
@@ -598,7 +624,7 @@ importar a exportação do ISM: o mesmo poste vem em vários arquivos e vira um 
 
 **Forma 1: lançar o cabo já ligado nas caixas (ferramenta Cabo)**
 
-1. Escolha **Cabo** na barra de ferramentas. Logo abaixo dela aparece **Tipo de cabo**: escolha o modelo do
+1. Escolha **Rede óptica** › **Cabo** na barra de ferramentas (modo **Desenhar**). Logo abaixo dela aparece **Tipo de cabo**: escolha o modelo do
    catálogo (Drop 1FO a 144FO). O último tipo usado fica lembrado neste navegador; o padrão é **Cabo 12FO**.
 2. Clique na **caixa de origem** (ex.: o POP ou a CEO). O cabo já nasce conectado nela. Se clicar no mapa vazio,
    ele começa com a ponta solta.
@@ -647,7 +673,7 @@ O menu do botão direito no cabo também tem **Editar** (abre o painel do cabo),
 
 ### Lançar cabo com postes e reservas
 
-A ferramenta **Lançar** (barra do mapa, ao lado de **Cabo**) cria o cabo já passando pelos postes, cria os
+A ferramenta **Lançar** (barra do mapa, grupo **Rede óptica** › **Cabo** › **Lançar**) cria o cabo já passando pelos postes, cria os
 postes que faltam e coloca as reservas técnicas fixadas nos postes, tudo de uma vez. Ao escolher a ferramenta abre
 um painel à esquerda. No alto do painel escolha o **Tipo** (Backbone ou Distribuição), o **Modelo** (6 a 144 FO),
 o **Nome** (opcional) e a **Situação**. O painel tem três jeitos de lançar:
@@ -731,7 +757,7 @@ Cada reserva técnica (sobra de cabo enrolada) tem **local**, **metragem** e **t
 
 **Posicionar**
 
-1. Escolha **Reserva** na barra de ferramentas, ou clique com o botão direito no cabo › **Posicionar reserva**
+1. Escolha **Rede óptica** › **Reserva** na barra de ferramentas, ou clique com o botão direito no cabo › **Posicionar reserva**
    (aí a reserva vai sempre para esse cabo). No painel do cabo também há o botão **+ Posicionar reserva no mapa**.
 2. Logo abaixo da barra, informe a **metragem** e escolha **Suspensa** ou **Subterrânea**. Os valores ficam
    lembrados para as próximas reservas.
@@ -796,7 +822,7 @@ baixo dos cabos, para não ser confundido com um cabo. Enquanto estiver *Em proj
 
 **Desenhar**
 
-1. Escolha **Duto** na barra de ferramentas.
+1. Escolha **Infraestrutura** › **Duto** na barra de ferramentas.
 2. Clique na **caixa, POP, datacenter ou poste de origem** (o duto já nasce ligado a ele) ou no mapa, para uma ponta
    solta.
 3. Clique no mapa para fazer as curvas do traçado. O **botão direito** (ou **Desfazer ponto**) tira o último ponto.
@@ -838,10 +864,10 @@ lateral, nos **relatórios** e no **KMZ**.
 
 ### Unir cabos ou dutos
 
-A ferramenta **Unir** (barra do mapa) junta vários cabos, ou vários dutos, ligados **ponta com ponta** num objeto
+A ferramenta **Unir** (barra do mapa, grupo **Ajustar**) junta vários cabos, ou vários dutos, ligados **ponta com ponta** num objeto
 só. Serve, por exemplo, para juntar cabos importados do KMZ em pedaços ou trechos que ficaram separados.
 
-1. Clique em **Unir** na barra, ou segure **Ctrl** e clique nos cabos (ou dutos) no modo Selecionar.
+1. Clique em **Ajustar** › **Unir** na barra, ou segure **Ctrl** e clique nos cabos (ou dutos) no modo Selecionar.
 2. Clique nos cabos que quer unir: cada um ganha um destaque amarelo e entra na lista do painel. Clicar de novo
    desmarca. No painel escolha **Cabos** ou **Dutos**.
 3. Clique em **Unir**. A ordem dos cliques não importa: os cabos só precisam formar um caminho contínuo, sem
@@ -1461,7 +1487,7 @@ Barra lateral → **Dashboard**. Uma visão geral do projeto:
 
 **Desenhar uma área** (ex.: um bairro ou uma etapa da obra)
 
-1. Escolha **Área** na barra de ferramentas.
+1. Escolha **Medir** › **Área** na barra de ferramentas.
 2. Clique nos vértices do polígono (pode clicar em cima das caixas também).
 3. Com 3 pontos ou mais, aperte **Enter** ou clique em **Finalizar área**. **Esc** cancela.
 4. No painel da área, dê um **Nome**, escolha a **Cor**, escreva **Observações** e clique em **Salvar área**. A lixeira exclui
@@ -1509,7 +1535,7 @@ Barra lateral → **Tabela de postes**.
 
 Serve para responder rápido "dá para atender este endereço?".
 
-1. Escolha **Viabilidade** na barra de ferramentas.
+1. Escolha **Medir** › **Viabilidade** na barra de ferramentas.
 2. Digite o **Endereço do cliente** no painel e escolha o resultado, ou clique no local no mapa (ou em cima de um
    cliente já cadastrado).
 3. Ajuste o **Raio de atendimento** (50 a 1000 m).
@@ -1524,11 +1550,11 @@ A distância é em linha reta e a potência é na saída do splitter (sem o drop
 
 ## 17. OTDR
 
-A ferramenta **OTDR** (barra de ferramentas, ícone de onda) simula o aparelho ligado em **qualquer ponto da rede**:
+A ferramenta **OTDR** (barra de ferramentas, grupo **Medir**, ícone de onda) simula o aparelho ligado em **qualquer ponto da rede**:
 você escolhe o cabo, a ponta onde o OTDR é conectado e o sentido do disparo, e o sistema segue a fibra pelas fusões,
 conectores, DIOs e splitters até onde ela termina. Funciona também para quem tem acesso só de leitura.
 
-1. Escolha **OTDR** na barra de ferramentas e clique no **cabo** ou na **caixa** (CTO, CEO, POP, ou o poste com a CTO
+1. Escolha **Medir** › **OTDR** na barra de ferramentas e clique no **cabo** ou na **caixa** (CTO, CEO, POP, ou o poste com a CTO
    fixada) onde o OTDR será ligado. Se um cabo ou caixa já estiver selecionado, ele já entra como ponto de disparo.
    Clicando numa caixa, o campo **Cabo** lista todos os cabos que chegam nela.
 2. Em **Sentido do disparo**, escolha **A → B** (do início para o fim do cabo) ou **B → A** (do fim para o início).
