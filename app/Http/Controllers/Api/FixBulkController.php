@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Models\Cable;
 use App\Models\Project;
+use App\Services\NodeSharing;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -53,14 +55,23 @@ class FixBulkController extends Controller
             throw ValidationException::withMessages(['nodes' => 'Nada para fixar.']);
         }
 
-        $nodes = $project->nodes()->whereIn('id', array_column($nodeRows, 'id'))->get()->keyBy('id');
+        // Objetos do projeto ou compartilhados com ele (os de outro projeto exigem edição também no de origem).
+        $nodes = $project->visibleNodes()->whereIn('id', array_column($nodeRows, 'id'))->get()->keyBy('id');
         if ($nodes->count() !== count(array_unique(array_column($nodeRows, 'id')))) {
             throw ValidationException::withMessages(['nodes' => 'Algum objeto não existe mais neste projeto. Recarregue o mapa.']);
         }
-        // Todos os cabos: as pontas ligadas aos objetos movidos acompanham.
-        $cables = $project->cables()->get()->keyBy('id');
+        $sharing = new NodeSharing($request->user());
+        $projectIds = [$project->id];
+        foreach ($nodes as $node) {
+            if ((int) $node->project_id !== $project->id) {
+                abort_unless($sharing->canEditIn((int) $node->project_id), 403, 'Você não pode editar o projeto de origem de um dos objetos.');
+            }
+            array_push($projectIds, ...$node->projectIds());
+        }
+        // Cabos de todos os projetos onde os objetos aparecem: as pontas ligadas aos objetos movidos acompanham.
+        $cables = Cable::whereIn('project_id', array_unique($projectIds))->get()->keyBy('id');
         foreach ($cableRows as $row) {
-            if (! $cables->has($row['id'])) {
+            if (! $cables->has($row['id']) || (int) $cables[$row['id']]->project_id !== $project->id) {
                 throw ValidationException::withMessages(['cables' => 'Algum cabo não existe mais neste projeto. Recarregue o mapa.']);
             }
         }

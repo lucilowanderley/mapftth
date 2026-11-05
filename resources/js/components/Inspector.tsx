@@ -28,6 +28,9 @@ const SWATCHES = ['#0ea5e9', '#2563eb', '#22c55e', '#ef4444', '#f97316', '#eab30
 interface Props {
   node?: NetNode;
   cable?: Cable;
+  /** Cabo: dutos por onde ele passa (clicar seleciona o duto). */
+  cableDucts?: { id: number; name: string }[];
+  onSelectDuct?: (id: number) => void;
   nodes: NetNode[];
   budget?: BudgetResult;
   /** Cliente: sinal medido × estimado, saúde e trecho provável do problema. */
@@ -62,6 +65,12 @@ interface Props {
   onAddInBox?: (box: NetNode, type: 'cto' | 'ceo') => void;
   /** Abre o editor do poste/caixa (objetos fixados e barra de ferramentas). */
   onOpenHost?: (host: NetNode) => void;
+  /** Projeto aberto no mapa (para compartilhar o objeto com outros projetos). */
+  projectId?: number;
+  /** O usuário pode editar no projeto aberto (mesmo que o objeto compartilhado esteja só para consulta). */
+  canEditProject?: boolean;
+  onShared?: (nodes: NetNode[]) => void;
+  onUnshared?: (node: NetNode, cables: Cable[]) => void;
 }
 
 /** Foca e seleciona o campo quando focusKey muda (duplo clique no mapa). */
@@ -82,6 +91,128 @@ export default function Inspector(props: Props) {
     // inspector: campos mais compactos (app.css); cabeçalho e botões de salvar ficam fixos enquanto o meio rola.
     <div className="inspector absolute top-3 left-3 z-[1000] panel w-80 max-h-[calc(100%-1.5rem)] overflow-y-auto overscroll-contain">
       {props.node ? <NodeForm {...props} node={props.node} /> : props.cable ? <CableForm {...props} cable={props.cable} /> : null}
+    </div>
+  );
+}
+
+/**
+ * Compartilhamento entre projetos: o mesmo objeto (poste, POP, caixa...) aparece em vários projetos.
+ * Mostra a origem e onde mais ele aparece, e permite compartilhar com outro projeto ou tirar de um.
+ */
+function ShareBox({
+  node,
+  projectId,
+  canEdit,
+  onShared,
+  onUnshared,
+  onRemoveHere,
+  onError,
+}: {
+  node: NetNode;
+  projectId: number;
+  canEdit: boolean;
+  onShared: (nodes: NetNode[]) => void;
+  onUnshared: (node: NetNode, cables: Cable[]) => void;
+  onRemoveHere: () => void;
+  onError: (m: string) => void;
+}) {
+  const share = node.share;
+  const [open, setOpen] = useState(false);
+  const [targets, setTargets] = useState<{ id: number; name: string }[] | null>(null);
+  const [target, setTarget] = useState<number | ''>('');
+  const [busy, setBusy] = useState(false);
+  const isHome = !share || share.home_id === projectId;
+  const inProjects = new Set([share?.home_id ?? projectId, ...(share?.projects.map((p) => p.id) ?? [])]);
+  const canShare = canEdit && (share ? share.can_edit : true);
+
+  useEffect(() => {
+    if (!open || targets) return;
+    api
+      .projects()
+      .then((list) => setTargets(list.filter((p) => p.role && p.role !== 'viewer').map((p) => ({ id: p.id, name: p.name }))))
+      .catch((e) => onError(errorMessage(e)));
+  }, [open, targets, onError]);
+
+  async function shareWith() {
+    if (!target) return;
+    setBusy(true);
+    try {
+      onShared(await api.shareNode(node.id, Number(target)));
+      setTarget('');
+      setOpen(false);
+    } catch (e) {
+      onError(errorMessage(e));
+    }
+    setBusy(false);
+  }
+
+  async function unshare(pid: number, name: string) {
+    if (!confirm(`Tirar ${node.name} do projeto ${name}? Os cabos desse projeto que chegam nele ficam com a ponta solta.`)) return;
+    setBusy(true);
+    try {
+      const r = await api.unshareNode(node.id, pid);
+      onUnshared(r.node, r.cables);
+    } catch (e) {
+      onError(errorMessage(e));
+    }
+    setBusy(false);
+  }
+
+  if (!share && !canEdit) return null;
+  const options = (targets ?? []).filter((p) => !inProjects.has(p.id));
+  return (
+    <div className="rounded-lg border border-slate-700/70 bg-slate-800/40 px-2.5 py-2 text-xs space-y-1.5">
+      <div className="flex items-center gap-1.5 text-slate-300">
+        <Link2 size={13} className="shrink-0" />
+        {share ? (
+          <span className="min-w-0">
+            Compartilhado · origem <b className="text-white">{share.home_id === projectId ? 'este projeto' : share.home_name}</b>
+          </span>
+        ) : (
+          <span>Só neste projeto</span>
+        )}
+        <button type="button" className="ml-auto text-sky-400 hover:text-sky-300 cursor-pointer disabled:opacity-40" disabled={!canShare} onClick={() => setOpen((o) => !o)} title={canShare ? 'O mesmo objeto passa a aparecer também em outro projeto; o que mudar vale para todos' : 'Você só pode consultar este objeto'}>
+          Compartilhar…
+        </button>
+      </div>
+      {share && (
+        <ul className="space-y-0.5">
+          {share.home_id !== projectId && (
+            <li className="flex items-center gap-1 text-slate-400">
+              <span className="truncate">{share.home_name}</span>
+              <span className="text-[10px] text-slate-500">(origem)</span>
+            </li>
+          )}
+          {share.projects.map((p) => (
+            <li key={p.id} className="flex items-center gap-1 text-slate-400">
+              <span className="truncate">{p.id === projectId ? 'Este projeto' : p.name}</span>
+              {canEdit && (isHome || p.id === projectId) && (
+                <button type="button" className="ml-auto text-slate-500 hover:text-red-400 cursor-pointer" disabled={busy} title={`Tirar do projeto ${p.name}`} onClick={() => (p.id === projectId ? onRemoveHere() : unshare(p.id, p.name))}>
+                  <X size={12} />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {share && !share.can_edit && (
+        <p className="text-amber-300/90">Só consulta: para editar, você precisa poder editar também no projeto de origem ({share.home_name}).</p>
+      )}
+      {open && (
+        <div className="flex gap-1.5">
+          <select className="input !py-1 text-xs min-w-0 flex-1" value={target} onChange={(e) => setTarget(e.target.value ? Number(e.target.value) : '')}>
+            <option value="">{targets ? (options.length ? 'Escolha o projeto' : 'Nenhum outro projeto') : 'Carregando…'}</option>
+            {options.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="btn-primary !py-1 !px-2 text-xs" disabled={!target || busy} onClick={shareWith}>
+            Ok
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -170,6 +301,10 @@ function NodeForm({
   onSelectNode,
   onAddInBox,
   onOpenHost,
+  projectId,
+  canEditProject,
+  onShared,
+  onUnshared,
 }: Props & { node: NetNode }) {
   const nameRef = useFocusOn(focusKey);
   const [lat, setLat] = useState(formatCoord(node.lat));
@@ -303,8 +438,15 @@ function NodeForm({
     setSaving(false);
   }
 
+  const shareHome = node.share && projectId !== undefined && node.share.home_id === projectId;
   async function remove() {
-    if (!confirm(`Excluir ${node.name}?`)) return;
+    const others = node.share?.projects.length ?? 0;
+    const question = shareHome && others
+      ? `Excluir ${node.name}? Ele também está em ${others} outro(s) projeto(s) e será excluído de todos.`
+      : node.share && !shareHome
+        ? `Tirar ${node.name} deste projeto? Ele continua no projeto de origem (${node.share.home_name}).`
+        : `Excluir ${node.name}?`;
+    if (!confirm(question)) return;
     try {
       await api.deleteNode(node.id);
       onDeleted('node', node.id);
@@ -360,6 +502,17 @@ function NodeForm({
           <button className="btn-ghost w-full" onClick={() => onConnectClient(node)}>
             <Link2 size={16} /> Ligar drop à CTO mais próxima
           </button>
+        )}
+        {projectId !== undefined && node.type !== 'client' && (
+          <ShareBox
+            node={node}
+            projectId={projectId}
+            canEdit={!!canEditProject}
+            onShared={(ns) => onShared?.(ns)}
+            onUnshared={(n, cs) => onUnshared?.(n, cs)}
+            onRemoveHere={remove}
+            onError={onError}
+          />
         )}
         {/* fieldset desabilitado: quem tem acesso de leitura só visualiza os campos */}
         <fieldset disabled={readOnly} className="min-w-0 space-y-2.5">
@@ -617,7 +770,7 @@ function NodeForm({
   );
 }
 
-function CableForm({ cable, nodes, settings, readOnly, onClose, onCableSaved, onDeleted, onError, onHistory, focusKey, onSlacksChange, onPlaceSlack, onLocate }: Props & { cable: Cable }) {
+function CableForm({ cable, nodes, settings, readOnly, onClose, onCableSaved, onDeleted, onError, onHistory, focusKey, onSlacksChange, onPlaceSlack, onLocate, cableDucts, onSelectDuct }: Props & { cable: Cable }) {
   const nameRef = useFocusOn(focusKey);
   const [form, setForm] = useState({
     name: cable.name,
@@ -682,6 +835,17 @@ function CableForm({ cable, nodes, settings, readOnly, onClose, onCableSaved, on
     <>
       <Header title={cable.name} subtitle={`${from?.name ?? 'Ponta solta'} → ${to?.name ?? 'Ponta solta'}`} onClose={onClose} />
       <div className="px-4 pt-3 pb-3 space-y-2.5">
+        {!!cableDucts?.length && (
+          <div className="text-xs text-slate-400 flex flex-wrap items-center gap-1">
+            Passa pelo{cableDucts.length > 1 ? 's' : ''} duto{cableDucts.length > 1 ? 's' : ''}
+            {cableDucts.map((d, i) => (
+              <button key={d.id} type="button" className="text-amber-300 hover:text-amber-200 cursor-pointer" onClick={() => onSelectDuct?.(d.id)}>
+                {d.name}
+                {i < cableDucts.length - 1 ? ',' : ''}
+              </button>
+            ))}
+          </div>
+        )}
         <fieldset disabled={readOnly} className="space-y-2.5">
           <Field label="Modelo do catálogo">
             <select className="input" value={form.model} onChange={(e) => pickModel(e.target.value)}>

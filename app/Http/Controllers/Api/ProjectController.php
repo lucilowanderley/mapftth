@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Project;
+use App\Services\NodeSharing;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -51,8 +52,9 @@ class ProjectController extends Controller
             'google_maps_key' => $project->user?->googleMapsKey(),
             'google_key_source' => $this->googleKeySource($project),
             'areas' => $project->areas()->orderBy('id')->get(),
-            'nodes' => $project->nodes()->orderBy('id')->get(),
+            'nodes' => $this->nodes($request, $project),
             'cables' => $project->cables()->orderBy('id')->get(),
+            'ducts' => $project->ducts()->orderBy('id')->get(),
         ]);
     }
 
@@ -72,6 +74,15 @@ class ProjectController extends Controller
         $project->delete();
 
         return response()->json(null, 204);
+    }
+
+    /** Objetos do projeto e os compartilhados com ele, com a marca `share` nos que aparecem em mais de um. */
+    private function nodes(Request $request, Project $project)
+    {
+        $nodes = $project->visibleNodes()->orderBy('id')->get();
+        (new NodeSharing($request->user()))->decorate($nodes, $project->id);
+
+        return $nodes;
     }
 
     /** De onde vem a chave do Google: 'account' (cadastrada pelo dono), 'env' (.env do servidor) ou null. */

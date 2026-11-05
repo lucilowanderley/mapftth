@@ -7,6 +7,7 @@ use App\Models\ActivityLog;
 use App\Models\Cable;
 use App\Models\NetworkNode;
 use App\Models\Project;
+use App\Services\NodeSharing;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -57,7 +58,13 @@ class NodeController extends Controller
 
     public function update(Request $request, NetworkNode $node): JsonResponse
     {
-        $this->authorizeProject($request, $node->project, 'edit');
+        // Objeto compartilhado: precisa poder editar no projeto aberto e no de origem.
+        $ctx = $this->contextProject($request, $node);
+        $this->authorizeProject($request, $ctx, 'edit');
+        if ($ctx->id !== (int) $node->project_id) {
+            $this->authorizeProject($request, $node->project, 'edit');
+        }
+        $projectIds = $node->projectIds();
         $data = $this->validated($request, partial: true);
         $data = $this->withCameraSecret($data, $node);
         // ends_only: só as pontas ligadas ao objeto acompanham (objeto ancorado num poste/caixa: os cabos que
@@ -73,11 +80,13 @@ class NodeController extends Controller
         // Ao mover o objeto, as pontas dos cabos ligados a ele acompanham, assim como
         // os vértices de cabos que passam exatamente por ele (ex.: cabo apoiado num poste).
         $cables = collect();
+        $ducts = collect();
         if ($moved) {
             $point = [(float) $node->lat, (float) $node->lng];
             $same = fn ($p) => is_array($p) && count($p) === 2
                 && abs((float) $p[0] - $old[0]) < 1e-8 && abs((float) $p[1] - $old[1]) < 1e-8;
-            foreach ($node->project->cables()->get() as $cable) {
+            // Cabos de todos os projetos onde o objeto aparece.
+            foreach (Cable::whereIn('project_id', $projectIds)->get() as $cable) {
                 $path = $cable->path ?? [];
                 $last = count($path) - 1;
                 $changedPath = false;
@@ -98,23 +107,136 @@ class NodeController extends Controller
                     $cables->push($cable);
                 }
             }
+            // Dutos seguem a mesma regra: pontas ligadas ao objeto e vértices sobre ele acompanham.
+            foreach (\App\Models\Duct::whereIn('project_id', $projectIds)->get() as $duct) {
+                $path = $duct->path ?? [];
+                $last = count($path) - 1;
+                $changedPath = false;
+                foreach ($path as $i => $p) {
+                    $attached = ($i === 0 && $duct->from_node_id === $node->id)
+                        || ($i === $last && $duct->to_node_id === $node->id);
+                    $otherEnd = ($i === 0 && $duct->from_node_id && $duct->from_node_id !== $node->id)
+                        || ($i === $last && $duct->to_node_id && $duct->to_node_id !== $node->id);
+                    if ($attached || (! $endsOnly && ! $otherEnd && $same($p))) {
+                        $path[$i] = $point;
+                        $changedPath = true;
+                    }
+                }
+                if ($changedPath) {
+                    $duct->path = $path;
+                    $duct->save();
+                    $ducts->push($duct);
+                }
+            }
         }
         if ($changed) {
-            ActivityLog::record($node->project, 'node', $node, $changed['action'], $changed['fields']);
+            ActivityLog::record($ctx, 'node', $node, $changed['action'], $changed['fields']);
         }
-        $clients = array_key_exists('diagram', $data) ? $this->syncDiagramClients($node) : collect();
-        $node->project->touch();
+        $clients = array_key_exists('diagram', $data) ? $this->syncDiagramClients($node, $ctx) : collect();
+        Project::whereIn('id', $projectIds)->get()->each->touch();
+        $sharing = new NodeSharing($request->user());
+        $sharing->decorate([$node, ...$clients], $ctx->id);
 
-        return response()->json(['node' => $node, 'cables' => $cables->values(), 'clients' => $clients->values()]);
+        return response()->json([
+            'node' => $node,
+            // Só os cabos/dutos do projeto aberto; os dos outros projetos também foram ajustados no servidor.
+            'cables' => $cables->filter(fn ($c) => (int) $c->project_id === $ctx->id)->values(),
+            'ducts' => $ducts->filter(fn ($d) => (int) $d->project_id === $ctx->id)->values(),
+            'clients' => $clients->values(),
+        ]);
     }
 
+    /**
+     * Excluir no projeto de origem apaga o objeto de todos os projetos. Num projeto com quem ele foi
+     * compartilhado, só tira o objeto daquele projeto.
+     */
     public function destroy(Request $request, NetworkNode $node): JsonResponse
     {
+        $ctx = $this->contextProject($request, $node);
+        if ($ctx->id !== (int) $node->project_id) {
+            $this->authorizeProject($request, $ctx, 'edit');
+            (new NodeSharing($request->user()))->unshare($node, $ctx);
+
+            return response()->json(null, 204);
+        }
         $this->authorizeProject($request, $node->project, 'edit');
+        $others = $node->sharedProjects()->get();
         ActivityLog::record($node->project, 'node', $node, 'deleted');
+        foreach ($others as $p) {
+            ActivityLog::record($p, 'node', $node, 'deleted', ['origem' => $node->project->name]);
+            $p->touch();
+        }
         $node->delete();
 
         return response()->json(null, 204);
+    }
+
+    /** Compartilha o objeto com outro projeto (precisa poder editar nos dois). */
+    public function share(Request $request, NetworkNode $node): JsonResponse
+    {
+        $data = $request->validate(['project_id' => ['required', 'integer', 'exists:projects,id']]);
+        $this->authorizeProject($request, $node->project, 'edit');
+        $target = Project::findOrFail($data['project_id']);
+        $this->authorizeProject($request, $target, 'edit');
+        $sharing = new NodeSharing($request->user());
+        // Objetos fixados nele (CTO no poste, câmera no poste) vão junto.
+        $nodes = collect([$node, ...$this->fixedOn($node)]);
+        foreach ($nodes as $n) {
+            $sharing->share($n, $target);
+        }
+        $ctx = $this->contextProject($request, $node);
+        $nodes->each->refresh();
+        $sharing->decorate($nodes, $ctx->id);
+
+        return response()->json(['nodes' => $nodes->values()]);
+    }
+
+    /** Tira o objeto de um projeto com quem foi compartilhado. */
+    public function unshare(Request $request, NetworkNode $node, Project $project): JsonResponse
+    {
+        abort_if($project->id === (int) $node->project_id, 422, 'Este é o projeto de origem do objeto. Para tirar dele, exclua o objeto.');
+        $this->authorizeProject($request, $project, 'edit');
+        $sharing = new NodeSharing($request->user());
+        $cables = $sharing->unshare($node, $project);
+        $ctx = $this->contextProject($request, $node);
+        $node->refresh();
+        $sharing->decorate([$node], $ctx->id);
+
+        return response()->json([
+            'node' => $node,
+            'cables' => $cables->filter(fn ($c) => (int) $c->project_id === $ctx->id)->values(),
+        ]);
+    }
+
+    /** CTO/CEO/caixa/câmera fixadas no objeto (poste ou caixa). */
+    private function fixedOn(NetworkNode $host): \Illuminate\Support\Collection
+    {
+        if (! in_array($host->type, ['pole', 'box'], true)) {
+            return collect();
+        }
+
+        return NetworkNode::whereIn('project_id', $host->projectIds())->where('id', '!=', $host->id)->get()
+            ->filter(function ($n) use ($host) {
+                $a = is_array($n->attributes) ? $n->attributes : [];
+
+                return ((int) ($a['fixed_id'] ?? 0) === $host->id && in_array($a['fixed_kind'] ?? null, ['pole', 'box'], true))
+                    || ((int) ($a['mount_id'] ?? 0) === $host->id && ($a['mount_kind'] ?? null) !== 'wall');
+            })->values();
+    }
+
+    /**
+     * Projeto aberto no navegador (?project=). Precisa ser um projeto onde o objeto aparece;
+     * sem ele, vale o projeto de origem.
+     */
+    private function contextProject(Request $request, NetworkNode $node): Project
+    {
+        $id = (int) $request->query('project', 0);
+        if (! $id || $id === (int) $node->project_id) {
+            return $node->project;
+        }
+        abort_unless($node->isVisibleIn($id), 404);
+
+        return Project::findOrFail($id);
     }
 
     /**
@@ -122,14 +244,14 @@ class NodeController extends Controller
      * tipo (residencial/empresarial/corporativo) passam para os atributos desse cliente, que é onde a integração
      * com outros sistemas lê. Devolve os clientes alterados.
      */
-    private function syncDiagramClients(NetworkNode $node): \Illuminate\Support\Collection
+    private function syncDiagramClients(NetworkNode $node, Project $ctx): \Illuminate\Support\Collection
     {
         $updated = collect();
         foreach ($node->diagram['components'] ?? [] as $c) {
             if (($c['kind'] ?? null) !== 'client' || empty($c['node_id'])) {
                 continue;
             }
-            $client = NetworkNode::where('project_id', $node->project_id)->where('type', 'client')->find((int) $c['node_id']);
+            $client = NetworkNode::visibleIn($ctx->id)->where('type', 'client')->find((int) $c['node_id']);
             if (! $client) {
                 continue;
             }
@@ -161,7 +283,7 @@ class NodeController extends Controller
             if ($next != $attrs) {
                 $client->attributes = $next;
                 $client->save();
-                ActivityLog::record($node->project, 'node', $client, 'updated', ['client' => "dados do cliente pelo diagrama de {$node->name}"]);
+                ActivityLog::record($ctx, 'node', $client, 'updated', ['client' => "dados do cliente pelo diagrama de {$node->name}"]);
                 $updated->push($client);
             }
         }

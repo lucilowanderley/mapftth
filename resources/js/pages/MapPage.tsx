@@ -41,18 +41,19 @@ import {
   Video,
   Route as LaunchIcon,
   Magnet,
+  Cylinder,
 } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Circle, CircleMarker, MapContainer, Marker, Pane, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import { Link, useParams } from 'react-router-dom';
 import L from 'leaflet';
-import { api, errorMessage } from '../lib/api';
+import { api, errorMessage, setContextProject } from '../lib/api';
 import { POWER_COLORS, clientBudget, powerLevel, type BudgetResult } from '../lib/budget';
 import { analyzeSignal, measuredClients, type SignalAnalysis } from '../lib/signal';
 import { BOX_TYPES, CABLE_CATEGORIES, CABLE_MODELS, CONDO_KINDS, NODE_TYPES, NODE_TYPE_LIST, RACK_HOST_TYPES, SLACK_KINDS, effectiveLineStyle, lineDash } from '../lib/catalog';
 import { distance, pathLength } from '../lib/geo';
 import { LINK_STYLE, RADIO_HOST_TYPES, RADIO_KINDS, linkColor, linkMidpoint, radioBeam, radioLinks, radiosOf, sectorPolygon } from '../lib/tower';
-import type { Activity as ActivityItem, Area, BoxKind, BoxPlace, CameraKind, Cable, CableCategory, CondoKind, LatLng, NetNode, NodeType, Project, Role, Settings, Slack, SlackKind } from '../lib/types';
+import type { Activity as ActivityItem, Area, BoxKind, Duct, BoxPlace, CameraKind, Cable, CableCategory, CondoKind, LatLng, NetNode, NodeType, Project, Role, Settings, Slack, SlackKind } from '../lib/types';
 import { viability } from '../lib/analysis';
 import { CAMERA_COLOR, CAMERA_KINDS, CAMERA_MOUNT_TYPES, HEALTH_COLORS, cameraHealth, cameraLinks, cameraOf, fovPolygon } from '../lib/camera';
 import { destination } from '../lib/tower';
@@ -80,13 +81,15 @@ import PolesModal from '../components/PolesModal';
 import OtdrModal from '../components/OtdrModal';
 import ViabilityPanel from '../components/ViabilityPanel';
 import AreaPanel from '../components/AreaPanel';
+import DuctPanel from '../components/DuctPanel';
+import { DUCT_COLOR, ductTotals, ductsOfCable } from '../lib/duct';
 import { groupView, loadGroups, saveGroups } from '../lib/mapgroup';
 import { useFloatPanel } from '../lib/floatpanel';
 import PanelLock from '../components/PanelLock';
 import LaunchPanel, { type LaunchPick, type LaunchPreview } from '../components/LaunchPanel';
 import BulkFixPanel, { type BulkPreview } from '../components/BulkFixPanel';
 
-type Tool = 'select' | NodeType | 'cable' | 'launch' | 'bulkfix' | 'slack' | 'ruler' | 'area' | 'viability';
+type Tool = 'select' | NodeType | 'cable' | 'duct' | 'launch' | 'bulkfix' | 'slack' | 'ruler' | 'area' | 'viability';
 
 const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'select', label: 'Selecionar', icon: <MousePointer2 size={18} /> },
@@ -103,6 +106,7 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'cable', label: 'Cabo', icon: <CableIcon size={18} /> },
   { id: 'launch', label: 'Lançar', icon: <LaunchIcon size={18} /> },
   { id: 'bulkfix', label: 'Fixar', icon: <Magnet size={18} /> },
+  { id: 'duct', label: 'Duto', icon: <Cylinder size={18} className="rotate-90" /> },
   { id: 'area', label: 'Área', icon: <Pentagon size={18} /> },
   { id: 'slack', label: 'Reserva', icon: <SlackToolIcon size={18} /> },
   { id: 'ruler', label: 'Régua', icon: <Ruler size={18} /> },
@@ -206,7 +210,7 @@ function LaunchLayer({ preview, nodes }: { preview: LaunchPreview; nodes: NetNod
   );
 }
 
-export type Selection = { kind: 'node'; id: number } | { kind: 'cable'; id: number } | { kind: 'area'; id: number } | null;
+export type Selection = { kind: 'node'; id: number } | { kind: 'cable'; id: number } | { kind: 'area'; id: number } | { kind: 'duct'; id: number } | null;
 
 export default function MapPage() {
   const { id } = useParams();
@@ -216,6 +220,11 @@ export default function MapPage() {
   const [nodes, setNodes] = useState<NetNode[]>([]);
   const [cables, setCables] = useState<Cable[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
+  const [ducts, setDucts] = useState<Duct[]>([]);
+  /** Duto em desenho (ferramenta Duto). */
+  const [ductDraft, setDuctDraft] = useState<{ path: LatLng[]; from: number | null } | null>(null);
+  /** Vértice de duto sendo arrastado. */
+  const [ductVertexDrag, setDuctVertexDrag] = useState<{ ductId: number; index: number; at: LatLng; insert: boolean } | null>(null);
   const [role, setRole] = useState<Role>('viewer');
   const [areaDraft, setAreaDraft] = useState<LatLng[]>([]);
   const [viaPoint, setViaPoint] = useState<LatLng | null>(null);
@@ -284,6 +293,7 @@ export default function MapPage() {
     backbone: true,
     distribution: true,
     drop: true,
+    ducts: true,
     areas: true,
   });
   const [labels, setLabels] = useState(true);
@@ -444,16 +454,19 @@ export default function MapPage() {
   const initialView = useMemo(() => loadView(projectId), [projectId]);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const load = () =>
-    api.project(projectId).then((d) => {
+  const load = () => {
+    setContextProject(projectId);
+    return api.project(projectId).then((d) => {
       setProject(d.project);
       setSettings(d.settings);
       setNodes(d.nodes);
       setCables(d.cables);
       setAreas(d.areas);
+      setDucts(d.ducts ?? []);
       setRole(d.role);
       setGoogleKey({ key: d.google_maps_key ?? null, source: d.google_key_source ?? null });
     });
+  };
 
   useEffect(() => {
     load();
@@ -482,6 +495,7 @@ export default function MapPage() {
         if (connectId) return setConnectId(null);
         setSlackCableId(null);
         setDraft(null);
+        setDuctDraft(null);
         setRuler([]);
         setAreaDraft([]);
         setTool('select');
@@ -491,6 +505,7 @@ export default function MapPage() {
         undoMove();
       }
       if (e.key === 'Enter' && draft) finishCable();
+      if (e.key === 'Enter' && ductDraft) finishDuct();
       if (e.key === 'Enter' && areaDraft.length >= 3) finishArea();
     };
     window.addEventListener('keydown', onKey);
@@ -527,6 +542,8 @@ export default function MapPage() {
 
   const notify = (message: string, kind: 'ok' | 'error' = 'ok') => setToast({ message, kind });
   const readOnly = role === 'viewer';
+  /** Objeto compartilhado de outro projeto onde o usuário não pode editar: só consulta. */
+  const nodeLocked = (n?: NetNode) => !!n && n.share?.can_edit === false;
   const canManage = role === 'owner' || role === 'admin';
 
   const viaOptions = useMemo(() => (network && viaPoint ? viability(network, viaPoint, viaRadius) : []), [network, viaPoint, viaRadius]);
@@ -559,11 +576,18 @@ export default function MapPage() {
     const byId = new Map(updated.map((u) => [u.id, u]));
     setCables((list) => list.map((c) => byId.get(c.id) ?? c));
   };
+  // A marca de compartilhado só vem em algumas respostas: mantém a que já estava quando não vier.
   const mergeNodes = (updated: NetNode[]) => {
     if (!updated.length) return;
     const byId = new Map(updated.map((u) => [u.id, u]));
-    setNodes((list) => list.map((n) => byId.get(n.id) ?? n));
+    setNodes((list) =>
+      list.map((n) => {
+        const u = byId.get(n.id);
+        return u ? { ...u, share: u.share !== undefined ? u.share : n.share } : n;
+      }),
+    );
   };
+  const mergeDucts = (updated: Duct[]) => setDucts((list) => list.map((d) => updated.find((u) => u.id === d.id) ?? d));
 
   async function addNode(type: NodeType, at: LatLng, mount?: NetNode): Promise<NetNode | null> {
     try {
@@ -624,10 +648,12 @@ export default function MapPage() {
     if (from[0] === at[0] && from[1] === at[1]) return;
     setNodes((list) => list.map((n) => (n.id === node.id ? { ...n, lat: at[0], lng: at[1] } : n)));
     setCables((list) => list.map((c) => ({ ...c, path: movePath(c, node.id, from, at, endsOnly) })));
+    setDucts((list) => list.map((d) => ({ ...d, path: movePath(d, node.id, from, at, endsOnly) })));
     try {
       const r = await api.updateNode(node.id, { lat: at[0], lng: at[1], ...(endsOnly ? { ends_only: true } : {}) });
       mergeNodes([r.node]);
       mergeCables(r.cables);
+      mergeDucts(r.ducts ?? []);
       // O poste/caixa leva junto os objetos fixados nele (mesma posição; só as pontas dos cabos deles acompanham).
       if (ANCHOR_HOST_TYPES.includes(node.type)) {
         for (const child of attachedTo(node, nodes)) await moveNode(child, at, false, true);
@@ -688,10 +714,12 @@ export default function MapPage() {
     const attributes = withAnchor(n, on, host);
     setNodes((list) => list.map((x) => (x.id === n.id ? { ...x, lat: at[0], lng: at[1], attributes } : x)));
     setCables((list) => list.map((c) => ({ ...c, path: movePath(c, n.id, from, at, true) })));
+    setDucts((list) => list.map((d) => ({ ...d, path: movePath(d, n.id, from, at, true) })));
     try {
       const r = await api.updateNode(n.id, { lat: at[0], lng: at[1], attributes, ends_only: true });
       mergeNodes([r.node]);
       mergeCables(r.cables);
+      mergeDucts(r.ducts ?? []);
       notify(
         on
           ? `${n.name} fixada ${host.type === 'box' ? 'na caixa' : 'no poste'} ${host.name}`
@@ -769,9 +797,10 @@ export default function MapPage() {
   }
 
   /** Aplica a resposta de uma sangria: o cabo original encolhe e os novos trechos entram na lista. */
-  function applySplit(r: { cables: Cable[]; nodes: NetNode[] }) {
+  function applySplit(r: { cables: Cable[]; nodes: NetNode[]; ducts?: Duct[] }) {
     setCables((list) => [...list.map((c) => r.cables.find((u) => u.id === c.id) ?? c), ...r.cables.filter((u) => !list.some((c) => c.id === u.id))]);
     mergeNodes(r.nodes);
+    mergeDucts(r.ducts ?? []);
   }
 
   /** Desfaz o último ponto do cabo em desenho (botão direito ou botão ↶). */
@@ -870,6 +899,7 @@ export default function MapPage() {
     try {
       const r = await api.deleteCable(cable.id);
       setCables((list) => list.filter((c) => c.id !== cable.id));
+      forgetCableInDucts(cable.id);
       mergeNodes(r.nodes);
       setSelection(null);
       notify('Cabo excluído');
@@ -890,6 +920,50 @@ export default function MapPage() {
       path = insert ? [...path.slice(0, index), at, ...path.slice(index)] : path.map((p, i) => (i === index ? at : p));
     }
     return path;
+  }
+
+  /** Traçado exibido de um duto (objeto ou vértice sendo arrastado). */
+  function ductPath(d: Duct): LatLng[] {
+    let path = drag ? movePath(d, drag.id, drag.from, drag.at) : d.path;
+    if (drag) for (const ch of anchors.byHost.get(drag.id) ?? []) path = movePath({ ...d, path }, ch.id, drag.from, drag.at, true);
+    if (ductVertexDrag && ductVertexDrag.ductId === d.id) {
+      const { index, at, insert } = ductVertexDrag;
+      path = insert ? [...path.slice(0, index), at, ...path.slice(index)] : path.map((p, i) => (i === index ? at : p));
+    }
+    return path;
+  }
+
+  /** Cabo excluído deixa de ocupar os dutos (o servidor faz o mesmo). */
+  const forgetCableInDucts = (cableId: number) =>
+    setDucts((list) => list.map((d) => (d.cable_ids?.includes(cableId) ? { ...d, cable_ids: d.cable_ids.filter((id) => id !== cableId) } : d)));
+
+  async function finishDuct(path = ductDraft?.path ?? [], to: number | null = null) {
+    if (!ductDraft || path.length < 2) {
+      setDuctDraft(null);
+      return;
+    }
+    try {
+      const duct = await api.createDuct(projectId, { path: path.map(roundLatLng), from_node_id: ductDraft.from, to_node_id: to, color: DUCT_COLOR });
+      setDucts((list) => [...list, duct]);
+      setSelection({ kind: 'duct', id: duct.id });
+      const a = nodes.find((n) => n.id === ductDraft.from);
+      const b = nodes.find((n) => n.id === to);
+      notify(`${duct.name} criado${a || b ? ` entre ${a?.name ?? 'ponta solta'} e ${b?.name ?? 'ponta solta'}` : ''}. Passe os cabos pelo painel.`);
+    } catch (e) {
+      notify(errorMessage(e), 'error');
+    }
+    setDuctDraft(null);
+  }
+
+  async function saveDuctPath(duct: Duct, raw: LatLng[]) {
+    const path = raw.map(roundLatLng);
+    setDucts((list) => list.map((d) => (d.id === duct.id ? { ...d, path } : d)));
+    try {
+      mergeDucts([await api.updateDuct(duct.id, { path })]);
+    } catch (e) {
+      notify(errorMessage(e), 'error');
+      load();
+    }
   }
 
   /** Detecta duplo clique "na mão": o 1º clique troca o ícone (seleção), o que impede o dblclick nativo. */
@@ -938,6 +1012,13 @@ export default function MapPage() {
       } else if (node.id !== draft.from || draft.path.length > 1) {
         finishCable([...draft.path, point], node.id);
       }
+      return;
+    }
+    if (tool === 'duct') {
+      // Duto liga caixas, postes, POP e datacenter (o próprio poste/caixa, não a CTO fixada nele).
+      const point: LatLng = [node.lat, node.lng];
+      if (!ductDraft) setDuctDraft({ path: [point], from: node.id });
+      else if (node.id !== ductDraft.from || ductDraft.path.length > 1) finishDuct([...ductDraft.path, point], node.id);
       return;
     }
     if (tool === 'ruler') {
@@ -1021,7 +1102,7 @@ export default function MapPage() {
     try {
       const r = await api.importKmz(projectId, file);
       await load();
-      notify(`Importados ${r.nodes} pontos, ${r.cables} cabos${r.areas ? ` e ${r.areas} áreas` : ''}${r.skipped ? ` (${r.skipped} repetidos ignorados)` : ''}`);
+      notify(`Importados ${r.nodes} pontos, ${r.cables} cabos${r.ducts ? `, ${r.ducts} dutos` : ''}${r.areas ? ` e ${r.areas} áreas` : ''}${r.skipped ? ` (${r.skipped} repetidos ignorados)` : ''}`);
     } catch (e) {
       notify(errorMessage(e), 'error');
     }
@@ -1052,6 +1133,7 @@ export default function MapPage() {
   const selectedNode = selection?.kind === 'node' ? nodes.find((n) => n.id === selection.id) : undefined;
   const selectedCable = selection?.kind === 'cable' ? cables.find((c) => c.id === selection.id) : undefined;
   const selectedArea = selection?.kind === 'area' ? areas.find((a) => a.id === selection.id) : undefined;
+  const selectedDuct = selection?.kind === 'duct' ? ducts.find((d) => d.id === selection.id) : undefined;
   const diagramNode = nodes.find((n) => n.id === diagramNodeId);
   const connectedCable = connectId ? cables.find((c) => c.id === connectId) : undefined;
   const menuCable = cableMenu ? cables.find((c) => c.id === cableMenu.id) : undefined;
@@ -1063,6 +1145,14 @@ export default function MapPage() {
     () => (selectedPath ? selectedPath.slice(1).map((p, i) => [(selectedPath[i][0] + p[0]) / 2, (selectedPath[i][1] + p[1]) / 2]) : []),
     [selectedPath],
   );
+
+  const selectedDuctPath = selectedDuct?.path;
+  const ductMidpoints = useMemo<LatLng[]>(
+    () => (selectedDuctPath ? selectedDuctPath.slice(1).map((p, i) => [(selectedDuctPath[i][0] + p[0]) / 2, (selectedDuctPath[i][1] + p[1]) / 2]) : []),
+    [selectedDuctPath],
+  );
+  /** Cabos que passam pelo duto selecionado (destacados no mapa). */
+  const ductCableIds = useMemo(() => new Set(selectedDuct?.cable_ids ?? []), [selectedDuct]);
 
   const searchResults = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -1098,8 +1188,17 @@ export default function MapPage() {
           sub: 'Cabo',
           at: c.path[0],
         })),
+      ...ducts
+        .filter((d) => d.name.toLowerCase().includes(q))
+        .map((d) => ({
+          kind: 'duct' as const,
+          id: d.id,
+          label: d.name,
+          sub: 'Duto',
+          at: d.path[0],
+        })),
     ].slice(0, 8);
-  }, [search, nodes, cables]);
+  }, [search, nodes, cables, ducts]);
 
   if (!project || !settings || !network) {
     return <div className="h-full flex items-center justify-center text-slate-400">Carregando projeto...</div>;
@@ -1108,12 +1207,16 @@ export default function MapPage() {
   const overlayOpen = !!(diagramNode || modal || budget || history || report || otdr);
   /** Painel à esquerda aberto (propriedades, Lançar, Viabilidade, Área): a barra de ferramentas se afasta dele. */
   const leftPanelOpen =
-    ((tool === 'launch' || tool === 'bulkfix') && !readOnly) || tool === 'viability' || !!selectedArea || !!selectedNode || !!selectedCable;
+    ((tool === 'launch' || tool === 'bulkfix') && !readOnly) || tool === 'viability' || !!selectedArea || !!selectedDuct || !!selectedNode || !!selectedCable;
   const deployed = nodes.filter((n) => n.status === 'deployed' || n.status === 'certified').length;
   const pct = nodes.length ? Math.round((deployed / nodes.length) * 100) : 0;
   const hint =
     tool === 'area'
       ? `Clique para marcar os vértices da área (${areaDraft.length}). Enter ou "Finalizar área" conclui. Esc cancela.`
+      : tool === 'duct'
+        ? ductDraft
+          ? `Duto ${formatLength(pathLength(ductDraft.path))}: clique para adicionar pontos (botão direito desfaz o último). Clique na caixa, POP ou poste de destino para concluir, ou Enter.`
+          : 'Duto: clique na caixa, POP, datacenter ou poste de origem (ou no mapa para uma ponta solta).'
       : tool === 'launch'
         ? 'Lançar cabo: marque o início e o fim, adicione pontos de referência ou escolha os postes (clique no mapa). Esc volta para Selecionar.'
       : tool === 'bulkfix'
@@ -1132,7 +1235,9 @@ export default function MapPage() {
               ? `Régua: ${formatLength(pathLength(ruler))} · clique para medir, Esc limpa.`
               : tool !== 'select'
                 ? `Clique no mapa para adicionar ${NODE_TYPES[tool].label} ou digite as coordenadas no painel acima.`
-                : selectedCable
+                : selectedDuct
+                  ? 'Arraste os pontos do duto para mudar o traçado e as bolinhas menores para criar novos. Botão direito num ponto o remove.'
+                  : selectedCable
                   ? 'Arraste os pontos para mover vértices e as bolinhas menores para criar novos. Botão direito num ponto o remove; no cabo, abre o menu de conexão.'
                   : 'Clique para selecionar, duplo clique abre o editor. Arraste um objeto para reposicioná-lo.';
 
@@ -1215,6 +1320,11 @@ export default function MapPage() {
           <span className="col-span-2">
             Cabos: <b className="text-slate-300">{formatLength(cables.reduce((a, c) => a + c.length_m, 0))}</b>
           </span>
+          {ducts.length > 0 && (
+            <span className="col-span-2">
+              Dutos: <b className="text-slate-300">{formatLength(ductTotals(ducts, (d) => d.length_m).total)}</b>
+            </span>
+          )}
         </div>
       </aside>
 
@@ -1249,6 +1359,7 @@ export default function MapPage() {
               else if (tool === 'launch') setLaunchPick({ at, t: Date.now() });
               else if (tool === 'area') setAreaDraft((a) => [...a, at]);
               else if (tool === 'cable') setDraft((d) => (d ? { ...d, path: [...d.path, at] } : { path: [at], from: null }));
+              else if (tool === 'duct') setDuctDraft((d) => (d ? { ...d, path: [...d.path, at] } : { path: [at], from: null }));
               else if (tool === 'ruler') setRuler((r) => [...r, at]);
               else if (tool === 'slack') placeSlack(at);
               else if (tool === 'bulkfix') return;
@@ -1258,6 +1369,7 @@ export default function MapPage() {
             onZoom={setZoom}
             onContextMenu={() => {
               if (tool === 'cable' && draft) undoDraftPoint();
+              if (tool === 'duct' && ductDraft) setDuctDraft((d) => (!d || d.path.length <= 1 ? null : { ...d, path: d.path.slice(0, -1) }));
               setCableMenu(null);
             }}
             onMoveStart={() => setCableMenu(null)}
@@ -1287,6 +1399,41 @@ export default function MapPage() {
                 {labels && <Tooltip sticky>{a.name}</Tooltip>}
               </Polygon>
             ))}
+
+          {/* Dutos: tubo largo (borda na cor do duto, miolo escuro) por baixo dos cabos. "Em projeto" fica tracejado. */}
+          {visible.ducts &&
+            ducts.map((d) => {
+              const sel = selection?.kind === 'duct' && selection.id === d.id;
+              const path = ductPath(d);
+              const planned = d.status === 'planned';
+              const pick = (e: L.LeafletMouseEvent) => {
+                if (tool !== 'select') return;
+                L.DomEvent.stopPropagation(e);
+                setCableMenu(null);
+                setSelection({ kind: 'duct', id: d.id });
+              };
+              return (
+                <Fragment key={`duct${d.id}`}>
+                  {sel && <Polyline positions={path} interactive={false} pathOptions={{ color: '#facc15', weight: 26, opacity: 0.45, lineCap: 'round' }} />}
+                  <Polyline
+                    positions={path}
+                    pathOptions={{ color: d.color, weight: 18, opacity: 0.95, lineCap: planned ? 'butt' : 'round', dashArray: planned ? '14 6' : undefined }}
+                    eventHandlers={{ click: pick }}
+                  >
+                    {labels && zoom >= 16 && (
+                      <Tooltip sticky>{`${d.name} · ${formatLength(d.length_m)} · ${d.cable_ids?.length ?? 0} cabo${(d.cable_ids?.length ?? 0) === 1 ? '' : 's'}`}</Tooltip>
+                    )}
+                  </Polyline>
+                  <Polyline positions={path} interactive={false} pathOptions={{ color: '#1c1917', weight: 11, opacity: 0.85, lineCap: 'round' }} />
+                </Fragment>
+              );
+            })}
+
+          {/* Cabos que passam pelo duto selecionado: halo na cor do duto. */}
+          {selectedDuct &&
+            cables
+              .filter((c) => ductCableIds.has(c.id) && showCable(c))
+              .map((c) => <Polyline key={`dc${c.id}`} positions={displayPath(c)} interactive={false} pathOptions={{ color: '#fde68a', weight: c.width + 6, opacity: 0.55 }} />)}
 
           {/* Destaque do cabo selecionado: halo amarelo por baixo, o cabo mantém a cor e o estilo. */}
           {selectedCable && showCable(selectedCable) && (
@@ -1443,6 +1590,7 @@ export default function MapPage() {
                     selected: selection?.kind === 'node' && (selection.id === n.id || stack.some((c) => c.id === selection.id)),
                     fill: level ? POWER_COLORS[level] : undefined,
                     group: grouped.counts.get(n.id),
+                    shared: !!n.share,
                     dot:
                       n.type === 'camera' && cameraOf(n).cam_status
                         ? HEALTH_COLORS[cameraHealth(cameraOf(n).cam_status)]
@@ -1450,7 +1598,7 @@ export default function MapPage() {
                           ? '#f59e0b'
                           : undefined,
                   })}
-                  draggable={tool === 'select' && !readOnly}
+                  draggable={tool === 'select' && !readOnly && !nodeLocked(n)}
                   eventHandlers={{
                     click: (e) => {
                       L.DomEvent.stopPropagation(e);
@@ -1617,6 +1765,69 @@ export default function MapPage() {
             </>
           )}
 
+          {selectedDuct && tool === 'select' && !readOnly && visible.ducts && (
+            <>
+              {selectedDuct.path.map((p, i) => {
+                const last = selectedDuct.path.length - 1;
+                // Pontas ligadas a um objeto se movem com ele.
+                if ((i === 0 && selectedDuct.from_node_id) || (i === last && selectedDuct.to_node_id)) return null;
+                return (
+                  <Marker
+                    key={`dv${selectedDuct.id}-${i}-${selectedDuct.path.length}`}
+                    position={p}
+                    icon={vertexIcon(selectedDuct.color)}
+                    draggable
+                    zIndexOffset={1000}
+                    eventHandlers={{
+                      click: (e) => L.DomEvent.stopPropagation(e),
+                      drag: (e) => {
+                        const ll = (e.target as L.Marker).getLatLng();
+                        setDuctVertexDrag({ ductId: selectedDuct.id, index: i, at: [ll.lat, ll.lng], insert: false });
+                      },
+                      dragend: (e) => {
+                        const ll = (e.target as L.Marker).getLatLng();
+                        setDuctVertexDrag(null);
+                        saveDuctPath(
+                          selectedDuct,
+                          selectedDuct.path.map((q, j) => (j === i ? [ll.lat, ll.lng] : q)),
+                        );
+                      },
+                      contextmenu: (e) => {
+                        L.DomEvent.stopPropagation(e);
+                        if (selectedDuct.path.length > 2) saveDuctPath(selectedDuct, selectedDuct.path.filter((_, j) => j !== i));
+                      },
+                    }}
+                  >
+                    <Tooltip direction="top" offset={[0, -6]}>
+                      Vértice {i + 1}: {formatCoord(p[0])}, {formatCoord(p[1])}
+                    </Tooltip>
+                  </Marker>
+                );
+              })}
+              {ductMidpoints.map((mid, i) => (
+                <Marker
+                  key={`dm${selectedDuct.id}-${i}-${selectedDuct.path.length}`}
+                  position={mid}
+                  icon={midpointIcon(selectedDuct.color)}
+                  draggable
+                  zIndexOffset={900}
+                  eventHandlers={{
+                    click: (e) => L.DomEvent.stopPropagation(e),
+                    drag: (e) => {
+                      const ll = (e.target as L.Marker).getLatLng();
+                      setDuctVertexDrag({ ductId: selectedDuct.id, index: i + 1, at: [ll.lat, ll.lng], insert: true });
+                    },
+                    dragend: (e) => {
+                      const ll = (e.target as L.Marker).getLatLng();
+                      setDuctVertexDrag(null);
+                      saveDuctPath(selectedDuct, [...selectedDuct.path.slice(0, i + 1), [ll.lat, ll.lng], ...selectedDuct.path.slice(i + 1)]);
+                    },
+                  }}
+                />
+              ))}
+            </>
+          )}
+
           {snapNode && (
             <CircleMarker
               center={[snapNode.lat, snapNode.lng]}
@@ -1634,6 +1845,12 @@ export default function MapPage() {
                 dashArray: '6 6',
               }}
             />
+          )}
+          {ductDraft && (
+            <>
+              <Polyline positions={cursor ? [...ductDraft.path, cursor] : ductDraft.path} pathOptions={{ color: DUCT_COLOR, weight: 10, opacity: 0.7, lineCap: 'round' }} />
+              <Polyline positions={cursor ? [...ductDraft.path, cursor] : ductDraft.path} pathOptions={{ color: '#facc15', weight: 2, dashArray: '6 6' }} />
+            </>
           )}
           {areaDraft.length > 0 && (
             <Polygon
@@ -1737,6 +1954,7 @@ export default function MapPage() {
                   setConnectId(null);
                   setCableMenu(null);
                   setDraft(null);
+                  setDuctDraft(null);
                   setAreaDraft([]);
                   if (t.id !== 'ruler') setRuler([]);
                   if (t.id === 'viability' || t.id === 'launch' || t.id === 'bulkfix') setSelection(null);
@@ -1980,6 +2198,25 @@ export default function MapPage() {
               </button>
             </>
           )}
+          {ductDraft && (
+            <>
+              <button
+                className="btn-ghost !py-1.5 text-xs flex items-center gap-1 whitespace-nowrap"
+                onClick={() => setDuctDraft((d) => (!d || d.path.length <= 1 ? null : { ...d, path: d.path.slice(0, -1) }))}
+                title="Botão direito no mapa"
+              >
+                <Undo2 size={14} /> Desfazer ponto
+              </button>
+              <button className="btn-ghost !py-1.5 text-xs flex items-center gap-1" onClick={() => setDuctDraft(null)} title="Esc">
+                <X size={14} /> Cancelar
+              </button>
+            </>
+          )}
+          {ductDraft && ductDraft.path.length > 1 && (
+            <button className="btn-primary !py-1.5 text-xs whitespace-nowrap" onClick={() => finishDuct()}>
+              Finalizar duto ({formatLength(pathLength(ductDraft.path))})
+            </button>
+          )}
           {draft && draft.path.length > 1 && (
             <button className="btn-primary !py-1.5 text-xs whitespace-nowrap" onClick={() => finishCable()}>
               Finalizar cabo ({formatLength(pathLength(draft.path))})
@@ -2135,6 +2372,7 @@ export default function MapPage() {
                     onChange={(v) => setVisible({ ...visible, [c]: v })}
                   />
                 ))}
+                <Toggle label="Dutos" color={DUCT_COLOR} on={visible.ducts ?? true} onChange={(v) => setVisible({ ...visible, ducts: v })} />
                 <Toggle label="Áreas" color="#a855f7" on={visible.areas ?? true} onChange={(v) => setVisible({ ...visible, areas: v })} />
                 <Toggle label="Enlaces wireless" color="#f43f5e" on={visible.wireless ?? true} onChange={(v) => setVisible({ ...visible, wireless: v })} />
                 <Toggle label="Rótulos" on={labels} onChange={setLabels} />
@@ -2233,9 +2471,44 @@ export default function MapPage() {
           />
         )}
 
+        {selectedDuct && tool !== 'viability' && (
+          <DuctPanel
+            key={`${selectedDuct.id}-${selectedDuct.name}`}
+            duct={selectedDuct}
+            cables={cables}
+            nodes={nodes}
+            readOnly={readOnly}
+            onClose={() => setSelection(null)}
+            onSaved={(d, message) => {
+              mergeDucts([d]);
+              if (message) notify(message);
+            }}
+            onDeleted={() => {
+              setDucts((list) => list.filter((x) => x.id !== selectedDuct.id));
+              setSelection(null);
+              notify('Duto excluído');
+            }}
+            onSelectCable={(c) => setSelection({ kind: 'cable', id: c.id })}
+            onSelectNode={(n) => focusNode(n)}
+            onHistory={() => setHistory({ title: selectedDuct.name, filter: { type: 'duct', subject_id: selectedDuct.id } })}
+            onError={(m) => notify(m, 'error')}
+          />
+        )}
+
         {(selectedNode || selectedCable) && tool !== 'viability' && (
           <Inspector
-            readOnly={readOnly}
+            readOnly={readOnly || nodeLocked(selectedNode)}
+            projectId={projectId}
+            canEditProject={!readOnly}
+            onShared={(ns) => {
+              mergeNodes(ns);
+              notify(ns.length > 1 ? `Compartilhado (com ${ns.length - 1} objeto(s) fixado(s))` : 'Objeto compartilhado');
+            }}
+            onUnshared={(n, cs) => {
+              mergeNodes([n]);
+              mergeCables(cs);
+              notify('Objeto tirado do projeto');
+            }}
             cables={cables}
             onHistory={(kind, id, name) =>
               setHistory({
@@ -2254,6 +2527,8 @@ export default function MapPage() {
             onLocate={(at) => mapRef.current?.setView(at, Math.max(mapRef.current.getZoom(), 18))}
             node={selectedNode}
             cable={selectedCable}
+            cableDucts={selectedCable ? ductsOfCable(selectedCable, ducts) : undefined}
+            onSelectDuct={(id) => setSelection({ kind: 'duct', id })}
             nodes={nodes}
             onSelectNode={(n) => focusNode(n)}
             onAddInBox={(box, type) => addNode(type, [box.lat, box.lng], box)}
@@ -2282,8 +2557,16 @@ export default function MapPage() {
                     to_node_id: c.to_node_id === deletedId ? null : c.to_node_id,
                   })),
                 );
+                setDucts((list) =>
+                  list.map((d) => ({
+                    ...d,
+                    from_node_id: d.from_node_id === deletedId ? null : d.from_node_id,
+                    to_node_id: d.to_node_id === deletedId ? null : d.to_node_id,
+                  })),
+                );
               } else {
                 setCables((list) => list.filter((c) => c.id !== deletedId));
+                forgetCableInDucts(deletedId);
                 mergeNodes(touched ?? []);
               }
               setSelection(null);
@@ -2438,7 +2721,7 @@ export default function MapPage() {
         />
       )}
       {history && <HistoryModal projectId={projectId} title={history.title} filter={history.filter} onClose={() => setHistory(null)} />}
-      {report && <ReportModal network={network} projectName={project.name} title={report.title} polygon={report.polygon} onClose={() => setReport(null)} />}
+      {report && <ReportModal network={network} ducts={ducts} projectName={project.name} title={report.title} polygon={report.polygon} onClose={() => setReport(null)} />}
       {otdr && (
         <OtdrModal
           title={otdr.title}

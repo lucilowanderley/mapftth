@@ -280,6 +280,24 @@ export interface NetNode {
   notes: string | null;
   attributes: Record<string, unknown> | null;
   diagram: Diagram | null;
+  /** Presente quando o objeto aparece em mais de um projeto (ou veio de outro projeto). */
+  share?: NodeShare | null;
+}
+
+/** Objeto compartilhado: projeto de origem, outros projetos onde aparece e se o usuário pode editá-lo daqui. */
+export interface NodeShare {
+  home_id: number;
+  home_name: string;
+  projects: { id: number; name: string }[];
+  can_edit: boolean;
+}
+
+/** Grupo de objetos repetidos em projetos diferentes (mesmo tipo, a poucos metros). */
+export interface DuplicateGroup {
+  type: NodeType;
+  distance_m: number;
+  keep_id: number;
+  nodes: { id: number; name: string; project_id: number; project_name: string; lat: number; lng: number; cables: number; has_diagram: boolean }[];
 }
 
 export interface Cable {
@@ -304,6 +322,33 @@ export interface Cable {
   slack_m: number;
   slacks?: Slack[] | null;
   length_m: number;
+  notes: string | null;
+}
+
+export type DuctMaterial = 'pead' | 'pvc' | 'corrugated' | 'steel' | 'concrete' | 'other';
+export type DuctPlacement = 'buried' | 'directional' | 'surface';
+
+/** Duto: tubulação (geralmente subterrânea) por onde passam cabos, entre caixas, POP e datacenter. */
+export interface Duct {
+  id: number;
+  project_id: number;
+  name: string;
+  material: DuctMaterial;
+  /** Diâmetro externo nominal (mm). */
+  diameter_mm: number;
+  /** Quantidade de subdutos (tritubo = 3). 0 = duto simples. */
+  subducts: number;
+  placement: DuctPlacement;
+  /** Profundidade (m), para dutos enterrados. */
+  depth_m: number | null;
+  status: Status;
+  color: string;
+  path: LatLng[];
+  from_node_id: number | null;
+  to_node_id: number | null;
+  length_m: number;
+  /** Cabos que passam pelo duto. */
+  cable_ids: number[] | null;
   notes: string | null;
 }
 

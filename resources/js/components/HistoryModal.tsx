@@ -12,7 +12,7 @@ export const ACTIONS: Record<string, string> = {
   imported: 'importou',
   bulk_fixed: 'fixou em massa',
 };
-export const TYPES: Record<string, string> = { node: '', cable: 'o cabo', area: 'a área', project: '', member: 'o membro' };
+export const TYPES: Record<string, string> = { node: '', cable: 'o cabo', area: 'a área', duct: 'o duto', project: '', member: 'o membro' };
 const FIELDS: Record<string, string> = {
   name: 'nome', status: 'status', notes: 'observações', attributes: 'atributos', diagram: 'diagrama', position: 'posição',
   fiber_count: 'fibras', category: 'tipo', color: 'cor', width: 'espessura', slack_m: 'reserva', path: 'traçado', model: 'modelo', papel: 'papel',
