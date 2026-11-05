@@ -203,7 +203,8 @@ os dois campos são preenchidos.
 **Editar um elemento**: com **Selecionar**, clique nele: **um clique abre** o painel de propriedades e **outro clique
 no mesmo objeto (ou cabo) fecha** o painel. **Duplo clique** abre o editor direto: na CTO, CEO ou POP
 (e no condomínio) abre o diagrama de fusão / editor do POP; no **poste** e na **caixa** abre o editor do poste/caixa
-(objetos fixados nele); no cliente coloca o cursor no campo **Nome** do painel. No painel:
+(objetos fixados nele). Nesses casos o painel de propriedades fecha antes de o editor abrir. No cliente (e nos
+demais objetos sem editor próprio) o duplo clique coloca o cursor no campo **Nome** do painel. No painel:
 
 - **Nome**, **Status** (*Em projeto*, *Não implantado*, *Implantado*, *Certificado*) e **Observações**.
 - **Posição**: latitude e longitude do elemento. Digite os valores exatos (mesmos formatos aceitos acima) e salve

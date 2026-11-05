@@ -995,10 +995,18 @@ export default function MapPage() {
 
   /** Duplo clique: caixas e POP abrem o diagrama/editor; demais objetos abrem o painel de edição. */
   function openEditor(n: NetNode) {
-    setSelection({ kind: 'node', id: n.id });
-    if (ANCHOR_HOST_TYPES.includes(n.type)) setHostEditorId(n.id);
-    else if (BOX_TYPES.includes(n.type)) setDiagramNodeId(n.id);
-    else setEditorFocus(Date.now());
+    // Objetos com editor próprio: fecha o painel de propriedades antes de abrir o editor.
+    if (ANCHOR_HOST_TYPES.includes(n.type)) {
+      setSelection(null);
+      setHostEditorId(n.id);
+    } else if (BOX_TYPES.includes(n.type)) {
+      setSelection(null);
+      setDiagramNodeId(n.id);
+    } else {
+      // Demais objetos: o editor é o próprio painel (cursor no campo Nome).
+      setSelection({ kind: 'node', id: n.id });
+      setEditorFocus(Date.now());
+    }
   }
 
   function nodeClicked(node: NetNode) {
