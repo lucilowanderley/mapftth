@@ -81,6 +81,8 @@ import DashboardModal from '../components/DashboardModal';
 import ReportModal from '../components/ReportModal';
 import PolesModal from '../components/PolesModal';
 import OtdrModal from '../components/OtdrModal';
+import OtdrPanel, { type OtdrLaser, type OtdrPick } from '../components/OtdrPanel';
+import { cablesAt, type OtdrTrace } from '../lib/otdr';
 import ViabilityPanel from '../components/ViabilityPanel';
 import AreaPanel from '../components/AreaPanel';
 import DuctPanel from '../components/DuctPanel';
@@ -93,7 +95,7 @@ import BulkFixPanel, { type BulkPreview } from '../components/BulkFixPanel';
 import ToolFan, { type FanGroup } from '../components/ToolFan';
 import MergePanel, { type MergeKind, type MergeSelection } from '../components/MergePanel';
 
-type Tool = 'select' | NodeType | 'cable' | 'duct' | 'launch' | 'bulkfix' | 'merge' | 'slack' | 'ruler' | 'area' | 'viability';
+type Tool = 'select' | NodeType | 'cable' | 'duct' | 'launch' | 'bulkfix' | 'merge' | 'slack' | 'ruler' | 'area' | 'viability' | 'otdr';
 
 /**
  * Barra de ferramentas agrupada por contexto; cada grupo abre em leque. Ferramentas com a mesma função ficam num
@@ -147,22 +149,46 @@ const TOOL_GROUPS: FanGroup<Tool>[] = [
     ],
   },
   {
-    // Medir e analisar: o OTDR virtual entra aqui como mais uma opção do leque quando virar ferramenta do mapa.
     key: 'measure',
     label: 'Medir',
     items: [
       { key: 'ruler', label: 'Régua', icon: <Ruler size={18} />, tools: ['ruler'] },
       { key: 'area', label: 'Área', icon: <Pentagon size={18} />, tools: ['area'] },
       { key: 'viability', label: 'Viabilidade', icon: <Radar size={18} />, tools: ['viability'] },
+      { key: 'otdr', label: 'OTDR', icon: <Activity size={18} />, tools: ['otdr'] },
     ],
   },
 ];
 
 /** Ferramentas que só leem a rede (liberadas para quem tem acesso de leitura). */
-const READ_TOOLS: Tool[] = ['select', 'ruler', 'viability'];
+const READ_TOOLS: Tool[] = ['select', 'ruler', 'viability', 'otdr'];
 
 
 /** Prévia do lançamento de cabo: caminho da rua, cabo planejado, postes (existentes numerados e novos) e reservas. */
+/** OTDR no modo laser: a fibra acesa do disparo até o rompimento (ou o fim da fibra), como um VFL no mapa. */
+function LaserLayer({ laser }: { laser: OtdrLaser }) {
+  return (
+    <>
+      <Polyline positions={laser.path} pathOptions={{ color: '#ef4444', weight: 12, opacity: 0.25, lineCap: 'round', interactive: false }} />
+      <Polyline positions={laser.path} pathOptions={{ color: '#fecaca', weight: 3, opacity: 1, dashArray: '10 8', className: 'otdr-laser', lineCap: 'round', interactive: false }} />
+      <CircleMarker center={laser.origin} radius={7} pathOptions={{ color: '#ffffff', fillColor: '#10b981', fillOpacity: 1, weight: 2 }}>
+        <Tooltip direction="top" offset={[0, -6]}>
+          OTDR
+        </Tooltip>
+      </CircleMarker>
+      <CircleMarker
+        center={laser.point}
+        radius={laser.broken ? 11 : 8}
+        pathOptions={{ color: '#ffffff', fillColor: '#ef4444', fillOpacity: 1, weight: 3, className: laser.broken ? 'otdr-break' : undefined }}
+      >
+        <Tooltip permanent direction="top" offset={[0, -10]}>
+          {laser.label}
+        </Tooltip>
+      </CircleMarker>
+    </>
+  );
+}
+
 /** Prévia do Fixar em massa: linha tracejada de cada objeto até o alvo e um anel no alvo. */
 function BulkFixLayer({ preview }: { preview: BulkPreview }) {
   const seen = new Set<string>();
@@ -290,10 +316,13 @@ export default function MapPage() {
     title: string;
     polygon?: LatLng[];
   } | null>(null);
+  /** OTDR: gráfico e relatório abertos; ponto de disparo escolhido no mapa e o laser aceso. */
   const [otdr, setOtdr] = useState<{
-    title: string;
-    result: BudgetResult;
+    trace: OtdrTrace;
+    distance: number | null;
   } | null>(null);
+  const [otdrPick, setOtdrPick] = useState<OtdrPick | null>(null);
+  const [laser, setLaser] = useState<OtdrLaser | null>(null);
   const [recent, setRecent] = useState<ActivityItem[] | null>(null);
   const [tool, setTool] = useState<Tool>('select');
   /** Ferramenta Lançar cabo: cliques no mapa encaminhados ao painel e o que ele desenha. */
@@ -631,6 +660,13 @@ export default function MapPage() {
     setAreaDraft([]);
     if (id !== 'ruler') setRuler([]);
     if (id === 'viability' || id === 'launch' || id === 'bulkfix') setSelection(null);
+    if (id === 'otdr') {
+      // Entra no OTDR já com o cabo ou a caixa selecionada como ponto de disparo.
+      setOtdrPick(null);
+      if (selectedCable) pickOtdrCable(selectedCable);
+      else if (selectedNode) pickOtdrAt(selectedNode);
+      setSelection(null);
+    }
     if (id === 'merge') {
       // Entra no Unir já com o cabo/duto selecionado.
       if (selection?.kind === 'cable' || selection?.kind === 'duct') setMergeSel({ kind: selection.kind, ids: [selection.id] });
@@ -1206,6 +1242,23 @@ export default function MapPage() {
     }
   }
 
+  /** OTDR: o objeto clicado (ou a CTO/CEO fixada no poste) vira a ponta de disparo; a lista traz os cabos que chegam nele. */
+  function pickOtdrAt(node: NetNode, fiber?: number, cableId?: number) {
+    if (!network) return;
+    const ids = [node.id, ...cableTargets(node, nodes).map((n) => n.id)];
+    const here = cablesAt(network, ids);
+    if (!here.length) return notify(`Nenhum cabo chega em ${node.name}.`, 'error');
+    const first = here.find((c) => c.id === cableId) ?? here[0];
+    const at = ids.find((id) => id === first.from_node_id || id === first.to_node_id)!;
+    setOtdrPick({ cableId: first.id, nodeId: at, options: here.map((c) => c.id), fiber, t: Date.now() });
+  }
+
+  function pickOtdrCable(c: Cable) {
+    const at = c.from_node_id ?? c.to_node_id;
+    if (at == null) return notify(`${c.name} não está ligado a nenhuma caixa.`, 'error');
+    setOtdrPick({ cableId: c.id, nodeId: at, options: [c.id], t: Date.now() });
+  }
+
   function nodeClicked(node: NetNode) {
     if (tool === 'bulkfix' || tool === 'merge') return;
     if (tool === 'launch') {
@@ -1214,6 +1267,10 @@ export default function MapPage() {
     }
     if (tool === 'viability') {
       setViaPoint([node.lat, node.lng]);
+      return;
+    }
+    if (tool === 'otdr') {
+      pickOtdrAt(node);
       return;
     }
     if (tool === 'area') {
@@ -1432,7 +1489,7 @@ export default function MapPage() {
   const overlayOpen = !!(diagramNode || modal || budget || history || report || otdr);
   /** Painel à esquerda aberto (propriedades, Lançar, Viabilidade, Área): a barra de ferramentas se afasta dele. */
   const leftPanelOpen =
-    ((tool === 'launch' || tool === 'bulkfix' || tool === 'merge') && !readOnly) || tool === 'viability' || !!selectedArea || !!selectedDuct || !!selectedNode || !!selectedCable;
+    ((tool === 'launch' || tool === 'bulkfix' || tool === 'merge') && !readOnly) || tool === 'viability' || tool === 'otdr' || !!selectedArea || !!selectedDuct || !!selectedNode || !!selectedCable;
   const deployed = nodes.filter((n) => n.status === 'deployed' || n.status === 'certified').length;
   const pct = nodes.length ? Math.round((deployed / nodes.length) * 100) : 0;
   const hint =
@@ -1452,6 +1509,8 @@ export default function MapPage() {
         ? 'Clique sobre o cabo (ou no poste/caixa por onde ele passa) para posicionar a reserva técnica. Esc volta para Selecionar.'
         : tool === 'viability'
         ? 'Clique no local do cliente ou busque o endereço no painel.'
+        : tool === 'otdr'
+        ? 'OTDR: clique no cabo ou na caixa onde o OTDR será ligado, escolha o sentido e a fibra. Esc volta para Selecionar.'
         : readOnly && tool === 'select'
           ? 'Acesso somente leitura. Clique num elemento para ver detalhes.'
           : tool === 'cable'
@@ -1600,7 +1659,7 @@ export default function MapPage() {
               else if (tool === 'duct') setDuctDraft((d) => (d ? { ...d, path: [...d.path, at] } : { path: [at], from: null }));
               else if (tool === 'ruler') setRuler((r) => [...r, at]);
               else if (tool === 'slack') placeSlack(at);
-              else if (tool === 'bulkfix' || tool === 'merge') return;
+              else if (tool === 'bulkfix' || tool === 'merge' || tool === 'otdr') return;
               else addNode(tool, at);
             }}
             onMove={setCursor}
@@ -1716,6 +1775,10 @@ export default function MapPage() {
                     if (tool === 'merge' && !readOnly) {
                       L.DomEvent.stopPropagation(e);
                       return toggleMerge('cable', c.id);
+                    }
+                    if (tool === 'otdr') {
+                      L.DomEvent.stopPropagation(e);
+                      return pickOtdrCable(c);
                     }
                     if (tool !== 'select') return;
                     L.DomEvent.stopPropagation(e);
@@ -2178,6 +2241,7 @@ export default function MapPage() {
               </CircleMarker>
             </>
           )}
+          {tool === 'otdr' && laser && <LaserLayer laser={laser} />}
           {tool === 'launch' && launchPreview && <LaunchLayer preview={launchPreview} nodes={nodes} />}
           {tool === 'bulkfix' && bulkPreview && <BulkFixLayer preview={bulkPreview} />}
           {tool === 'bulkfix' && <ViewBounds onChange={setMapBounds} />}
@@ -2706,6 +2770,21 @@ export default function MapPage() {
           />
         )}
 
+        {tool === 'otdr' && network && (
+          <OtdrPanel
+            key={otdrPick?.t ?? 0}
+            network={network}
+            pick={otdrPick}
+            onLaser={setLaser}
+            onReport={(trace, distance) => setOtdr({ trace, distance })}
+            onFocus={(at) => mapRef.current?.setView(at, Math.max(mapRef.current.getZoom(), 18))}
+            onClose={() => {
+              setTool('select');
+              setOtdrPick(null);
+            }}
+          />
+        )}
+
         {tool === 'viability' && (
           <ViabilityPanel
             point={viaPoint}
@@ -2794,12 +2873,14 @@ export default function MapPage() {
                 filter: { type: kind, subject_id: id },
               })
             }
-            onOtdr={(n) =>
-              setOtdr({
-                title: n.name,
-                result: clientPower.get(n.id)!,
-              })
-            }
+            onOtdr={(n) => {
+              // Do cliente, o OTDR dispara pelo cabo drop no sentido da OLT.
+              const drop = cables.find((c) => c.from_node_id === n.id || c.to_node_id === n.id);
+              setTool('otdr');
+              setSelection(null);
+              if (drop) setOtdrPick({ cableId: drop.id, nodeId: n.id, options: [drop.id], fiber: (n.attributes?.fiber as number | undefined) ?? 1, t: Date.now() });
+              else setOtdrPick(null);
+            }}
             key={`${selection?.kind}${selection?.id}-${selectedCable?.name ?? ''}`}
             focusKey={editorFocus}
             onLocate={(at) => mapRef.current?.setView(at, Math.max(mapRef.current.getZoom(), 18))}
@@ -2982,15 +3063,11 @@ export default function MapPage() {
       {report && <ReportModal network={network} ducts={ducts} projectName={project.name} title={report.title} polygon={report.polygon} onClose={() => setReport(null)} />}
       {otdr && (
         <OtdrModal
-          title={otdr.title}
-          network={network}
-          budget={otdr.result}
+          trace={otdr.trace}
+          distance={otdr.distance}
+          projectName={project.name}
           onClose={() => setOtdr(null)}
-          onLocate={(at, label, route) => {
-            setOtdr(null);
-            setMarker({ at, label, route });
-            mapRef.current?.setView(at, 18);
-          }}
+          onLaser={() => setOtdr(null)}
         />
       )}
       {/* Com uma janela aberta por cima do mapa, o aviso fica fixo no topo para não ficar escondido. */}

@@ -22,7 +22,7 @@ seções como consulta.
 14. [Áreas e relatórios (CSV e PDF)](#14-áreas-e-relatórios)
 15. [Tabela de postes e importação BDGD/ANEEL](#15-tabela-de-postes)
 16. [Viabilidade de atendimento](#16-viabilidade)
-17. [OTDR virtual](#17-otdr-virtual)
+17. [OTDR](#17-otdr)
 18. [Importar e exportar KMZ/KML (Google Earth)](#18-kmz-e-kml)
 19. [Equipe e permissões](#19-equipe-e-permissões)
 20. [Histórico de alterações](#20-histórico)
@@ -114,7 +114,7 @@ mostra o ícone da última ferramenta usada nele e fica verde enquanto uma ferra
 | **Centrais** | POP, Datacenter, Torre. |
 | **Clientes** | Cliente, Condomínio, Câmera. |
 | **Ajustar** | Fixar (fixar em massa), Unir (cabos ou dutos). |
-| **Medir** | Régua, Área, Viabilidade. |
+| **Medir** | Régua, Área, Viabilidade, OTDR. |
 
 Algumas ferramentas faziam a mesma coisa e viraram um botão só, com a escolha na faixa que aparece abaixo da barra:
 
@@ -124,7 +124,7 @@ Algumas ferramentas faziam a mesma coisa e viraram um botão só, com a escolha 
   **Lançar** (o antigo botão Lançar: pelas ruas, postes, caixas e dutos, com reservas; veja
   [Lançar cabo](#lançar-cabo-com-postes-e-reservas)).
 
-Quem tem só acesso de leitura vê **Selecionar** e o grupo **Medir** com **Régua** e **Viabilidade**.
+Quem tem só acesso de leitura vê **Selecionar** e o grupo **Medir** com **Régua**, **Viabilidade** e **OTDR**.
 
 A barra de ferramentas e o painel de camadas podem ser arrastados para outro lugar destravando o **cadeado** (veja
 **Cadeado** mais abaixo).
@@ -1251,7 +1251,7 @@ Para o cálculo de potência ficar mais preciso, cada emenda pode ter o próprio
 4. O quadro **Perda usada no cálculo** mostra o valor e de onde ele vem (informada, típica do tipo ou padrão do
    projeto). Acima de 0,75 dB num conector ou 0,30 dB numa fusão aparece um aviso.
 
-A potência nas portas, nos clientes, o orçamento óptico, a saúde do sinal e o OTDR virtual passam a usar essa
+A potência nas portas, nos clientes, o orçamento óptico, a saúde do sinal e o OTDR passam a usar essa
 perda na hora. Passe o mouse sobre uma emenda para ver o tipo e a perda. Tudo pode ser desfeito com **Ctrl+Z**.
 
 **Adicionar splitter**
@@ -1548,17 +1548,39 @@ A distância é em linha reta e a potência é na saída do splitter (sem o drop
 
 ---
 
-## 17. OTDR virtual
+## 17. OTDR
 
-Use para comparar com a medição do OTDR de campo e achar onde está um problema.
+A ferramenta **OTDR** (barra de ferramentas, grupo **Medir**, ícone de onda) simula o aparelho ligado em **qualquer ponto da rede**:
+você escolhe o cabo, a ponta onde o OTDR é conectado e o sentido do disparo, e o sistema segue a fibra pelas fusões,
+conectores, DIOs e splitters até onde ela termina. Funciona também para quem tem acesso só de leitura.
 
-1. Clique num cliente que já tenha sinal e depois em **Simular OTDR / localizar evento**.
-2. A janela mostra a **curva esperada** do percurso OLT → cliente (com reserva técnica) e a tabela de **eventos**
-   (conectores, fusões, splitters) com distância, perda e potência.
-3. Em **Distância do evento medida no OTDR (m)**, digite a distância que o aparelho mostrou (ex.: 845).
-4. Clique em **Mostrar no mapa**. O sistema marca um ponto vermelho no lugar exato do trajeto e destaca o caminho em
-   laranja.
-5. **Limpar marcação** (rodapé do mapa) apaga a marca.
+1. Escolha **Medir** › **OTDR** na barra de ferramentas e clique no **cabo** ou na **caixa** (CTO, CEO, POP, ou o poste com a CTO
+   fixada) onde o OTDR será ligado. Se um cabo ou caixa já estiver selecionado, ele já entra como ponto de disparo.
+   Clicando numa caixa, o campo **Cabo** lista todos os cabos que chegam nela.
+2. Em **Sentido do disparo**, escolha **A → B** (do início para o fim do cabo) ou **B → A** (do fim para o início).
+   O painel mostra o nome dos objetos de cada ponta.
+3. Escolha a **Fibra** (com a cor ABNT).
+4. Se a luz passar por um splitter pela entrada, aparece **Splitter …: seguir pela saída** para escolher qual
+   derivação o OTDR acompanha (padrão: a primeira saída ligada).
+5. Opcional: em **Distância do evento medida no OTDR (m)**, digite a distância que o aparelho de campo mostrou.
+   O painel diz em que **cabo** fica o ponto e quantos metros faltam para cada caixa da ponta, e entre quais
+   eventos ele está. Se o trecho tem reserva técnica, a posição no mapa é aproximada (a reserva entra na metragem).
+6. Escolha o **Resultado**:
+   - **Laser no mapa**: a fibra acende em vermelho no mapa, do ponto de disparo (bolinha verde) até o rompimento
+     informado, ou até o **fim da fibra** quando a distância fica vazia (como um VFL). **Ir ao ponto do rompimento**
+     centraliza o mapa ali.
+   - **Gráfico e relatório**: **Abrir gráfico e relatório** mostra a curva simulada (dB × distância, com picos nos
+     eventos reflexivos e degraus nas fusões e splitters), o resumo (comprimento, perda total, atenuação média,
+     onde a fibra termina), a tabela de **eventos** e a de **trechos de cabo**. **Imprimir** gera o relatório em
+     PDF pelo navegador e **CSV** baixa a planilha. **Laser no mapa** volta para o mapa.
+7. **Esc** ou o **X** do painel fecha a ferramenta e apaga o laser.
+
+O fim da fibra pode ser: **Fim da fibra (sem emenda)** numa caixa, **Ponta solta do cabo**, **Chega no cliente
+(ONU)**, **Chega na OLT**, **Chega num equipamento ativo** ou **Splitter sem saídas ligadas**. Um rompimento
+real antes do fim previsto aparece no aparelho de campo como uma distância menor que a do painel.
+
+No painel do cliente, **OTDR a partir deste cliente** abre a ferramenta já no cabo drop, disparando no sentido
+da OLT.
 
 ---
 
@@ -1629,7 +1651,7 @@ Barra lateral → **Equipe**.
 | **Dono** | Controle total, inclusive excluir o projeto. |
 | **Administrador** | Edita a rede, gerencia a equipe e as Configurações. |
 | **Projetista** | Edita mapa, caixas, cabos e fusões. |
-| **Técnico (leitura)** | Consulta mapa, diagramas e relatórios. Só tem as ferramentas Selecionar, Régua e Viabilidade e não salva alterações. |
+| **Técnico (leitura)** | Consulta mapa, diagramas e relatórios. Só tem as ferramentas Selecionar, Régua, Viabilidade e OTDR e não salva alterações. |
 
 Dono e administradores mudam o papel pela lista ou removem pessoas (ícone ao lado do nome). Qualquer membro pode
 sair do projeto pelo mesmo ícone no próprio nome.
@@ -1681,7 +1703,7 @@ Ao salvar, todos os sinais, cores e relatórios são recalculados.
 
 | Tecla / ação | Onde | Efeito |
 | --- | --- | --- |
-| **Esc** | Mapa | Cancela o cabo, o duto, a área ou a régua e volta para Selecionar. |
+| **Esc** | Mapa | Cancela o cabo, o duto, a área ou a régua (ou fecha o OTDR) e volta para Selecionar. |
 | **Enter** | Mapa | Finaliza o cabo, o duto ou a área em desenho. |
 | **Duplo clique** numa caixa | Mapa | Abre o diagrama de fusão / editor do POP. |
 | **Duplo clique** em poste, cliente ou cabo | Mapa | Abre o painel de edição no campo Nome. |

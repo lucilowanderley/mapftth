@@ -149,3 +149,22 @@ path.leaflet-interactive:focus {
         transform: translateX(-50%) scale(0.5);
     }
 }
+/* OTDR no modo laser: luz correndo pela fibra e pulso no ponto do rompimento. */
+.otdr-laser {
+  animation: otdr-laser 0.8s linear infinite;
+  filter: drop-shadow(0 0 4px #ef4444);
+}
+@keyframes otdr-laser {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+.otdr-break {
+  animation: otdr-break 1.2s ease-in-out infinite;
+}
+@keyframes otdr-break {
+  50% {
+    stroke-width: 8;
+    stroke-opacity: 0.4;
+  }
+}
