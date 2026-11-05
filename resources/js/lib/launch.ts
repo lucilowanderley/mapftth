@@ -1,6 +1,6 @@
 import { nearestOnPath } from './connect';
 import { distance, pathLength } from './geo';
-import type { CableCategory, LatLng, NetNode } from './types';
+import type { CableCategory, Duct, LatLng, NetNode } from './types';
 
 /**
  * Lançamento de cabo (sem React, usado também nos testes).
@@ -29,6 +29,10 @@ export interface LaunchPoint {
   pole_id?: number;
   /** Poste novo (criado junto com o cabo). */
   new_pole?: boolean;
+  /** Caixa existente (caixa de passagem / emenda subterrânea). */
+  box_id?: number;
+  /** Vértice do traçado de um duto (o cabo passa por dentro dele). */
+  duct_id?: number;
   /** Distância (m) desde o início, pelo caminho. */
   along: number;
 }
@@ -42,9 +46,15 @@ export interface LaunchPlan {
   length: number;
   existing: number;
   created: number;
+  /** Caixas por onde o cabo passa. */
+  boxes: number;
+  /** Dutos ocupados pelo cabo, na ordem, com a metragem dentro de cada um. */
+  ducts: { id: number; meters: number }[];
 }
 
 const isPole = (p: LaunchPoint) => p.pole_id != null || !!p.new_pole;
+/** Ponto onde dá para fixar a reserva técnica: poste (novo ou existente) ou caixa. */
+const isHost = (p: LaunchPoint) => isPole(p) || p.box_id != null;
 
 /** Ponto a `meters` metros do início do caminho. */
 export function pointAlong(path: LatLng[], meters: number): LatLng {
@@ -105,7 +115,7 @@ export function polesAlong(path: LatLng[], poles: NetNode[], snap = POLE_SNAP_M)
 export function planSlacks(points: LaunchPoint[], every: number): number[] {
   if (!(every > 0) || points.length < 2) return [];
   const total = points[points.length - 1].along;
-  const poles = points.map((p, i) => ({ p, i })).filter((x) => isPole(x.p));
+  const poles = points.map((p, i) => ({ p, i })).filter((x) => isHost(x.p));
   if (!poles.length) return [];
   const used = new Set<number>();
   // Tolerância de 2% no fim: um cabo de 999 m com reserva a cada 500 m ganha a reserva da marca de 1000 m.
@@ -120,24 +130,99 @@ export function planSlacks(points: LaunchPoint[], every: number): number[] {
   return [...used].sort((a, b) => a - b);
 }
 
-function finish(points: LaunchPoint[], slackEvery: number): LaunchPlan {
+function finish(points: LaunchPoint[], slackEvery: number, ducts: { id: number; meters: number }[] = []): LaunchPlan {
   return {
     points,
     slacks: planSlacks(points, slackEvery),
     length: pathLength(points.map((p) => p.at)),
     existing: points.filter((p) => p.pole_id != null).length,
     created: points.filter((p) => p.new_pole).length,
+    boxes: points.filter((p) => p.box_id != null).length,
+    ducts,
   };
+}
+
+/** Objetos que dá para escolher no modo "Escolher pontos": postes e caixas. */
+export const STOP_TYPES = ['pole', 'box'] as const;
+export const isStop = (n: NetNode) => (STOP_TYPES as readonly string[]).includes(n.type);
+
+/** Distância (m) máxima de um poste/caixa ao traçado do duto para o cabo entrar ou sair dele ali. */
+export const DUCT_STOP_M = 10;
+
+/** Trecho do caminho entre as distâncias `from` e `to` (desde o início); invertido quando `from` > `to`. */
+export function subPath(path: LatLng[], from: number, to: number): LatLng[] {
+  const lo = Math.min(from, to);
+  const hi = Math.max(from, to);
+  const out: LatLng[] = [pointAlong(path, lo)];
+  let walked = 0;
+  for (let i = 1; i < path.length; i++) {
+    walked += distance(path[i - 1], path[i]);
+    if (walked > lo + 0.5 && walked < hi - 0.5) out.push(path[i]);
+  }
+  out.push(pointAlong(path, hi));
+  return from <= to ? out : out.reverse();
+}
+
+/**
+ * Duto que liga dois pontos escolhidos: os dois são caixas a até `tol` metros do traçado do duto, ou são os
+ * objetos das pontas dele (ex.: o poste da subida do duto). Poste comum perto do duto não conta: o cabo aéreo
+ * da mesma rua não entra no duto. Devolve o trecho do duto entre eles, no sentido de `a` para `b`; com vários, o mais curto.
+ */
+export function ductBetween(a: NetNode, b: NetNode, ducts: Duct[], tol = DUCT_STOP_M): { duct: Duct; path: LatLng[]; meters: number } | null {
+  let best: { duct: Duct; path: LatLng[]; meters: number } | null = null;
+  for (const d of ducts) {
+    if (!d.path || d.path.length < 2) continue;
+    const at = (n: NetNode) => {
+      const ends = [d.from_node_id, d.to_node_id];
+      if (ends[0] === n.id) return { along: 0, dist: 0 };
+      if (ends[1] === n.id) return { along: pathLength(d.path), dist: 0 };
+      if (n.type !== 'box') return { along: 0, dist: Infinity };
+      return nearestOnPath(d.path, [n.lat, n.lng]);
+    };
+    const pa = at(a);
+    const pb = at(b);
+    if (pa.dist > tol || pb.dist > tol || Math.abs(pa.along - pb.along) < 2) continue;
+    const path = subPath(d.path, pa.along, pb.along);
+    path[0] = [a.lat, a.lng];
+    path[path.length - 1] = [b.lat, b.lng];
+    const meters = Math.abs(pa.along - pb.along);
+    if (!best || meters < best.meters) best = { duct: d, path, meters };
+  }
+  return best;
+}
+
+/**
+ * Modo "Escolher pontos": cabo passando pelos postes e caixas escolhidos, na ordem. Entre dois pontos ligados
+ * por um duto, o cabo segue o traçado do duto (por dentro dele) e o duto fica ocupado pelo cabo.
+ */
+export function planFromStops(stops: NetNode[], slackEvery: number, ducts: Duct[] = []): LaunchPlan {
+  const points: LaunchPoint[] = [];
+  const used: { id: number; meters: number }[] = [];
+  let along = 0;
+  const push = (p: Omit<LaunchPoint, 'along'>) => {
+    const prev = points[points.length - 1];
+    if (prev) along += distance(prev.at, p.at);
+    points.push({ ...p, along });
+  };
+  const stopPoint = (n: NetNode): Omit<LaunchPoint, 'along'> => (n.type === 'pole' ? { at: [n.lat, n.lng], pole_id: n.id } : { at: [n.lat, n.lng], box_id: n.id });
+  stops.forEach((n, i) => {
+    if (i > 0) {
+      const via = ducts.length ? ductBetween(stops[i - 1], n, ducts) : null;
+      if (via) {
+        for (const at of via.path.slice(1, -1)) push({ at, duct_id: via.duct.id });
+        const u = used.find((x) => x.id === via.duct.id);
+        if (u) u.meters += via.meters;
+        else used.push({ id: via.duct.id, meters: via.meters });
+      }
+    }
+    push(stopPoint(n));
+  });
+  return finish(points, slackEvery, used);
 }
 
 /** Modo 1: cabo passando pelos postes escolhidos, na ordem. */
 export function planFromPoles(poles: NetNode[], slackEvery: number): LaunchPlan {
-  let along = 0;
-  const points = poles.map((p, i) => {
-    if (i > 0) along += distance([poles[i - 1].lat, poles[i - 1].lng], [p.lat, p.lng]);
-    return { at: [p.lat, p.lng] as LatLng, pole_id: p.id, along };
-  });
-  return finish(points, slackEvery);
+  return planFromStops(poles, slackEvery);
 }
 
 /** Ordena os postes pelo caminho mais curto, começando no primeiro (vizinho mais próximo). */

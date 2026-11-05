@@ -46,6 +46,58 @@ class CableLaunchTest extends TestCase
         $this->assertSame(3, $project->nodes()->where('type', 'pole')->count());
     }
 
+    public function test_launch_through_boxes_and_duct_occupies_the_duct(): void
+    {
+        $user = User::factory()->create();
+        $project = $this->project($user);
+        $this->actingAs($user);
+        $pole = $this->postJson("/api/projects/{$project->id}/nodes", ['type' => 'pole', 'lat' => -2.4390, 'lng' => -54.71])->assertCreated();
+        $cx1 = $this->postJson("/api/projects/{$project->id}/nodes", ['type' => 'box', 'name' => 'CX-1', 'lat' => -2.44, 'lng' => -54.71])->assertCreated();
+        $cx2 = $this->postJson("/api/projects/{$project->id}/nodes", ['type' => 'box', 'name' => 'CX-2', 'lat' => -2.442, 'lng' => -54.71])->assertCreated();
+        $duct = $this->postJson("/api/projects/{$project->id}/ducts", [
+            'path' => [[-2.44, -54.71], [-2.441, -54.7105], [-2.442, -54.71]],
+            'from_node_id' => $cx1->json('id'),
+            'to_node_id' => $cx2->json('id'),
+        ])->assertCreated();
+
+        $res = $this->postJson("/api/projects/{$project->id}/launch", [
+            'cable' => ['category' => 'backbone', 'fiber_count' => 48, 'fibers_per_tube' => 12],
+            'points' => [
+                ['pole_id' => $pole->json('id')],
+                ['box_id' => $cx1->json('id')],
+                ['lat' => -2.441, 'lng' => -54.7105],
+                ['box_id' => $cx2->json('id')],
+            ],
+            'slacks' => [['point' => 3, 'length_m' => 20]],
+            'to_node_id' => $cx2->json('id'),
+            'duct_ids' => [$duct->json('id')],
+        ])->assertCreated();
+
+        $cable = $res->json('cable');
+        $this->assertCount(4, $cable['path']);
+        $this->assertSame([-2.442, -54.71], $cable['path'][3]);
+        $this->assertSame($cx2->json('id'), $cable['to_node_id']);
+        $this->assertSame('box', $cable['slacks'][0]['fixed_kind']);
+        $this->assertSame($cx2->json('id'), $cable['slacks'][0]['fixed_id']);
+        $this->assertSame('underground', $cable['slacks'][0]['kind']);
+        $res->assertJsonPath('ducts.0.cable_ids', [$cable['id']]);
+        $this->assertSame([$cable['id']], $project->ducts()->first()->cable_ids);
+    }
+
+    public function test_launch_rejects_pole_sent_as_box(): void
+    {
+        $user = User::factory()->create();
+        $project = $this->project($user);
+        $this->actingAs($user);
+        $pole = $this->postJson("/api/projects/{$project->id}/nodes", ['type' => 'pole', 'lat' => 0, 'lng' => 0])->assertCreated();
+
+        $this->postJson("/api/projects/{$project->id}/launch", [
+            'cable' => ['category' => 'distribution', 'fiber_count' => 12, 'fibers_per_tube' => 12],
+            'points' => [['box_id' => $pole->json('id')], ['lat' => 0.001, 'lng' => 0]],
+        ])->assertUnprocessable();
+        $this->assertSame(0, $project->cables()->count());
+    }
+
     public function test_launch_rejects_pole_from_other_project(): void
     {
         $user = User::factory()->create();

@@ -640,10 +640,21 @@ postes que faltam e coloca as reservas técnicas fixadas nos postes, tudo de uma
 um painel à esquerda. No alto do painel escolha o **Tipo** (Backbone ou Distribuição), o **Modelo** (6 a 144 FO),
 o **Nome** (opcional) e a **Situação**. O painel tem três jeitos de lançar:
 
-**1. Escolher postes.** O painel lista os postes do projeto, os mais perto primeiro (use a busca para achar pelo
-nome). Clique nos postes **no mapa** ou marque na lista, **na ordem** do lançamento: cada poste escolhido ganha um
-número e o cabo aparece tracejado ligando um ao outro. **Ordenar** refaz a ordem pelo caminho mais curto a partir do
-primeiro, **Inverter** troca o sentido e **Limpar** começa de novo. Clicar de novo num poste escolhido tira ele.
+**1. Postes e caixas.** O painel lista os postes e as caixas do projeto, os mais perto primeiro (use a busca para
+achar pelo nome; o ícone ao lado do nome diz se é poste ou caixa). Clique nos postes e caixas **no mapa** ou marque
+na lista, **na ordem** do lançamento: cada ponto escolhido ganha um número e o cabo aparece tracejado ligando um ao
+outro. Clicar numa CTO/CEO fixada num poste ou caixa escolhe o poste/caixa. **Ordenar** refaz a ordem pelo caminho
+mais curto a partir do primeiro, **Inverter** troca o sentido e **Limpar** começa de novo. Clicar de novo num ponto
+escolhido tira ele. Dá para misturar: por exemplo, descer do poste P-3 para a caixa CX-1 e seguir pelo duto até a CX-3.
+
+- **Pelos dutos:** com **Passar por dentro dos dutos entre as caixas** marcado, entre duas caixas escolhidas que
+  estejam no mesmo [duto](#dutos-subterrâneos) (nas pontas dele ou a até 10 m do traçado), o cabo segue o traçado do
+  duto em vez de ir reto, e ao lançar o cabo entra na lista **Cabos no duto** (ocupa o duto). Ex.: escolha CX-1, CX-2
+  e CX-3 (ou só CX-1 e CX-3) e o cabo vai por dentro do duto. Se houver mais de um duto, vale o trecho mais curto. O
+  resumo mostra cada duto usado, a metragem dentro dele e como fica a ocupação (subdutos usados ou % da seção, em
+  vermelho se passar do recomendado). Poste comum perto do duto não entra nele (o cabo aéreo da mesma rua continua
+  aéreo); só o poste que é a ponta do duto (a subida) conta.
+- **Caixa na ponta:** se o primeiro ou o último ponto for uma caixa, o cabo já nasce conectado nela.
 
 **2. Início e fim.** Informe o **Início** e o **Fim** do lançamento: digite o endereço (escolha na lista que
 aparece), cole as coordenadas (ex.: `-8.0476, -34.877`) ou clique no **alfinete** e depois no mapa. Se clicar numa
@@ -670,7 +681,8 @@ só aquele trecho fica em linha reta e o painel avisa qual.
 
 **Reserva técnica:** marque **Reserva técnica a cada X m, com Y m**. A cada X metros de cabo o sistema escolhe o
 poste mais perto dessa marca e coloca ali uma reserva suspensa de Y metros, **fixada no poste** (anel laranja
-tracejado na prévia).
+tracejado na prévia). No modo **Postes e caixas** a reserva também pode cair numa caixa: aí ela fica **fixada na
+caixa** e é subterrânea.
 
 Padrões (o sistema lembra o que você mudar, para cada tipo de cabo):
 
@@ -679,7 +691,8 @@ Padrões (o sistema lembra o que você mudar, para cada tipo de cabo):
 | Backbone | 100 m | a cada 500 m, com 15 m |
 | Distribuição | 40 m | a cada 500 m, com 15 m |
 
-O resumo mostra a metragem do cabo, a soma das reservas, quantos postes existentes e novos e quantas reservas.
+O resumo mostra a metragem do cabo, a soma das reservas, quantos postes existentes e novos, quantas caixas, os dutos
+usados e quantas reservas.
 Clique em **Lançar cabo**: o cabo fica selecionado e os postes novos entram no mapa (P-1, P-2...) com a mesma
 situação do cabo. Depois disso é um cabo como qualquer outro: dá para editar o traçado, ligar CTOs com as 3 formas
 acima e mexer nas reservas.
@@ -793,6 +806,8 @@ O duto ganha o nome *Duto 1*, *Duto 2*... e o painel dele abre à esquerda.
     menos metade do caminho, ou o cabo inteiro dentro do duto).
   - **Adicionar cabo…**: escolha qualquer cabo do projeto (os que estão no traçado aparecem primeiro, marcados
     *no traçado*) e clique no **+**.
+  - Ou lance o cabo já por dentro do duto: ferramenta **Lançar**, modo **Postes e caixas**, escolhendo as caixas
+    do duto (veja [Lançar cabo](#lançar-cabo-com-postes-e-reservas)).
   Essas mudanças são salvas na hora. Com o duto selecionado, os cabos que passam por ele ficam com um **halo claro**
   no mapa, e o painel do cabo mostra *Passa pelo duto ...* (clique para voltar ao duto).
 - **Nome**, **Material** (PEAD, PVC, Corrugado, Aço galvanizado, Concreto, Outro), **Diâmetro (mm)** (sugestões de
