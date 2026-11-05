@@ -220,3 +220,48 @@ export function cableRuns(host: NetNode, here: Cable[], ids: number[] = []): Cab
   here.forEach((c, i) => groups.set(find(i), [...(groups.get(find(i)) ?? []), c]));
   return [...groups.values()];
 }
+
+/**
+ * Sangria pelo editor do poste/caixa. Dois casos:
+ * - `cut`: o cabo passa pelo poste/caixa (um ponto do meio do traçado está nele) e será cortado ali;
+ * - `join`: dois trechos do mesmo cabo terminam no próprio poste/caixa e serão ligados em passagem.
+ */
+export type SangriaOption =
+  | { kind: 'cut'; key: string; cable: Cable; index: number; label: string }
+  | { kind: 'join'; key: string; cables: [Cable, Cable]; label: string };
+
+/** Cabos do poste/caixa onde dá para fazer sangria (drops e cabos que já chegam numa CTO/CEO dali ficam de fora). */
+export function sangriaOptions(host: NetNode, cables: Cable[], ids: number[] = []): SangriaOption[] {
+  const at: LatLng = [host.lat, host.lng];
+  const own = new Set([host.id, ...ids]);
+  const out: SangriaOption[] = [];
+  const trunk = cables.filter((c) => c.category !== 'drop');
+  for (const c of trunk) {
+    if (own.has(c.from_node_id ?? -1) || own.has(c.to_node_id ?? -1)) continue;
+    let best = -1;
+    let bestD = CABLE_ON_HOST_M;
+    for (let i = 1; i < c.path.length - 1; i++) {
+      const d = distance(c.path[i], at);
+      if (d <= bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    if (best > 0) out.push({ kind: 'cut', key: `c${c.id}`, cable: c, index: best, label: `${c.name} · ${c.fiber_count}FO · passa ${host.type === 'box' ? 'pela caixa' : 'pelo poste'}` });
+  }
+  // Trechos que terminam no próprio poste/caixa: pares com o mesmo nome base e o mesmo número de fibras.
+  const ending = trunk.filter((c) => c.from_node_id === host.id || c.to_node_id === host.id);
+  const linked = (a: Cable, b: Cable) =>
+    (host.diagram?.connections ?? []).some((x) => (x.a.c === `c${a.id}` && x.b.c === `c${b.id}`) || (x.a.c === `c${b.id}` && x.b.c === `c${a.id}`));
+  const used = new Set<number>();
+  for (let i = 0; i < ending.length; i++)
+    for (let j = i + 1; j < ending.length; j++) {
+      const [a, b] = [ending[i], ending[j]];
+      if (used.has(a.id) || used.has(b.id)) continue;
+      if (baseCableName(a.name) !== baseCableName(b.name) || a.fiber_count !== b.fiber_count || linked(a, b)) continue;
+      used.add(a.id);
+      used.add(b.id);
+      out.push({ kind: 'join', key: `j${a.id}-${b.id}`, cables: [a, b], label: `${baseCableName(a.name)} · ${a.fiber_count}FO · 2 trechos (${a.name} + ${b.name})` });
+    }
+  return out;
+}

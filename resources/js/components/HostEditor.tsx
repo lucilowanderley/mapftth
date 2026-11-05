@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, Camera, ChevronUp, ExternalLink, Info, Network, Plus, Trash2, Unlink, X } from 'lucide-react';
-import { ANCHOR_CHILD_TYPES, attachedTo, baseCableName, cableRuns, cablesAtHost, offsetOnPath, onCableNear, slacksAtHost, type OnCableItem } from '../lib/anchor';
+import { Archive, Camera, ChevronUp, ExternalLink, Info, Network, Plus, Split, Trash2, Unlink, X } from 'lucide-react';
+import { ANCHOR_CHILD_TYPES, attachedTo, baseCableName, cableRuns, cablesAtHost, offsetOnPath, onCableNear, sangriaOptions, slacksAtHost, type OnCableItem, type SangriaOption } from '../lib/anchor';
 import { CAMERA_KINDS, HEALTH_COLORS, HEALTH_LABEL, cameraHealth, cameraOf } from '../lib/camera';
 import { CABLE_CATEGORIES, NODE_TYPES, SLACK_KINDS, STATUSES, splitterModel } from '../lib/catalog';
 import { BOX_KINDS, BOX_PLACES, FIXABLE_TYPES, FIX_OFFSET_M, boxOf, fixationOf } from '../lib/fixation';
@@ -37,13 +37,15 @@ interface Props {
   onSlacksChange: (cable: Cable, slacks: Slack[], message: string) => void;
   /** Abre o painel do cabo/drop no mapa (duplo clique no rótulo). */
   onEditCable?: (cable: Cable) => void;
+  /** Sangria do cabo aqui: numa CTO/CEO fixada, na própria caixa ou numa CTO/CEO nova (tipo). */
+  onSangria?: (option: SangriaOption, target: NetNode | NodeType) => Promise<NetNode | null>;
 }
 
 /**
  * Editor do poste / da caixa: tudo o que está fixado nele (CTO, CEO, câmera), as reservas técnicas
  * guardadas ali e os cabos que passam, com uma barra de ferramentas para implantar novos objetos.
  */
-export default function HostEditor({ host, nodes, cables, readOnly, covered, onClose, onAdd, onAnchor, onOpen, onOpenDiagram, onEditHost, onSlacksChange, onEditCable }: Props) {
+export default function HostEditor({ host, nodes, cables, readOnly, covered, onClose, onAdd, onAnchor, onOpen, onOpenDiagram, onEditHost, onSlacksChange, onEditCable, onSangria }: Props) {
   const isPole = host.type === 'pole';
   const children = attachedTo(host, nodes);
   const ids = children.map((c) => c.id);
@@ -91,6 +93,16 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
   );
   const [sel, setSel] = useState<Sel>(null);
   const [slackForm, setSlackForm] = useState<{ cable: number | ''; length: string; kind: SlackKind; on: 'host' | 'cable' } | null>(null);
+  // Sangria: cabo escolhido e onde fazer (CTO/CEO fixada "n12", a própria caixa "host" ou nova "new:ceo").
+  const [sangriaForm, setSangriaForm] = useState<{ option: string; target: string } | null>(null);
+  const [sangriaBusy, setSangriaBusy] = useState(false);
+  const sangriaOpts = sangriaOptions(host, here, ids);
+  const sangriaTargets: { key: string; label: string }[] = [
+    ...children.filter((n) => n.type === 'cto' || n.type === 'ceo').map((n) => ({ key: `n${n.id}`, label: `${NODE_TYPES[n.type].label} ${n.name}` })),
+    ...(isPole ? [] : [{ key: 'host', label: `Na própria caixa (${host.name})` }]),
+    { key: 'new:ceo', label: `Nova CEO ${isPole ? 'no poste' : 'na caixa'}` },
+    { key: 'new:cto', label: `Nova CTO ${isPole ? 'no poste' : 'na caixa'}` },
+  ];
   const selNode = sel?.kind === 'node' ? nodes.find((n) => n.id === sel.id) : undefined;
   const selSlack = sel?.kind === 'slack' ? slacks.find((s) => s.cable.id === sel.cable && s.slack.id === sel.id) : undefined;
 
@@ -98,19 +110,49 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || covered) return;
       if ((e.target as HTMLElement).closest('input,textarea,select')) return;
-      if (slackForm) setSlackForm(null);
+      if (sangriaForm) setSangriaForm(null);
+      else if (slackForm) setSlackForm(null);
       else onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [slackForm, onClose, covered]);
+  }, [slackForm, sangriaForm, onClose, covered]);
 
   async function add(type: NodeType) {
     const n = await onAdd(type);
     if (n) setSel({ kind: 'node', id: n.id });
   }
 
+  function openSangriaForm() {
+    setSlackForm(null);
+    setSangriaForm({ option: sangriaOpts[0]?.key ?? '', target: sangriaTargets[0].key });
+  }
+
+  async function runSangria() {
+    if (!sangriaForm || !onSangria) return;
+    const option = sangriaOpts.find((o) => o.key === sangriaForm.option);
+    if (!option) return;
+    const t = sangriaForm.target;
+    const target = t === 'host' ? host : t.startsWith('new:') ? (t.slice(4) as NodeType) : children.find((n) => `n${n.id}` === t);
+    if (!target) return;
+    setSangriaBusy(true);
+    const done = await onSangria(option, target);
+    setSangriaBusy(false);
+    if (done) {
+      setSangriaForm(null);
+      if (done.id !== host.id) setSel({ kind: 'node', id: done.id });
+    }
+  }
+
+  /** Clique no rótulo de um cabo com a sangria aberta: escolhe aquele cabo. */
+  function pickCable(c: Cable) {
+    if (!sangriaForm) return;
+    const o = sangriaOpts.find((x) => (x.kind === 'cut' ? x.cable.id === c.id : x.cables.some((y) => y.id === c.id)));
+    if (o) setSangriaForm({ ...sangriaForm, option: o.key });
+  }
+
   function openSlackForm() {
+    setSangriaForm(null);
     const first = here.find((c) => c.category !== 'drop') ?? here[0];
     setSlackForm({ cable: first?.id ?? '', length: '20', kind: isPole ? 'aerial' : 'underground', on: 'host' });
   }
@@ -205,6 +247,20 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
               />
             ))}
             <IconTool icon={<SlackGlyph />} label={`Reserva técnica de um cabo que passa ${isPole ? 'no poste' : 'na caixa'}`} text="+ Reserva" onClick={openSlackForm} disabled={!here.length} active={!!slackForm} />
+            {onSangria && (
+              <IconTool
+                icon={<Split size={16} />}
+                label={
+                  sangriaOpts.length
+                    ? `Sangria: escolha o cabo que passa ${isPole ? 'no poste' : 'na caixa'} e onde abrir (CTO/CEO). As fibras livres passam direto; derive só as que for usar.`
+                    : `Nenhum cabo para sangria ${isPole ? 'neste poste' : 'nesta caixa'} (o cabo precisa passar por aqui e não chegar numa CTO/CEO daqui)`
+                }
+                text="Sangria"
+                onClick={() => (sangriaForm ? setSangriaForm(null) : openSangriaForm())}
+                disabled={!sangriaOpts.length}
+                active={!!sangriaForm}
+              />
+            )}
             <Sep />
           </>
         )}
@@ -227,6 +283,45 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
           <IconTool icon={<Info size={16} />} label={`Dados ${isPole ? 'do poste' : 'da caixa'} (painel de propriedades)`} text={isPole ? 'Dados do poste' : 'Dados da caixa'} onClick={() => onEditHost(host)} />
         </div>
       </div>
+
+      {/* Formulário da sangria */}
+      {sangriaForm && (
+        <div className="flex flex-wrap items-end gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200 text-slate-700 text-xs">
+          <label className="flex flex-col gap-0.5">
+            Cabo
+            <select className="max-w-[28rem] rounded border border-slate-300 bg-white px-2 py-1 text-sm" value={sangriaForm.option} onChange={(e) => setSangriaForm({ ...sangriaForm, option: e.target.value })}>
+              {sangriaOpts.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-0.5">
+            Fazer a sangria em
+            <select className="rounded border border-slate-300 bg-white px-2 py-1 text-sm" value={sangriaForm.target} onChange={(e) => setSangriaForm({ ...sangriaForm, target: e.target.value })}>
+              {sangriaTargets.map((t) => (
+                <option key={t.key} value={t.key}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 cursor-pointer disabled:opacity-50"
+            disabled={sangriaBusy || !sangriaForm.option}
+            onClick={runSangria}
+          >
+            <Split size={14} /> Fazer sangria
+          </button>
+          <button className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-100 cursor-pointer" onClick={() => setSangriaForm(null)}>
+            Cancelar
+          </button>
+          <div className="basis-full text-[11px] text-slate-500">
+            O cabo é aberto ali sem cortar as fibras: todas passam direto (passagem) e você deriva no diagrama de fusão só as que for usar. Dica: clique no rótulo de um cabo no desenho para escolhê-lo.
+          </div>
+        </div>
+      )}
 
       {/* Formulário da reserva */}
       {slackForm && (
@@ -296,6 +391,7 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
             onAnchor={onAnchor}
             onRemoveSlack={removeSlack}
             onEditCable={onEditCable}
+            onPickCable={sangriaForm ? pickCable : undefined}
             renderCard={(n) => (
               <ObjectCard
                 node={n}
@@ -318,7 +414,7 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
               {here.length ? (
                 <div className="mt-1 space-y-1.5">
                   {runs.map((run) => (
-                    <CableLine key={run[0].id} run={run} host={host} nodes={nodes} onEdit={onEditCable} />
+                    <CableLine key={run[0].id} run={run} host={host} nodes={nodes} onEdit={onEditCable} onPick={sangriaForm ? pickCable : undefined} />
                   ))}
                 </div>
               ) : (
@@ -532,13 +628,16 @@ function SlackCard({
 }
 
 /** Rótulo do cabo no mesmo estilo do drop do diagrama: fundo branco, borda na cor do cabo, nome em negrito. */
-function CablePill({ cable: c, name, extra, onEdit, title }: { cable: Cable; name?: string; extra?: string; onEdit?: (c: Cable) => void; title?: string }) {
+function CablePill({ cable: c, name, extra, onEdit, onPick, title }: { cable: Cable; name?: string; extra?: string; onEdit?: (c: Cable) => void; onPick?: (c: Cable) => void; title?: string }) {
   return (
     <div
-      className={`shrink-0 whitespace-nowrap rounded-full border bg-white px-2.5 py-0.5 text-[11px] text-slate-600 shadow-sm ${onEdit ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+      className={`shrink-0 whitespace-nowrap rounded-full border bg-white px-2.5 py-0.5 text-[11px] text-slate-600 shadow-sm ${onEdit || onPick ? 'cursor-pointer hover:bg-slate-50' : ''} ${onPick ? 'ring-2 ring-emerald-400/60' : ''}`}
       style={{ borderColor: c.color }}
-      title={title ?? (onEdit ? `${c.name}: duplo clique para editar` : c.name)}
-      onClick={(e) => e.stopPropagation()}
+      title={onPick ? `${c.name}: clique para escolher este cabo para a sangria` : (title ?? (onEdit ? `${c.name}: duplo clique para editar` : c.name))}
+      onClick={(e) => {
+        e.stopPropagation();
+        onPick?.(c);
+      }}
       onDoubleClick={(e) => {
         e.stopPropagation();
         onEdit?.(c);
@@ -566,12 +665,12 @@ const runLabel = (run: Cable[], host: NetNode, nodes: NetNode[]) =>
   `${run[0].fiber_count}FO · ${CABLE_CATEGORIES[run[0].category].label} · ${cableRole(run, host, nodes)}${run.length > 1 ? ` · ${run.length} trechos` : ''}`;
 
 /** Linha de um cabo na caixa: cor do cabo, nome e onde ele termina (ou se só passa). */
-function CableLine({ run, host, nodes, onEdit }: { run: Cable[]; host: NetNode; nodes: NetNode[]; onEdit?: (c: Cable) => void }) {
+function CableLine({ run, host, nodes, onEdit, onPick }: { run: Cable[]; host: NetNode; nodes: NetNode[]; onEdit?: (c: Cable) => void; onPick?: (c: Cable) => void }) {
   const c = mainOf(run);
   return (
     <div className="flex items-center gap-2">
       <div className="h-1.5 flex-1 rounded-full" style={{ background: c.color }} />
-      <CablePill cable={c} name={baseCableName(c.name)} extra={runLabel(run, host, nodes)} onEdit={onEdit} />
+      <CablePill cable={c} name={baseCableName(c.name)} extra={runLabel(run, host, nodes)} onEdit={onEdit} onPick={onPick} />
       <div className="h-1.5 flex-1 rounded-full" style={{ background: c.color }} />
     </div>
   );
@@ -646,6 +745,8 @@ interface PoleViewProps {
   onAnchor: (n: NetNode, on: boolean) => void;
   onRemoveSlack: (cable: Cable, id: string) => void;
   onEditCable?: (c: Cable) => void;
+  /** Sangria aberta: clique no rótulo escolhe o cabo. */
+  onPickCable?: (c: Cable) => void;
   renderCard: (n: NetNode) => React.ReactNode;
 }
 
@@ -736,7 +837,7 @@ function PoleView(p: PoleViewProps) {
             {/* Braçadeira que prende o cabo no poste */}
             <div className="absolute left-1/2 top-1/2 h-3.5 w-8 -translate-x-1/2 -translate-y-1/2 rounded-sm border border-slate-700 bg-slate-600/90" />
             <div className="absolute left-0 top-1/2 -translate-y-1/2">
-              <CablePill cable={c} name={baseCableName(c.name)} extra={runLabel(run, host, nodes)} onEdit={p.onEditCable} />
+              <CablePill cable={c} name={baseCableName(c.name)} extra={runLabel(run, host, nodes)} onEdit={p.onEditCable} onPick={p.onPickCable} />
             </div>
             {placed
               .filter(({ it }) => run.some((x) => x.id === it.cable.id))

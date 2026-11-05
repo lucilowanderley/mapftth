@@ -8,6 +8,7 @@ use App\Models\Cable;
 use App\Models\Duct;
 use App\Models\NetworkNode;
 use App\Models\Project;
+use App\Services\DiagramRefs;
 use App\Services\Geo;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -260,6 +261,97 @@ class CableController extends Controller
             'ducts' => $ducts->values(),
             'cables' => collect($segments)->map(fn ($c) => $c->fresh())->values(),
             'nodes' => $touched->map(fn ($n) => $n->fresh())->values(),
+        ]);
+    }
+
+    /**
+     * Sangria de dois trechos que se encontram num poste/caixa (editor do poste/caixa): as pontas
+     * passam para a CTO/CEO fixada ali (ou ficam na própria caixa) e as fibras livres de um trecho
+     * seguem no outro em passagem direta, como na sangria feita ao cortar um cabo.
+     */
+    public function sangriaJoin(Request $request, NetworkNode $node): JsonResponse
+    {
+        $project = $node->project;
+        $this->authorizeProject($request, $project, 'edit');
+        $data = $request->validate([
+            'cable_ids' => ['required', 'array', 'size:2'],
+            'cable_ids.*' => ['integer', 'distinct', Rule::exists('cables', 'id')->where('project_id', $project->id)],
+        ]);
+        if (! in_array($node->type, ['cto', 'ceo', 'box'], true)) {
+            throw ValidationException::withMessages(['cable_ids' => 'A sangria no poste/caixa precisa ser numa CTO, CEO ou caixa.']);
+        }
+        $byId = Cable::whereIn('id', $data['cable_ids'])->get()->keyBy('id');
+        [$a, $b] = [$byId[$data['cable_ids'][0]], $byId[$data['cable_ids'][1]]];
+
+        // Ponto onde os dois trechos se encontram (o poste/caixa).
+        $common = array_values(array_intersect(
+            array_filter([$a->from_node_id, $a->to_node_id]),
+            array_filter([$b->from_node_id, $b->to_node_id]),
+        ));
+        if (! $common) {
+            throw ValidationException::withMessages(['cable_ids' => 'Os dois trechos precisam terminar no mesmo poste ou caixa.']);
+        }
+        $host = $common[0] === $node->id ? $node : NetworkNode::find($common[0]);
+        $moving = $host->id !== $node->id;
+        if ($moving && Geo::distance([$host->lat, $host->lng], [$node->lat, $node->lng]) > 3) {
+            throw ValidationException::withMessages(['cable_ids' => "{$node->name} precisa estar fixada em {$host->name}, onde os trechos se encontram."]);
+        }
+        if ($moving && (DiagramRefs::connectionsOf($host->diagram, $a->id) || DiagramRefs::connectionsOf($host->diagram, $b->id))) {
+            throw ValidationException::withMessages(['cable_ids' => "Os trechos já têm emendas no diagrama de {$host->name}. Desfaça-as antes da sangria."]);
+        }
+
+        $diagram = $node->diagram ?: [];
+        $diagram += ['components' => [], 'cablePos' => [], 'connections' => []];
+        $usedA = DiagramRefs::usedFibers($diagram, $a->id);
+        $usedB = DiagramRefs::usedFibers($diagram, $b->id);
+        $passes = 0;
+        for ($f = 1; $f <= min($a->fiber_count, $b->fiber_count); $f++) {
+            if (isset($usedA[$f]) || isset($usedB[$f])) {
+                continue;
+            }
+            $diagram['connections'][] = [
+                'id' => 'p'.$a->id.'x'.$b->id.'f'.$f,
+                'a' => ['c' => 'c'.$a->id, 'p' => 'f'.$f],
+                'b' => ['c' => 'c'.$b->id, 'p' => 'f'.$f],
+                'pass' => true,
+            ];
+            $passes++;
+        }
+        if (! $passes && ! $moving) {
+            throw ValidationException::withMessages(['cable_ids' => "Nenhuma fibra livre para a sangria em {$node->name}."]);
+        }
+
+        DB::transaction(function () use ($project, $node, $host, $moving, $a, $b, $diagram, $passes) {
+            if ($moving) {
+                foreach ([$a, $b] as $cable) {
+                    $path = $cable->path;
+                    if ($cable->from_node_id === $host->id) {
+                        $cable->from_node_id = $node->id;
+                        $path[0] = [$node->lat, $node->lng];
+                    }
+                    if ($cable->to_node_id === $host->id) {
+                        $cable->to_node_id = $node->id;
+                        $path[count($path) - 1] = [$node->lat, $node->lng];
+                    }
+                    $cable->path = $path;
+                    $cable->save();
+                }
+                if ($host->diagram) {
+                    $host->diagram = DiagramRefs::forget(DiagramRefs::forget($host->diagram, $a->id), $b->id);
+                    $host->save();
+                }
+            }
+            $node->diagram = $diagram;
+            $node->save();
+            ActivityLog::record($project, 'node', $node, 'updated', [
+                'sangria' => "{$a->name} ↔ {$b->name}: {$passes} fibra(s) em passagem",
+            ]);
+            $project->touch();
+        });
+
+        return response()->json([
+            'cables' => [$a->fresh(), $b->fresh()],
+            'nodes' => collect([$node, $host])->unique('id')->map(fn ($n) => $n->fresh())->values(),
         ]);
     }
 
