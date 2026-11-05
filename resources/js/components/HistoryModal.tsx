@@ -10,6 +10,7 @@ export const ACTIONS: Record<string, string> = {
   moved: 'moveu',
   diagram: 'editou o diagrama de',
   imported: 'importou',
+  bulk_fixed: 'fixou em massa',
 };
 export const TYPES: Record<string, string> = { node: '', cable: 'o cabo', area: 'a área', duct: 'o duto', project: '', member: 'o membro' };
 const FIELDS: Record<string, string> = {
