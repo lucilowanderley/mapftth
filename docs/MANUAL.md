@@ -524,6 +524,18 @@ escolha fica salva neste navegador). Errou mesmo assim? Aperte **Ctrl+Z** ou cli
 rodapé para voltar o último movimento.
 
 
+**Excluir pelo teclado (Delete + Enter)**: com **Selecionar**, clique no objeto (poste, caixa, CTO, CEO, câmera,
+cliente, cabo, duto ou área) e aperte **Delete**. Logo abaixo dele aparece, com borda vermelha, a barra **Excluir
+(nome)?**. Aperte **Enter** (ou clique em **Excluir**) para apagar, ou **Esc** (ou **Cancelar**) para desistir.
+Clicar em outro objeto também cancela. A tecla não faz nada enquanto você digita num campo, nem para quem só tem
+acesso de consulta.
+
+**O que estava fixado nele não é excluído.** Ao excluir um poste ou uma caixa (pelo teclado ou pelo botão
+**Excluir** do painel), as CTOs, CEOs e câmeras fixadas nele continuam no mesmo lugar, só que **sem fixação** (ficam
+sem objeto pai, com o ponto âmbar de "sem fixação"); as reservas dos cabos que estavam presas nele passam a ficar só
+no cabo. Ao excluir um cabo, as CTOs/CEOs fixadas nele também ficam sem fixação. A pergunta de confirmação avisa
+quantos objetos fixados vão ficar soltos. Depois é só fixá-los em outro poste ou caixa.
+
 ### Mesmo objeto em mais de um projeto (compartilhado)
 
 Um poste, POP, datacenter, torre, caixa, CTO ou CEO pode fazer parte de **mais de um projeto**. Exemplo: o POP de
@@ -1650,6 +1662,7 @@ Ao salvar, todos os sinais, cores e relatórios são recalculados.
 | **Arrastar** elemento | Mapa | Move o elemento e os cabos ligados a ele. |
 | **Enter** / **Esc** ao soltar | Mapa | Confirma ou cancela o novo lugar do elemento arrastado. |
 | **Ctrl+Z** | Mapa | Desfaz o último movimento de elemento. |
+| **Delete** e depois **Enter** | Mapa | Exclui o objeto selecionado (Esc cancela). Os fixados nele ficam sem fixação. |
 | **Ctrl+clique** em cabos ou dutos | Mapa | Marca vários para **Unir** num só. |
 | **Arrastar** alça do cabo | Mapa | Move ou cria um ponto do traçado (botão direito remove). |
 | **Botão direito** desenhando cabo ou duto | Mapa | Desfaz o último ponto. |

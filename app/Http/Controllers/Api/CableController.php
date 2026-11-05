@@ -10,6 +10,8 @@ use App\Models\NetworkNode;
 use App\Models\Project;
 use App\Services\DiagramRefs;
 use App\Services\Geo;
+use App\Services\NodeSharing;
+use App\Services\OrphanFixed;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -82,9 +84,13 @@ class CableController extends Controller
             }
         }
         Duct::forgetCable($cable);
+        // CTO/CEO fixadas no cabo não são excluídas: ficam sem objeto pai.
+        $orphans = OrphanFixed::fromCable($cable);
         $cable->delete();
+        $nodes = $nodes->concat($orphans)->keyBy('id')->values();
+        (new NodeSharing($request->user()))->decorate($nodes, (int) $cable->project_id);
 
-        return response()->json(['nodes' => $nodes->values()]);
+        return response()->json(['nodes' => $nodes]);
     }
 
     /**

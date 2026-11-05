@@ -8,6 +8,7 @@ use App\Models\Cable;
 use App\Models\NetworkNode;
 use App\Models\Project;
 use App\Services\NodeSharing;
+use App\Services\OrphanFixed;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -166,9 +167,16 @@ class NodeController extends Controller
             ActivityLog::record($p, 'node', $node, 'deleted', ['origem' => $node->project->name]);
             $p->touch();
         }
+        // O que estava fixado nele não é excluído: fica sem objeto pai.
+        $orphans = OrphanFixed::fromNode($node, $node->projectIds());
         $node->delete();
+        $sharing = new NodeSharing($request->user());
+        $sharing->decorate($orphans['nodes'], $ctx->id);
 
-        return response()->json(null, 204);
+        return response()->json([
+            'nodes' => $orphans['nodes']->filter(fn ($n) => $n->isVisibleIn($ctx->id))->values(),
+            'cables' => $orphans['cables']->filter(fn ($c) => (int) $c->project_id === $ctx->id)->values(),
+        ]);
     }
 
     /** Compartilha o objeto com outro projeto (precisa poder editar nos dois). */

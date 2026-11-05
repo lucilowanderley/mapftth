@@ -67,6 +67,7 @@ import { connectIcon, midpointIcon, nodeGlyph, nodeIcon, slackIcon, vertexIcon, 
 import { ALONG_TOLERANCE_M, nearestOnPath, planBoxesAlong, pointOnPath, type AlongPlan } from '../lib/connect';
 import { formatCoord, parseLatLng, parsePair } from '../lib/coords';
 import { movePath, roundLatLng } from '../lib/move';
+import { cableDeleteQuestion, nodeDeleteQuestion } from '../lib/remove';
 import { Logo, Toast, formatLength } from '../components/ui';
 import Inspector from '../components/Inspector';
 import DiagramEditor from '../components/DiagramEditor';
@@ -266,6 +267,8 @@ export default function MapPage() {
   const [boxKindTool, setBoxKindTool] = useState<BoxKind>('underground');
   const [boxPlaceTool, setBoxPlaceTool] = useState<BoxPlace>('external');
   const [selection, setSelection] = useState<Selection>(null);
+  /** Delete pressionado com algo selecionado: falta confirmar (Enter) ou cancelar (Esc). */
+  const [pendingDelete, setPendingDelete] = useState<Selection>(null);
   const [draft, setDraft] = useState<{
     path: LatLng[];
     from: number | null;
@@ -497,6 +500,19 @@ export default function MapPage() {
         if (e.key === 'Escape') cancelPendingMove();
         return;
       }
+      if (pendingDelete) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          confirmPendingDelete();
+        } else if (e.key === 'Escape') setPendingDelete(null);
+        return;
+      }
+      // Delete com um objeto selecionado: pede confirmação (Enter exclui, Esc cancela).
+      if (e.key === 'Delete' && selection && !readOnly && tool === 'select' && !diagramNodeId && !document.querySelector('.fixed.inset-0')) {
+        e.preventDefault();
+        setPendingDelete(selection);
+        return;
+      }
       if (e.key === 'Escape') {
         if (cableMenu) return setCableMenu(null);
         if (anchorPick) return setAnchorPick(null);
@@ -519,6 +535,11 @@ export default function MapPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+
+  // Selecionar outra coisa (ou nada) desiste da exclusão pedida com Delete.
+  useEffect(() => {
+    if (pendingDelete && !(selection && selection.kind === pendingDelete.kind && selection.id === pendingDelete.id)) setPendingDelete(null);
+  }, [selection, pendingDelete]);
 
   // O modo conectar acompanha o cabo selecionado; selecionar outra coisa (ou nada) encerra o modo.
   useEffect(() => {
@@ -940,6 +961,82 @@ export default function MapPage() {
     } catch (e) {
       notify(errorMessage(e), 'error');
       load();
+    }
+  }
+
+  /** Tira do mapa o objeto excluído; os fixados nele voltam do servidor já sem fixação. */
+  function applyDeleted(kind: 'node' | 'cable', deletedId: number, touched: NetNode[], touchedCables: Cable[]) {
+    if (kind === 'node') {
+      setNodes((list) => list.filter((n) => n.id !== deletedId));
+      setCables((list) =>
+        list.map((c) => ({
+          ...c,
+          from_node_id: c.from_node_id === deletedId ? null : c.from_node_id,
+          to_node_id: c.to_node_id === deletedId ? null : c.to_node_id,
+        })),
+      );
+      setDucts((list) =>
+        list.map((d) => ({
+          ...d,
+          from_node_id: d.from_node_id === deletedId ? null : d.from_node_id,
+          to_node_id: d.to_node_id === deletedId ? null : d.to_node_id,
+        })),
+      );
+    } else {
+      setCables((list) => list.filter((c) => c.id !== deletedId));
+      forgetCableInDucts(deletedId);
+    }
+    mergeNodes(touched);
+    mergeCables(touchedCables);
+    setSelection(null);
+  }
+
+  /** O que a tecla Delete vai excluir: nome, onde mostrar a barra e a pergunta. */
+  const deleteTarget = useMemo(() => {
+    if (!pendingDelete) return null;
+    const { kind, id: tid } = pendingDelete;
+    if (kind === 'node') {
+      const n = nodes.find((x) => x.id === tid);
+      return n ? { at: [n.lat, n.lng] as LatLng, question: nodeDeleteQuestion(n, projectId, nodes, cables) } : null;
+    }
+    if (kind === 'cable') {
+      const c = cables.find((x) => x.id === tid);
+      return c ? { at: c.path[Math.floor(c.path.length / 2)], question: cableDeleteQuestion(c, nodes, cables) } : null;
+    }
+    if (kind === 'duct') {
+      const d = ducts.find((x) => x.id === tid);
+      return d ? { at: d.path[Math.floor(d.path.length / 2)], question: `Excluir ${d.name}? Os cabos que passam por ele não são excluídos.` } : null;
+    }
+    const a = areas.find((x) => x.id === tid);
+    if (!a || !a.polygon.length) return null;
+    const at: LatLng = [a.polygon.reduce((t, p) => t + p[0], 0) / a.polygon.length, a.polygon.reduce((t, p) => t + p[1], 0) / a.polygon.length];
+    return { at, question: `Excluir a área ${a.name}?` };
+  }, [pendingDelete, nodes, cables, ducts, areas, projectId]);
+
+  /** Enter (ou Confirmar) depois do Delete: exclui o selecionado. Os fixados nele ficam sem fixação. */
+  async function confirmPendingDelete() {
+    const target = pendingDelete;
+    setPendingDelete(null);
+    if (!target || readOnly) return;
+    try {
+      if (target.kind === 'node') {
+        const r = await api.deleteNode(target.id);
+        applyDeleted('node', target.id, r.nodes, r.cables);
+      } else if (target.kind === 'cable') {
+        const r = await api.deleteCable(target.id);
+        applyDeleted('cable', target.id, r.nodes, []);
+      } else if (target.kind === 'duct') {
+        await api.deleteDuct(target.id);
+        setDucts((list) => list.filter((x) => x.id !== target.id));
+        setSelection(null);
+      } else {
+        await api.deleteArea(target.id);
+        setAreas((list) => list.filter((x) => x.id !== target.id));
+        setSelection(null);
+      }
+      notify('Excluído');
+    } catch (e) {
+      notify(errorMessage(e), 'error');
     }
   }
 
@@ -1405,6 +1502,11 @@ export default function MapPage() {
             <MoveConfirm at={pendingMove.at} onConfirm={confirmPendingMove} onCancel={cancelPendingMove}>
               Mover <b>{pendingMove.node.name}</b> {formatLength(distance([pendingMove.node.lat, pendingMove.node.lng], pendingMove.at))} para{' '}
               {formatCoord(roundLatLng(pendingMove.at)[0])}, {formatCoord(roundLatLng(pendingMove.at)[1])}?
+            </MoveConfirm>
+          )}
+          {deleteTarget && (
+            <MoveConfirm at={deleteTarget.at} onConfirm={confirmPendingDelete} onCancel={() => setPendingDelete(null)} confirmLabel="Excluir" danger>
+              {deleteTarget.question}
             </MoveConfirm>
           )}
           <BaseTiles
@@ -2658,29 +2760,8 @@ export default function MapPage() {
               mergeNodes(ns);
               notify('Alterações salvas');
             }}
-            onDeleted={(kind, deletedId, touched) => {
-              if (kind === 'node') {
-                setNodes((list) => list.filter((n) => n.id !== deletedId));
-                setCables((list) =>
-                  list.map((c) => ({
-                    ...c,
-                    from_node_id: c.from_node_id === deletedId ? null : c.from_node_id,
-                    to_node_id: c.to_node_id === deletedId ? null : c.to_node_id,
-                  })),
-                );
-                setDucts((list) =>
-                  list.map((d) => ({
-                    ...d,
-                    from_node_id: d.from_node_id === deletedId ? null : d.from_node_id,
-                    to_node_id: d.to_node_id === deletedId ? null : d.to_node_id,
-                  })),
-                );
-              } else {
-                setCables((list) => list.filter((c) => c.id !== deletedId));
-                forgetCableInDucts(deletedId);
-                mergeNodes(touched ?? []);
-              }
-              setSelection(null);
+            onDeleted={(kind, deletedId, touched, touchedCables) => {
+              applyDeleted(kind, deletedId, touched ?? [], touchedCables ?? []);
               notify('Excluído');
             }}
             onOpenDiagram={(n) => setDiagramNodeId(n.id)}
@@ -2934,7 +3015,7 @@ function GoogleAttribution({ tileUrl, fallback }: { tileUrl: string; fallback: s
  * Barra "Mover ... ? Confirmar / Cancelar" logo abaixo do objeto arrastado, centralizada nele.
  * Acompanha o mapa ao arrastar/dar zoom e não sai da área visível.
  */
-function MoveConfirm({ at, onConfirm, onCancel, children }: { at: LatLng; onConfirm: () => void; onCancel: () => void; children: React.ReactNode }) {
+function MoveConfirm({ at, onConfirm, onCancel, children, confirmLabel = 'Confirmar', danger }: { at: LatLng; onConfirm: () => void; onCancel: () => void; children: React.ReactNode; confirmLabel?: string; danger?: boolean }) {
   const map = useMap();
   const ref = useRef<HTMLDivElement | null>(null);
   const [, setTick] = useState(0);
@@ -2967,14 +3048,14 @@ function MoveConfirm({ at, onConfirm, onCancel, children }: { at: LatLng; onConf
   return (
     <div
       ref={ref}
-      className="panel absolute z-[1000] px-3 py-1.5 text-xs text-slate-200 flex items-center gap-2 !border-yellow-500 whitespace-nowrap shadow-lg"
+      className={`panel absolute z-[1000] px-3 py-1.5 text-xs text-slate-200 flex items-center gap-2 shadow-lg ${danger ? '!border-red-500 w-max max-w-[min(380px,calc(100%-16px))]' : '!border-yellow-500 whitespace-nowrap'}`}
       style={{ left, top, visibility: w ? 'visible' : 'hidden' }}
     >
       <span>{children}</span>
-      <button className="btn-primary !py-1 text-xs" onClick={onConfirm} title="Enter">
-        Confirmar
+      <button className={`${danger ? 'btn-danger' : 'btn-primary'} !py-1 text-xs shrink-0`} onClick={onConfirm} title="Enter">
+        {confirmLabel}
       </button>
-      <button className="btn-ghost !py-1 text-xs" onClick={onCancel} title="Esc">
+      <button className="btn-ghost !py-1 text-xs shrink-0" onClick={onCancel} title="Esc">
         Cancelar
       </button>
     </div>

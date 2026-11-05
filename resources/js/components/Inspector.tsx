@@ -16,6 +16,7 @@ import { BoxFields, FixationFields } from './FixationEditor';
 import { FIXABLE_TYPES, FIX_OFFSET_M, boxNeedsAddress, fixationIssue, fixedOn } from '../lib/fixation';
 import { ANCHOR_HOST_TYPES, UNANCHOR_OFFSET_M, anchorHost, attachedTo, offsetOnPath, slackFixation } from '../lib/anchor';
 import { pointOnPath } from '../lib/connect';
+import { cableDeleteQuestion, nodeDeleteQuestion } from '../lib/remove';
 import { roundLatLng } from '../lib/move';
 import { destination } from '../lib/tower';
 import { cablesNear } from '../lib/analysis';
@@ -39,7 +40,7 @@ interface Props {
   onClose: () => void;
   onNodeSaved: (n: NetNode, cables: Cable[]) => void;
   onCableSaved: (c: Cable, nodes: NetNode[]) => void;
-  onDeleted: (kind: 'node' | 'cable', id: number, touched?: NetNode[]) => void;
+  onDeleted: (kind: 'node' | 'cable', id: number, touched?: NetNode[], touchedCables?: Cable[]) => void;
   onOpenDiagram: (n: NetNode) => void;
   onShowBudget: (n: NetNode) => void;
   onConnectClient: (n: NetNode) => void;
@@ -438,18 +439,11 @@ function NodeForm({
     setSaving(false);
   }
 
-  const shareHome = node.share && projectId !== undefined && node.share.home_id === projectId;
   async function remove() {
-    const others = node.share?.projects.length ?? 0;
-    const question = shareHome && others
-      ? `Excluir ${node.name}? Ele também está em ${others} outro(s) projeto(s) e será excluído de todos.`
-      : node.share && !shareHome
-        ? `Tirar ${node.name} deste projeto? Ele continua no projeto de origem (${node.share.home_name}).`
-        : `Excluir ${node.name}?`;
-    if (!confirm(question)) return;
+    if (!confirm(nodeDeleteQuestion(node, projectId, nodes, cables ?? []))) return;
     try {
-      await api.deleteNode(node.id);
-      onDeleted('node', node.id);
+      const r = await api.deleteNode(node.id);
+      onDeleted('node', node.id, r.nodes, r.cables);
     } catch (e) {
       onError(errorMessage(e));
     }
@@ -822,7 +816,7 @@ function CableForm({ cable, nodes, settings, readOnly, onClose, onCableSaved, on
   }
 
   async function remove() {
-    if (!confirm(`Excluir ${cable.name}? As fusões deste cabo nas caixas também serão removidas.`)) return;
+    if (!confirm(cableDeleteQuestion(cable, nodes ?? [], []))) return;
     try {
       const r = await api.deleteCable(cable.id);
       onDeleted('cable', cable.id, r.nodes);

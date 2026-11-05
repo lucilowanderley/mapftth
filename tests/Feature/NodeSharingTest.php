@@ -66,7 +66,7 @@ class NodeSharingTest extends TestCase
         $this->assertNull(Cable::find($cable['id'])->from_node_id);
 
         $this->postJson("/api/nodes/{$pole['id']}/shares", ['project_id' => $b->id])->assertOk();
-        $this->deleteJson("/api/nodes/{$pole['id']}?project={$a->id}")->assertNoContent();
+        $this->deleteJson("/api/nodes/{$pole['id']}?project={$a->id}")->assertOk();
         $this->assertNull(NetworkNode::find($pole['id']));
     }
 
