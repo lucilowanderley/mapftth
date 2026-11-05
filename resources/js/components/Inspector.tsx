@@ -1,4 +1,4 @@
-import { Anchor, Building2, Layers, Layers2, Copy, Crosshair, History, Home, Link2, Network, Radar, Store, Trash2, UtilityPole, X } from 'lucide-react';
+import { Anchor, Building2, Layers, Layers2, Copy, Crosshair, History, Home, Link2, Network, Activity, Store, Trash2, UtilityPole, X } from 'lucide-react';
 import type { SignalAnalysis } from '../lib/signal';
 import { ClientSignalCard } from './SignalHealthBox';
 import { CLIENT_SEGMENTS, clientDataOf, normalizeSerial, type ClientSegment } from '../lib/client';
@@ -487,9 +487,9 @@ function NodeForm({
             onSelect={onSelectNode}
           />
         )}
-        {node.type === 'client' && budget && budget.power !== null && onOtdr && (
+        {node.type === 'client' && onOtdr && cables?.some((c) => c.from_node_id === node.id || c.to_node_id === node.id) && (
           <button type="button" className="btn-ghost w-full" onClick={() => onOtdr(node)}>
-            <Radar size={16} /> Simular OTDR / localizar evento
+            <Activity size={16} /> OTDR a partir deste cliente
           </button>
         )}
         {node.type === 'client' && !budget?.steps.length && !readOnly && (
