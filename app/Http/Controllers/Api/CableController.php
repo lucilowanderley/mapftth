@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Cable;
+use App\Models\Duct;
 use App\Models\NetworkNode;
 use App\Models\Project;
 use App\Services\Geo;
@@ -79,6 +80,7 @@ class CableController extends Controller
                 $nodes->push($node);
             }
         }
+        Duct::forgetCable($cable);
         $cable->delete();
 
         return response()->json(['nodes' => $nodes->values()]);
@@ -234,7 +236,28 @@ class CableController extends Controller
             return $segments;
         });
 
+        // Trechos novos que correm dentro de um duto onde o cabo original passava também ficam nele.
+        $ducts = collect();
+        foreach ($project->ducts()->get() as $duct) {
+            if (! in_array($cable->id, $duct->cable_ids ?? [], true)) {
+                continue;
+            }
+            $ids = $duct->cable_ids;
+            foreach (array_slice($segments, 1) as $seg) {
+                $mid = Geo::pointAlong($seg->path, Geo::pathLength($seg->path) / 2);
+                if (Geo::distanceToPath($mid, $duct->path) <= 15) {
+                    $ids[] = $seg->id;
+                }
+            }
+            if ($ids !== $duct->cable_ids) {
+                $duct->cable_ids = $ids;
+                $duct->save();
+                $ducts->push($duct->fresh());
+            }
+        }
+
         return response()->json([
+            'ducts' => $ducts->values(),
             'cables' => collect($segments)->map(fn ($c) => $c->fresh())->values(),
             'nodes' => $touched->map(fn ($n) => $n->fresh())->values(),
         ]);

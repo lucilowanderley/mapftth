@@ -73,6 +73,7 @@ class NodeController extends Controller
         // Ao mover o objeto, as pontas dos cabos ligados a ele acompanham, assim como
         // os vértices de cabos que passam exatamente por ele (ex.: cabo apoiado num poste).
         $cables = collect();
+        $ducts = collect();
         if ($moved) {
             $point = [(float) $node->lat, (float) $node->lng];
             $same = fn ($p) => is_array($p) && count($p) === 2
@@ -98,6 +99,27 @@ class NodeController extends Controller
                     $cables->push($cable);
                 }
             }
+            // Dutos seguem a mesma regra: pontas ligadas ao objeto e vértices sobre ele acompanham.
+            foreach ($node->project->ducts()->get() as $duct) {
+                $path = $duct->path ?? [];
+                $last = count($path) - 1;
+                $changedPath = false;
+                foreach ($path as $i => $p) {
+                    $attached = ($i === 0 && $duct->from_node_id === $node->id)
+                        || ($i === $last && $duct->to_node_id === $node->id);
+                    $otherEnd = ($i === 0 && $duct->from_node_id && $duct->from_node_id !== $node->id)
+                        || ($i === $last && $duct->to_node_id && $duct->to_node_id !== $node->id);
+                    if ($attached || (! $endsOnly && ! $otherEnd && $same($p))) {
+                        $path[$i] = $point;
+                        $changedPath = true;
+                    }
+                }
+                if ($changedPath) {
+                    $duct->path = $path;
+                    $duct->save();
+                    $ducts->push($duct);
+                }
+            }
         }
         if ($changed) {
             ActivityLog::record($node->project, 'node', $node, $changed['action'], $changed['fields']);
@@ -105,7 +127,7 @@ class NodeController extends Controller
         $clients = array_key_exists('diagram', $data) ? $this->syncDiagramClients($node) : collect();
         $node->project->touch();
 
-        return response()->json(['node' => $node, 'cables' => $cables->values(), 'clients' => $clients->values()]);
+        return response()->json(['node' => $node, 'cables' => $cables->values(), 'ducts' => $ducts->values(), 'clients' => $clients->values()]);
     }
 
     public function destroy(Request $request, NetworkNode $node): JsonResponse
