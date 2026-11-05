@@ -40,8 +40,8 @@ Os parâmetros de perda (fusão, conector, atenuação da fibra, potência da OL
   distribuidora exportados da BDGD da ANEEL) e exporta CSV.
 - **Viabilidade**: busque um endereço ou clique no mapa e veja as CTOs com porta livre dentro do raio,
   com distância e potência prevista em cada saída.
-- **OTDR virtual**: curva esperada do percurso OLT → cliente com todos os eventos. Digite a distância
-  medida no OTDR e o sistema marca o ponto no mapa.
+- **OTDR**: ferramenta do mapa que dispara em qualquer cabo e fibra, no sentido A → B ou B → A, segue a fibra
+  até o fim e mostra a curva com relatório de eventos (imprimir/CSV) ou só o laser no mapa até o rompimento medido.
 - **Equipe e permissões**: convide pessoas pelo e-mail da conta MapFTTH como Administrador (edita e
   gerencia a equipe), Projetista (edita a rede) ou Técnico (somente leitura). Só o dono exclui o projeto.
 - **Histórico**: cada criação, alteração, movimentação e edição de diagrama fica registrada com autor e
