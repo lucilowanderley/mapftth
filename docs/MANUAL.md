@@ -200,7 +200,8 @@ até o novo elemento. Aceita graus decimais com ponto ou vírgula (`-8.0476` ou 
 (`8°03'12"S`; use S/W/O para sul e oeste). Se colar o par inteiro, como `-8.0476, -34.8770`, no campo Latitude,
 os dois campos são preenchidos.
 
-**Editar um elemento**: com **Selecionar**, clique nele. **Duplo clique** abre o editor direto: na CTO, CEO ou POP
+**Editar um elemento**: com **Selecionar**, clique nele: **um clique abre** o painel de propriedades e **outro clique
+no mesmo objeto (ou cabo) fecha** o painel. **Duplo clique** abre o editor direto: na CTO, CEO ou POP
 (e no condomínio) abre o diagrama de fusão / editor do POP; no **poste** e na **caixa** abre o editor do poste/caixa
 (objetos fixados nele); no cliente coloca o cursor no campo **Nome** do painel. No painel:
 
@@ -495,8 +496,8 @@ Enquanto você arrasta, os cabos acompanham: as pontas ligadas ao elemento e os 
 exatamente por ele (por exemplo, um cabo apoiado num poste). Ao soltar, a posição é salva e o comprimento dos
 cabos é recalculado.
 
-Para evitar movimentos acidentais, ao soltar o elemento o rodapé pergunta **Mover (nome) (distância) para
-(coordenadas)?**. Clique em **Confirmar** (ou Enter) para salvar, ou **Cancelar** (ou Esc) para o elemento e os
+Para evitar movimentos acidentais, ao soltar o elemento aparece, logo abaixo dele e centralizada nele, a barra **Mover (nome) (distância) para
+(coordenadas)?** (se o objeto estiver perto da borda de baixo, a barra aparece acima dele). Clique em **Confirmar** (ou Enter) para salvar, ou **Cancelar** (ou Esc) para o elemento e os
 cabos voltarem ao lugar. Se preferir mover sem pergunta, desmarque **Confirmar ao mover** no painel da direita (a
 escolha fica salva neste navegador). Errou mesmo assim? Aperte **Ctrl+Z** ou clique em **Desfazer movimento** no
 rodapé para voltar o último movimento.
