@@ -62,7 +62,8 @@ export interface OtdrTrace {
   cumulative: number[];
   total: number;
   totalLoss: number;
-  end: { kind: OtdrEndKind; reason: string };
+  /** clientKey: cliente onde a fibra chega ("n12" = cliente do mapa, "d5:kc1" = cliente do diagrama da caixa 5). */
+  end: { kind: OtdrEndKind; reason: string; clientKey?: string };
   start: { node: NetNode; cable: Cable; fiber: number; toward: NetNode | null };
 }
 
@@ -128,8 +129,8 @@ export function otdrTrace(
   let node: NetNode = origin;
   let end: End = { c: cableKey(first.id), p: `f${opts.fiber}` };
   let finish: OtdrTrace['end'] | null = null;
-  const stop = (kind: OtdrEndKind, reason: string, reflective = true) => {
-    finish = { kind, reason };
+  const stop = (kind: OtdrEndKind, reason: string, reflective = true, clientKey?: string) => {
+    finish = { kind, reason, clientKey };
     push({ kind: 'end', label: OTDR_END_LABEL[kind], detail: reason, loss: 0, reflective, nodeId: node.id });
   };
 
@@ -187,7 +188,7 @@ export function otdrTrace(
       }
       node = other;
       if (node.type === 'client') {
-        stop('onu', `${node.name} (fibra ${end.p.slice(1)} do ${cable.name})`);
+        stop('onu', `${node.name} (fibra ${end.p.slice(1)} do ${cable.name})`, true, `n${node.id}`);
         break;
       }
     } else {
@@ -205,7 +206,7 @@ export function otdrTrace(
         break;
       }
       if (comp.kind === 'client') {
-        stop('onu', `${comp.name} em ${node.name}`);
+        stop('onu', `${comp.name} em ${node.name}`, true, comp.node_id ? `n${comp.node_id}` : `d${node.id}:${comp.id}`);
         break;
       }
       if (comp.kind === 'splitter') {

@@ -83,6 +83,7 @@ import PolesModal from '../components/PolesModal';
 import OtdrModal from '../components/OtdrModal';
 import OtdrPanel, { type OtdrLaser, type OtdrPick } from '../components/OtdrPanel';
 import { cablesAt, type OtdrTrace } from '../lib/otdr';
+import { printTicket } from '../lib/ticket';
 import ViabilityPanel from '../components/ViabilityPanel';
 import AreaPanel from '../components/AreaPanel';
 import DuctPanel from '../components/DuctPanel';
@@ -2873,6 +2874,9 @@ export default function MapPage() {
                 filter: { type: kind, subject_id: id },
               })
             }
+            onTicket={(n) => {
+              if (network && !printTicket(network, n, project.name)) notify('O navegador bloqueou a janela do ticket. Libere pop-ups para este site.', 'error');
+            }}
             onOtdr={(n) => {
               // Do cliente, o OTDR dispara pelo cabo drop no sentido da OLT.
               const drop = cables.find((c) => c.from_node_id === n.id || c.to_node_id === n.id);
@@ -3064,6 +3068,7 @@ export default function MapPage() {
       {otdr && (
         <OtdrModal
           trace={otdr.trace}
+          network={network!}
           distance={otdr.distance}
           projectName={project.name}
           onClose={() => setOtdr(null)}
