@@ -42,6 +42,7 @@ import {
   Route as LaunchIcon,
   Magnet,
   Cylinder,
+  Merge,
 } from 'lucide-react';
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Circle, CircleMarker, MapContainer, Marker, Pane, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
@@ -88,8 +89,9 @@ import { useFloatPanel } from '../lib/floatpanel';
 import PanelLock from '../components/PanelLock';
 import LaunchPanel, { type LaunchPick, type LaunchPreview } from '../components/LaunchPanel';
 import BulkFixPanel, { type BulkPreview } from '../components/BulkFixPanel';
+import MergePanel, { type MergeKind, type MergeSelection } from '../components/MergePanel';
 
-type Tool = 'select' | NodeType | 'cable' | 'duct' | 'launch' | 'bulkfix' | 'slack' | 'ruler' | 'area' | 'viability';
+type Tool = 'select' | NodeType | 'cable' | 'duct' | 'launch' | 'bulkfix' | 'merge' | 'slack' | 'ruler' | 'area' | 'viability';
 
 const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'select', label: 'Selecionar', icon: <MousePointer2 size={18} /> },
@@ -106,6 +108,7 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'cable', label: 'Cabo', icon: <CableIcon size={18} /> },
   { id: 'launch', label: 'Lançar', icon: <LaunchIcon size={18} /> },
   { id: 'bulkfix', label: 'Fixar', icon: <Magnet size={18} /> },
+  { id: 'merge', label: 'Unir', icon: <Merge size={18} /> },
   { id: 'duct', label: 'Duto', icon: <Cylinder size={18} className="rotate-90" /> },
   { id: 'area', label: 'Área', icon: <Pentagon size={18} /> },
   { id: 'slack', label: 'Reserva', icon: <SlackToolIcon size={18} /> },
@@ -252,6 +255,8 @@ export default function MapPage() {
   const [launchPick, setLaunchPick] = useState<LaunchPick | null>(null);
   const [launchPreview, setLaunchPreview] = useState<LaunchPreview | null>(null);
   const [bulkPreview, setBulkPreview] = useState<BulkPreview | null>(null);
+  /** Unir: cabos (ou dutos) marcados no mapa. */
+  const [mergeSel, setMergeSel] = useState<MergeSelection>({ kind: 'cable', ids: [] });
   const [mapBounds, setMapBounds] = useState<[LatLng, LatLng] | null>(null);
   const [condoKind, setCondoKind] = useState<CondoKind>('buildings');
   const [cameraKind, setCameraKind] = useState<CameraKind>('ip');
@@ -588,6 +593,20 @@ export default function MapPage() {
     );
   };
   const mergeDucts = (updated: Duct[]) => setDucts((list) => list.map((d) => updated.find((u) => u.id === d.id) ?? d));
+
+  /** Unir: marca/desmarca o cabo ou duto. Ctrl+clique no modo Selecionar entra no Unir já com o selecionado. */
+  function toggleMerge(kind: MergeKind, id: number, fromSelect = false) {
+    if (fromSelect) {
+      const start = selection?.kind === kind && selection.id !== id ? [selection.id, id] : [id];
+      setMergeSel({ kind, ids: start });
+      setSelection(null);
+      setConnectId(null);
+      setCableMenu(null);
+      setTool('merge');
+      return;
+    }
+    setMergeSel((m) => (m.kind !== kind ? { kind, ids: [id] } : { kind, ids: m.ids.includes(id) ? m.ids.filter((x) => x !== id) : [...m.ids, id] }));
+  }
 
   async function addNode(type: NodeType, at: LatLng, mount?: NetNode): Promise<NetNode | null> {
     try {
@@ -991,7 +1010,7 @@ export default function MapPage() {
   }
 
   function nodeClicked(node: NetNode) {
-    if (tool === 'bulkfix') return;
+    if (tool === 'bulkfix' || tool === 'merge') return;
     if (tool === 'launch') {
       setLaunchPick({ at: [node.lat, node.lng], node, t: Date.now() });
       return;
@@ -1216,7 +1235,7 @@ export default function MapPage() {
   const overlayOpen = !!(diagramNode || modal || budget || history || report || otdr);
   /** Painel à esquerda aberto (propriedades, Lançar, Viabilidade, Área): a barra de ferramentas se afasta dele. */
   const leftPanelOpen =
-    ((tool === 'launch' || tool === 'bulkfix') && !readOnly) || tool === 'viability' || !!selectedArea || !!selectedDuct || !!selectedNode || !!selectedCable;
+    ((tool === 'launch' || tool === 'bulkfix' || tool === 'merge') && !readOnly) || tool === 'viability' || !!selectedArea || !!selectedDuct || !!selectedNode || !!selectedCable;
   const deployed = nodes.filter((n) => n.status === 'deployed' || n.status === 'certified').length;
   const pct = nodes.length ? Math.round((deployed / nodes.length) * 100) : 0;
   const hint =
@@ -1228,6 +1247,8 @@ export default function MapPage() {
           : 'Duto: clique na caixa, POP, datacenter ou poste de origem (ou no mapa para uma ponta solta).'
       : tool === 'launch'
         ? 'Lançar cabo: marque o início e o fim, adicione pontos de referência ou escolha os postes (clique no mapa). Esc volta para Selecionar.'
+      : tool === 'merge'
+        ? 'Unir: clique nos cabos (ou dutos) ligados ponta com ponta e depois em Unir. Esc volta para Selecionar.'
       : tool === 'bulkfix'
         ? 'Fixar em massa: escolha o que fixar, onde e a distância máxima. Confira as linhas amarelas e clique em Fixar. Esc volta para Selecionar.'
       : tool === 'slack'
@@ -1377,7 +1398,7 @@ export default function MapPage() {
               else if (tool === 'duct') setDuctDraft((d) => (d ? { ...d, path: [...d.path, at] } : { path: [at], from: null }));
               else if (tool === 'ruler') setRuler((r) => [...r, at]);
               else if (tool === 'slack') placeSlack(at);
-              else if (tool === 'bulkfix') return;
+              else if (tool === 'bulkfix' || tool === 'merge') return;
               else addNode(tool, at);
             }}
             onMove={setCursor}
@@ -1418,12 +1439,17 @@ export default function MapPage() {
           {/* Dutos: tubo largo (borda na cor do duto, miolo escuro) por baixo dos cabos. "Em projeto" fica tracejado. */}
           {visible.ducts &&
             ducts.map((d) => {
-              const sel = selection?.kind === 'duct' && selection.id === d.id;
+              const sel = (selection?.kind === 'duct' && selection.id === d.id) || (tool === 'merge' && mergeSel.kind === 'duct' && mergeSel.ids.includes(d.id));
               const path = ductPath(d);
               const planned = d.status === 'planned';
               const pick = (e: L.LeafletMouseEvent) => {
+                if (tool === 'merge' && !readOnly) {
+                  L.DomEvent.stopPropagation(e);
+                  return toggleMerge('duct', d.id);
+                }
                 if (tool !== 'select') return;
                 L.DomEvent.stopPropagation(e);
+                if ((e.originalEvent.ctrlKey || e.originalEvent.metaKey || e.originalEvent.shiftKey) && !readOnly) return toggleMerge('duct', d.id, true);
                 setCableMenu(null);
                 setSelection({ kind: 'duct', id: d.id });
               };
@@ -1449,6 +1475,13 @@ export default function MapPage() {
             cables
               .filter((c) => ductCableIds.has(c.id) && showCable(c))
               .map((c) => <Polyline key={`dc${c.id}`} positions={displayPath(c)} interactive={false} pathOptions={{ color: '#fde68a', weight: c.width + 6, opacity: 0.55 }} />)}
+
+          {/* Unir: halo nos cabos marcados. */}
+          {tool === 'merge' &&
+            mergeSel.kind === 'cable' &&
+            cables
+              .filter((c) => mergeSel.ids.includes(c.id) && showCable(c))
+              .map((c) => <Polyline key={`mg${c.id}`} positions={displayPath(c)} interactive={false} pathOptions={{ color: '#facc15', weight: c.width + 8, opacity: 0.55 }} />)}
 
           {/* Destaque do cabo selecionado: halo amarelo por baixo, o cabo mantém a cor e o estilo. */}
           {selectedCable && showCable(selectedCable) && (
@@ -1478,8 +1511,13 @@ export default function MapPage() {
                       placeSlack([e.latlng.lat, e.latlng.lng], undefined, c);
                       return;
                     }
+                    if (tool === 'merge' && !readOnly) {
+                      L.DomEvent.stopPropagation(e);
+                      return toggleMerge('cable', c.id);
+                    }
                     if (tool !== 'select') return;
                     L.DomEvent.stopPropagation(e);
+                    if ((e.originalEvent.ctrlKey || e.originalEvent.metaKey || e.originalEvent.shiftKey) && !readOnly && !connectId) return toggleMerge('cable', c.id, true);
                     setCableMenu(null);
                     const double = isDoubleClick(`c${c.id}`);
                     // 1 clique abre as propriedades; outro clique no mesmo cabo fecha (duplo clique abre a edição).
@@ -1670,6 +1708,7 @@ export default function MapPage() {
                     click: (e) => {
                       L.DomEvent.stopPropagation(e);
                       if (tool === 'bulkfix') return;
+                      if (tool === 'merge') return toggleMerge('cable', c.id);
                       setSelection({ kind: 'cable', id: c.id });
                     },
                     dragend: (e) => {
@@ -1972,6 +2011,12 @@ export default function MapPage() {
                   setAreaDraft([]);
                   if (t.id !== 'ruler') setRuler([]);
                   if (t.id === 'viability' || t.id === 'launch' || t.id === 'bulkfix') setSelection(null);
+                  if (t.id === 'merge') {
+                    // Entra no Unir já com o cabo/duto selecionado.
+                    if (selection?.kind === 'cable' || selection?.kind === 'duct') setMergeSel({ kind: selection.kind, ids: [selection.id] });
+                    else setMergeSel((m) => ({ ...m, ids: [] }));
+                    setSelection(null);
+                  }
                   // Lançar cabo escolhe postes no mapa: a camada de postes precisa estar visível.
                   if (t.id === 'launch') setVisible((v) => ({ ...v, pole: true }));
                 }}
@@ -2423,6 +2468,37 @@ export default function MapPage() {
               mergeNodes(changed);
               mergeCables(changedCables);
               notify(message);
+            }}
+            onError={(m) => notify(m, 'error')}
+            onClose={() => setTool('select')}
+          />
+        )}
+
+        {tool === 'merge' && !readOnly && (
+          <MergePanel
+            projectId={projectId}
+            selection={mergeSel}
+            cables={cables}
+            ducts={ducts}
+            onKind={(kind) => setMergeSel((m) => (m.kind === kind ? m : { kind, ids: [] }))}
+            onRemove={(id) => setMergeSel((m) => ({ ...m, ids: m.ids.filter((x) => x !== id) }))}
+            onClear={() => setMergeSel((m) => ({ ...m, ids: [] }))}
+            onMerged={(r) => {
+              const gone = new Set(r.removed);
+              if (r.kind === 'cable') {
+                setCables((list) => list.filter((c) => !gone.has(c.id)));
+                mergeCables(r.cables ?? []);
+                mergeNodes(r.nodes ?? []);
+                mergeDucts(r.ducts ?? []);
+              } else {
+                setDucts((list) => list.filter((d) => !gone.has(d.id)));
+                mergeDucts(r.ducts ?? []);
+              }
+              setMergeSel((m) => ({ ...m, ids: [] }));
+              setTool('select');
+              const first = r.kind === 'cable' ? r.cables?.[0] : r.ducts?.[0];
+              if (first) setSelection({ kind: r.kind, id: first.id });
+              notify(r.message);
             }}
             onError={(m) => notify(m, 'error')}
             onClose={() => setTool('select')}
