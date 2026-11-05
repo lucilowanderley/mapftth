@@ -59,7 +59,7 @@ import { viability } from '../lib/analysis';
 import { CAMERA_COLOR, CAMERA_KINDS, CAMERA_MOUNT_TYPES, HEALTH_COLORS, cameraHealth, cameraLinks, cameraOf, fovPolygon } from '../lib/camera';
 import { destination } from '../lib/tower';
 import { BOX_KINDS, BOX_PLACES, FIXABLE_TYPES, fixTo, fixationIssue, nearestHost } from '../lib/fixation';
-import { ANCHOR_HOST_TYPES, UNANCHOR_OFFSET_M, slackOnHost, anchorHost, anchorIndex, attachedTo, cableTargets, withAnchor } from '../lib/anchor';
+import { ANCHOR_HOST_TYPES, UNANCHOR_OFFSET_M, slackOnHost, anchorHost, anchorIndex, attachedTo, cableTargets, withAnchor, baseCableName, type SangriaOption } from '../lib/anchor';
 import HostEditor from '../components/HostEditor';
 import { LAYERS, MAP_ENGINES, MAP_STYLES, googleTileUrl, googleViewportCopyright, loadEngine, loadStyle, saveEngine, saveStyle, usableEngine, type GoogleKeySource, type MapEngine, type MapStyle } from '../lib/basemaps';
 import { AutoResize, RememberView, TILE_OPTIONS, loadView } from '../lib/mapview';
@@ -820,6 +820,34 @@ export default function MapPage() {
     setCables((list) => [...list.map((c) => r.cables.find((u) => u.id === c.id) ?? c), ...r.cables.filter((u) => !list.some((c) => c.id === u.id))]);
     mergeNodes(r.nodes);
     mergeDucts(r.ducts ?? []);
+  }
+
+  /**
+   * Sangria pelo editor do poste/caixa: corta o cabo que passa ali (ou liga os dois trechos que terminam ali)
+   * na CTO/CEO fixada, na própria caixa ou numa CTO/CEO nova implantada no poste/caixa.
+   */
+  async function sangriaAtHost(host: NetNode, option: SangriaOption, target: NetNode | NodeType): Promise<NetNode | null> {
+    const node = typeof target === 'string' ? await addNode(target, [host.lat, host.lng], host) : target;
+    if (!node) return null;
+    try {
+      if (option.kind === 'cut') {
+        const cable = option.cable;
+        const path = cable.path.map((p, i) => (i === option.index ? ([node.lat, node.lng] as LatLng) : p)).map(roundLatLng);
+        const r = await api.splitCable(cable.id, path, [{ index: option.index, node_id: node.id }]);
+        applySplit(r);
+        notify(`Sangria de ${baseCableName(cable.name)} em ${node.name}: fibras em passagem, derive no diagrama de fusão as que for usar`);
+      } else {
+        const r = await api.sangriaJoin(node.id, [option.cables[0].id, option.cables[1].id]);
+        mergeCables(r.cables);
+        mergeNodes(r.nodes);
+        notify(`Sangria de ${baseCableName(option.cables[0].name)} em ${node.name}: fibras em passagem, derive no diagrama de fusão as que for usar`);
+      }
+      return node;
+    } catch (e) {
+      notify(errorMessage(e), 'error');
+      load();
+      return null;
+    }
   }
 
   /** Desfaz o último ponto do cabo em desenho (botão direito ou botão ↶). */
@@ -2694,6 +2722,7 @@ export default function MapPage() {
             setEditorFocus(Date.now());
           }}
           onSlacksChange={(c, list, message) => saveSlacks(c, list, message)}
+          onSangria={readOnly ? undefined : (option, target) => sangriaAtHost(hostEditorNode, option, target)}
           onEditCable={(c) => {
             // Cabo/drop: painel de propriedades no mapa (o editor do poste fecha).
             setHostEditorId(null);

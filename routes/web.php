@@ -58,6 +58,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/projects/{project}/launch', [LaunchController::class, 'store']);
         Route::post('/projects/{project}/fix-bulk', [FixBulkController::class, 'store']);
         Route::post('/cables/{cable}/split', [CableController::class, 'split']);
+        Route::post('/nodes/{node}/sangria', [CableController::class, 'sangriaJoin']);
         Route::post('/projects/{project}/cables/merge', [MergeController::class, 'cables']);
         Route::post('/projects/{project}/ducts/merge', [MergeController::class, 'ducts']);
         Route::post('/projects/{project}/import', [KmzController::class, 'import']);

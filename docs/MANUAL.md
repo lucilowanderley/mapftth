@@ -388,13 +388,33 @@ A **barra de ferramentas** só mostra o que pode ser implantado naquele suporte:
 | **+ CTO**, **+ CEO** | Implanta uma CTO/CEO nova, já fixada no poste/caixa |
 | **+ Câmera** (só poste) | Implanta uma câmera fixada no poste (o tipo IP/analógica/DVR é o escolhido na ferramenta Câmera) |
 | **+ Reserva** | Reserva técnica de um cabo que passa ali: escolha o cabo, o comprimento, se é suspensa ou subterrânea e onde fica fixada (*Poste*/*Caixa*, ou *Cabo*: no vão, 8 m ao lado) |
+| **Sangria** | Abre o cabo ali sem cortar as fibras (veja *Sangria pelo editor do poste/caixa* abaixo) |
 | **Abrir** | Abre o objeto selecionado (o mesmo que o duplo clique no cartão) |
 | **Soltar** | Solta o objeto selecionado do poste/caixa (ganha ícone próprio e pode ser arrastado). Não vale para os fixados no cabo |
 | Lixeira | Remove a reserva selecionada |
 | **Diagrama de fusão** (só caixa) | Abre o diagrama de fusão da própria caixa |
 | **Dados do poste / da caixa** | Fecha o editor e abre o painel de propriedades do poste/caixa |
 
-**Esc** fecha o editor.
+<a id="sangria-no-poste"></a>
+**Sangria pelo editor do poste/caixa**
+
+1. No editor do poste ou da caixa, clique em **Sangria** na barra. Abre uma faixa com dois campos.
+2. **Cabo**: escolha o cabo. Aparecem os cabos que **passam** pelo poste/caixa (um ponto do traçado está nele) e os
+   cabos que chegam em **dois trechos** no próprio poste/caixa (mesmo nome e mesmo número de fibras, como o
+   *Cabo 12FO · entra e sai por P-2 · 2 trechos*). Com a faixa aberta, **clicar no rótulo de um cabo** no desenho
+   também escolhe aquele cabo. Drops e cabos que já chegam numa CTO/CEO dali ficam de fora.
+3. **Fazer a sangria em**: uma CTO/CEO já fixada ali, **a própria caixa** (só no editor da caixa, que tem diagrama
+   próprio) ou **Nova CEO / Nova CTO**, que é implantada e fixada no poste/caixa na hora. O poste não tem diagrama,
+   por isso no poste a sangria é sempre numa CTO/CEO.
+4. Clique em **Fazer sangria**. O cabo que passava vira dois trechos (*Nome · T1* e *Nome · T2*) ligados na
+   CTO/CEO/caixa; os dois trechos que chegavam no poste passam a chegar na CTO/CEO. Em todos os casos as fibras
+   livres ficam em **passagem direta** (sem emenda e sem perda) e as emendas que já existiam ficam como estão.
+5. Abra o diagrama de fusão da CTO/CEO (duplo clique no ícone) e derive só as fibras que for usar.
+
+O botão fica apagado quando não há cabo para sangria ali. Se os trechos já tiverem emendas no diagrama da caixa,
+desfaça-as antes de passar a sangria para uma CTO/CEO dentro dela.
+
+**Esc** fecha o editor (ou a faixa da sangria, se estiver aberta).
 
 **Datacenter**
 

@@ -127,6 +127,9 @@ export const api = {
   /** Sangria: divide o cabo nas caixas dos vértices indicados. */
   splitCable: (id: number, path: LatLng[], cuts: { index: number; node_id: number }[]) =>
     http.post<{ cables: Cable[]; nodes: NetNode[]; ducts?: Duct[] }>(`/api/cables/${id}/split`, { path, cuts }).then((r) => r.data),
+  /** Sangria de dois trechos que se encontram no poste/caixa: as pontas vão para a CTO/CEO (ou a caixa) e as fibras livres passam direto. */
+  sangriaJoin: (nodeId: number, cableIds: [number, number]) =>
+    http.post<{ cables: Cable[]; nodes: NetNode[] }>(`/api/nodes/${nodeId}/sangria`, { cable_ids: cableIds }).then((r) => r.data),
   /** Unir cabos ligados ponta com ponta: caixas com emenda viram sangria (trechos), o resto vira um cabo só. */
   mergeCables: (projectId: number, ids: number[]) =>
     http
