@@ -9,7 +9,7 @@ const same = (a: LatLng, b: LatLng) => Math.abs(a[0] - b[0]) < 1e-8 && Math.abs(
  * nunca se movem. endsOnly: só as pontas ligadas (objeto fixado num poste/caixa; os cabos que passam
  * pelo poste ficam nele). Mesma regra do servidor (NodeController@update).
  */
-export function movePath(cable: Cable, nodeId: number, from: LatLng, to: LatLng, endsOnly = false): LatLng[] {
+export function movePath(cable: Pick<Cable, 'path' | 'from_node_id' | 'to_node_id'>, nodeId: number, from: LatLng, to: LatLng, endsOnly = false): LatLng[] {
   const last = cable.path.length - 1;
   let changed = false;
   const path = cable.path.map((p, i) => {

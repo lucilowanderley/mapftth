@@ -16,6 +16,8 @@ class KmlService
 
     private const TYPE_LABELS = ['pop' => 'POPs', 'dc' => 'Datacenters', 'tower' => 'Torres', 'ceo' => 'CEOs', 'cto' => 'CTOs', 'box' => 'Caixas', 'pole' => 'Postes', 'client' => 'Clientes', 'condo' => 'Condomínios', 'camera' => 'Câmeras'];
 
+    private const DUCT_MATERIALS = ['pead' => 'PEAD', 'pvc' => 'PVC', 'corrugated' => 'Corrugado', 'steel' => 'Aço galvanizado', 'concrete' => 'Concreto', 'other' => 'Outro'];
+
     private const CATEGORY_LABELS = ['backbone' => 'Cabos backbone', 'distribution' => 'Cabos distribuição', 'drop' => 'Cabos drop'];
 
     /** Lê o conteúdo KML de um arquivo .kml ou .kmz. */
@@ -151,6 +153,44 @@ class KmlService
 
             // Pontas dos cabos se ligam a caixas próximas (exceto postes).
             $anchors = $project->nodes()->where('type', '!=', 'pole')->get();
+            // Linhas dentro de uma pasta "Dutos" (ou "Subdutos", "Tubulação") viram dutos, não cabos.
+            [$ductLines, $lines] = collect($lines)->partition(
+                fn ($l) => (bool) preg_match('/\b(sub)?dutos?\b|tubula[çc][ãa]o|tubula[çc][õo]es/u', implode(' ', $l['folders']))
+            )->map->values()->all();
+            foreach ($ductLines as $i => $l) {
+                $from = $this->nearest($anchors, $l['path'][0]);
+                $to = $this->nearest($anchors, end($l['path']));
+                $path = $l['path'];
+                if ($from) {
+                    $path[0] = [$from->lat, $from->lng];
+                }
+                if ($to && $to->id !== $from?->id) {
+                    $path[count($path) - 1] = [$to->lat, $to->lng];
+                }
+                $ctx = $l['context'].' '.mb_strtolower($l['description']);
+                $material = match (true) {
+                    str_contains($ctx, 'pvc') => 'pvc',
+                    str_contains($ctx, 'corrugad') => 'corrugated',
+                    (bool) preg_match('/\ba[çc]o\b|ferro|galvaniz/u', $ctx) => 'steel',
+                    str_contains($ctx, 'concreto') => 'concrete',
+                    default => 'pead',
+                };
+                $diameter = preg_match('/(\d{2,3})\s*mm/u', $ctx, $m) ? (int) $m[1] : 40;
+                $sub = preg_match('/(\d{1,2})\s*subdutos/u', $ctx, $m) ? (int) $m[1] : (str_contains($ctx, 'tritubo') ? 3 : 0);
+                // A descrição gerada pelo próprio MapFTTH ("PVC 100 mm · 120 m") não vira observação.
+                $generated = (bool) preg_match('/^\S.* \d+ mm( · \d+ subdutos)? · [\d.]+ m/u', $l['description']);
+                $project->ducts()->create([
+                    'name' => $l['name'] !== '' ? mb_substr($l['name'], 0, 255) : 'Duto '.($i + 1),
+                    'material' => $material,
+                    'diameter_mm' => max(10, min(1000, $diameter)),
+                    'subducts' => min(24, $sub),
+                    'color' => $l['style']['line'] ?? '#A16207',
+                    'path' => $path,
+                    'from_node_id' => $from?->id,
+                    'to_node_id' => $to && $to->id !== $from?->id ? $to->id : null,
+                    'notes' => $l['description'] !== '' && ! $generated ? $l['description'] : null,
+                ]);
+            }
             foreach ($lines as $l) {
                 $fibers = preg_match('/(\d{1,3})\s*(fo|f0|f\b|fibras?)/i', $l['context'], $m) ? (int) $m[1] : 12;
                 $fibers = $fibers > 0 ? $fibers : 12;
@@ -197,7 +237,7 @@ class KmlService
             }
             $project->touch();
 
-            return ['nodes' => $created, 'cables' => count($lines), 'areas' => count($polygons), 'skipped' => $skipped];
+            return ['nodes' => $created, 'cables' => count($lines), 'ducts' => count($ductLines), 'areas' => count($polygons), 'skipped' => $skipped];
         });
     }
 
@@ -239,6 +279,27 @@ class KmlService
                     ."<description>{$c->fiber_count}FO · {$c->length_m} m + {$c->slack_m} m reserva</description>"
                     ."<Style><LineStyle><color>{$color}</color><width>{$c->width}</width></LineStyle></Style>"
                     ."<ExtendedData><Data name=\"fibras\"><value>{$c->fiber_count}</value></Data><Data name=\"status\"><value>{$c->status}</value></Data></ExtendedData>"
+                    ."<LineString><tessellate>1</tessellate><coordinates>{$coords}</coordinates></LineString></Placemark>";
+            }
+            $folders .= '</Folder>';
+        }
+
+        // Dutos: linha grossa marrom, com material, diâmetro, subdutos e os cabos que passam por eles.
+        $ducts = $project->ducts()->orderBy('id')->get();
+        if ($ducts->isNotEmpty()) {
+            $cableNames = $project->cables()->pluck('name', 'id');
+            $folders .= '<Folder><name>Dutos</name>';
+            foreach ($ducts as $d) {
+                $color = $this->kmlColor($d->color);
+                $coords = implode(' ', array_map(fn ($p) => "{$p[1]},{$p[0]},0", $d->path));
+                $names = collect($d->cable_ids ?? [])->map(fn ($id) => $cableNames[$id] ?? null)->filter()->implode(', ');
+                $material = self::DUCT_MATERIALS[$d->material] ?? $d->material;
+                $sub = $d->subducts ? " · {$d->subducts} subdutos" : '';
+                $folders .= "<Placemark><name>{$e($d->name)}</name>"
+                    ."<description>{$e($material)} {$d->diameter_mm} mm{$sub} · {$d->length_m} m".($names !== '' ? ' · cabos: '.$e($names) : '').'</description>'
+                    ."<Style><LineStyle><color>{$color}</color><width>6</width></LineStyle></Style>"
+                    ."<ExtendedData><Data name=\"material\"><value>{$e($material)}</value></Data><Data name=\"diametro_mm\"><value>{$d->diameter_mm}</value></Data>"
+                    ."<Data name=\"subdutos\"><value>{$d->subducts}</value></Data><Data name=\"status\"><value>{$d->status}</value></Data><Data name=\"cabos\"><value>{$e($names)}</value></Data></ExtendedData>"
                     ."<LineString><tessellate>1</tessellate><coordinates>{$coords}</coordinates></LineString></Placemark>";
             }
             $folders .= '</Folder>';

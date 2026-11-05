@@ -1,16 +1,41 @@
 import { FileSpreadsheet, Printer } from 'lucide-react';
 import { useMemo } from 'react';
-import { buildReport, downloadText, portUsage, toCsv } from '../lib/analysis';
+import { buildReport, downloadText, lengthInside, portUsage, toCsv } from '../lib/analysis';
+import { DUCT_MATERIALS, ductCables, ductTotals } from '../lib/duct';
 import { POWER_LABEL } from '../lib/budget';
 import { CABLE_CATEGORIES, NODE_TYPES, NODE_TYPE_LIST, SLACK_KINDS, STATUSES } from '../lib/catalog';
-import type { LatLng, Network, NodeType } from '../lib/types';
+import type { Duct, LatLng, Network, NodeType } from '../lib/types';
 import { Modal, formatLength } from './ui';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const m = (v: number) => `${Math.round(v).toLocaleString('pt-BR')} m`;
 
-export default function ReportModal({ network, projectName, title, polygon, onClose }: { network: Network; projectName: string; title: string; polygon?: LatLng[]; onClose: () => void }) {
+export default function ReportModal({
+  network,
+  ducts = [],
+  projectName,
+  title,
+  polygon,
+  onClose,
+}: {
+  network: Network;
+  ducts?: Duct[];
+  projectName: string;
+  title: string;
+  polygon?: LatLng[];
+  onClose: () => void;
+}) {
   const r = useMemo(() => buildReport(network, polygon), [network, polygon]);
+  // Dutos: metragem dentro da área (ou total) e cabos que passam por eles.
+  const ductRows = useMemo(
+    () =>
+      ducts
+        .map((d) => ({ d, meters: polygon ? lengthInside(d.path, polygon) : d.length_m, cables: ductCables(d, network.cables) }))
+        .filter((x) => x.meters > 0),
+    [ducts, polygon, network.cables],
+  );
+  const ductSum = useMemo(() => ductTotals(ductRows.map((x) => x.d), (d) => ductRows.find((x) => x.d.id === d.id)?.meters ?? 0), [ductRows]);
+  const ductLabel = (d: Duct) => `${DUCT_MATERIALS[d.material]?.label ?? d.material} ${d.diameter_mm} mm${d.subducts ? ` · ${d.subducts} subdutos` : ''}`;
   const types: NodeType[] = NODE_TYPE_LIST;
   const boxes = r.boxes.map((b) => ({ b, ...portUsage(b) }));
 
@@ -25,6 +50,9 @@ export default function ReportModal({ network, projectName, title, polygon, onCl
       [],
       ['Cabo', 'Tipo', 'Metragem (m)', 'Reserva técnica (m)', 'Total (m)'],
       ...r.cables.map((c) => [c.name, CABLE_CATEGORIES[c.category as keyof typeof CABLE_CATEGORIES].label, Math.round(c.meters), Math.round(c.slack), Math.round(c.meters + c.slack)]),
+      ...(ductRows.length
+        ? [[], ['Duto', 'Material / diâmetro', 'Status', 'Metragem (m)', 'Cabos'], ...ductRows.map(({ d, meters, cables }) => [d.name, ductLabel(d), STATUSES[d.status].label, Math.round(meters), cables.map((c) => c.name).join(', ')])]
+        : []),
       [],
       ['Reserva técnica', 'Quantidade', 'Metragem (m)'],
       ...(['aerial', 'underground'] as const).map((k) => [SLACK_KINDS[k].label, r.slacks[k].count, r.slacks[k].meters]),
@@ -60,6 +88,7 @@ export default function ReportModal({ network, projectName, title, polygon, onCl
       <div class="kpis"><div class="kpi">Cabos<b>${esc(formatLength(r.cableTotal))}</b></div><div class="kpi">CTOs<b>${r.nodes.cto}</b></div><div class="kpi">Clientes<b>${r.nodes.client}</b></div><div class="kpi">Portas livres<b>${r.ports.total - r.ports.used}</b></div><div class="kpi">Fusões<b>${r.fusions}</b></div>${r.condos.count ? `<div class="kpi">Unidades em condomínios<b>${r.condos.units}</b></div>` : ''}</div>
       <h2>Elementos</h2>${table(['Tipo', 'Total', ...Object.values(STATUSES).map((s) => s.label)], types.map((t) => [NODE_TYPES[t].plural, r.nodes[t], ...Object.keys(STATUSES).map((s) => r.byStatus[t][s as keyof typeof STATUSES])]))}
       <h2>Cabos</h2>${table(['Cabo', 'Tipo', 'Metragem', 'Reserva', 'Total'], r.cables.map((c) => [c.name, CABLE_CATEGORIES[c.category as keyof typeof CABLE_CATEGORIES].label, m(c.meters), m(c.slack), m(c.meters + c.slack)]))}
+      ${ductRows.length ? `<h2>Dutos</h2>${table(['Duto', 'Material / diâmetro', 'Status', 'Metragem', 'Cabos'], ductRows.map(({ d, meters, cables }) => [d.name, ductLabel(d), STATUSES[d.status].label, m(meters), cables.map((c) => c.name).join(', ') || '—']))}` : ''}
       <h2>Reservas técnicas</h2>${table(['Tipo', 'Quantidade', 'Metragem'], (['aerial', 'underground'] as const).map((k) => [SLACK_KINDS[k].label, String(r.slacks[k].count), m(r.slacks[k].meters)]))}
       <h2>Splitters</h2>${table(['Modelo', 'Quantidade'], Object.entries(r.splitters))}
       <h2>Caixas</h2>${table(['Caixa', 'Tipo', 'Status', 'Portas', 'Coordenadas'], boxes.map(({ b, used, total }) => [b.name, NODE_TYPES[b.type].label, STATUSES[b.status].label, total ? `${used}/${total}` : '—', `${b.lat.toFixed(6)}, ${b.lng.toFixed(6)}`]))}
@@ -119,6 +148,14 @@ export default function ReportModal({ network, projectName, title, polygon, onCl
                     {c.name} <span className="text-xs text-slate-500">{CABLE_CATEGORIES[c.category as keyof typeof CABLE_CATEGORIES].label}</span>
                   </td>
                   <td className="text-right">{m(c.meters + c.slack)}</td>
+                </tr>
+              ))}
+              {Object.entries(ductSum.byMaterial).map(([k, v]) => (
+                <tr key={`duto${k}`} className="border-t border-slate-800">
+                  <td className="py-1">
+                    Duto {k} <span className="text-xs text-slate-500">Duto</span>
+                  </td>
+                  <td className="text-right">{m(v)}</td>
                 </tr>
               ))}
               {(['aerial', 'underground'] as const)

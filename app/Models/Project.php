@@ -57,6 +57,11 @@ class Project extends Model
         return $this->hasMany(Cable::class);
     }
 
+    public function ducts(): HasMany
+    {
+        return $this->hasMany(Duct::class);
+    }
+
     public function members(): HasMany
     {
         return $this->hasMany(ProjectMember::class);

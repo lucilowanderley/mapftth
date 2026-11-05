@@ -28,6 +28,9 @@ const SWATCHES = ['#0ea5e9', '#2563eb', '#22c55e', '#ef4444', '#f97316', '#eab30
 interface Props {
   node?: NetNode;
   cable?: Cable;
+  /** Cabo: dutos por onde ele passa (clicar seleciona o duto). */
+  cableDucts?: { id: number; name: string }[];
+  onSelectDuct?: (id: number) => void;
   nodes: NetNode[];
   budget?: BudgetResult;
   /** Cliente: sinal medido × estimado, saúde e trecho provável do problema. */
@@ -767,7 +770,7 @@ function NodeForm({
   );
 }
 
-function CableForm({ cable, nodes, settings, readOnly, onClose, onCableSaved, onDeleted, onError, onHistory, focusKey, onSlacksChange, onPlaceSlack, onLocate }: Props & { cable: Cable }) {
+function CableForm({ cable, nodes, settings, readOnly, onClose, onCableSaved, onDeleted, onError, onHistory, focusKey, onSlacksChange, onPlaceSlack, onLocate, cableDucts, onSelectDuct }: Props & { cable: Cable }) {
   const nameRef = useFocusOn(focusKey);
   const [form, setForm] = useState({
     name: cable.name,
@@ -832,6 +835,17 @@ function CableForm({ cable, nodes, settings, readOnly, onClose, onCableSaved, on
     <>
       <Header title={cable.name} subtitle={`${from?.name ?? 'Ponta solta'} → ${to?.name ?? 'Ponta solta'}`} onClose={onClose} />
       <div className="px-4 pt-3 pb-3 space-y-2.5">
+        {!!cableDucts?.length && (
+          <div className="text-xs text-slate-400 flex flex-wrap items-center gap-1">
+            Passa pelo{cableDucts.length > 1 ? 's' : ''} duto{cableDucts.length > 1 ? 's' : ''}
+            {cableDucts.map((d, i) => (
+              <button key={d.id} type="button" className="text-amber-300 hover:text-amber-200 cursor-pointer" onClick={() => onSelectDuct?.(d.id)}>
+                {d.name}
+                {i < cableDucts.length - 1 ? ',' : ''}
+              </button>
+            ))}
+          </div>
+        )}
         <fieldset disabled={readOnly} className="space-y-2.5">
           <Field label="Modelo do catálogo">
             <select className="input" value={form.model} onChange={(e) => pickModel(e.target.value)}>

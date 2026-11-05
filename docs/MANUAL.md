@@ -11,7 +11,7 @@ seções como consulta.
 3. [Meus projetos](#3-meus-projetos)
 4. [A tela do mapa](#4-a-tela-do-mapa)
 5. [Adicionar POP, datacenter, torre, CEO, CTO, caixa, poste, cliente e condomínio](#5-adicionar-pop-datacenter-torre-ceo-cto-caixa-poste-cliente-e-condomínio) (inclui a [Caixa de parede ou subterrânea](#caixa-de-parede-ou-subterrânea), a [Fixação da CTO/CEO](#fixação-da-ctoceo-poste-parede-ou-caixa), os [Objetos fixados no poste/caixa e o editor do poste/caixa](#objetos-fixados-no-postecaixa-e-o-editor-do-postecaixa) a [Câmera: IP, analógica e DVR/NVR](#câmera-ip-analógica-e-dvrnvr) e o [Mesmo objeto em mais de um projeto](#mesmo-objeto-em-mais-de-um-projeto-compartilhado))
-6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos) (inclui as [3 formas de ligar a CTO no cabo](#ligar-a-cto-no-cabo-3-formas) e o [Lançar cabo](#lançar-cabo-com-postes-e-reservas))
+6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos) (inclui as [3 formas de ligar a CTO no cabo](#ligar-a-cto-no-cabo-3-formas), o [Lançar cabo](#lançar-cabo-com-postes-e-reservas) e os [Dutos](#dutos-subterrâneos))
 7. [Editor do POP: rack, OLT e DIO](#7-editor-do-pop-rack-olt-e-dio)
 8. [Diagrama de fusão da CEO e da CTO (splitters)](#8-diagrama-de-fusão-da-ceo-e-da-cto)
 9. [Ligar o cliente e ver o sinal](#9-ligar-o-cliente-e-ver-o-sinal)
@@ -94,7 +94,7 @@ A tela tem quatro partes:
 | Onde | O que tem |
 | --- | --- |
 | **Barra lateral (esquerda)** | Nome do projeto, % implantado, seu papel, busca, menu (Meus projetos, Dashboard, Análise de rede, Relatório da rede, Tabela de postes, Equipe, Histórico, Importar KMZ/KML, Exportar KMZ, Configurações) e os totais de POPs, CEOs, CTOs, clientes e metros de cabo. |
-| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, Caixa, POP, Datacenter, Torre, Poste, Cliente, Condomínio, Câmera, Cabo, Lançar (lançar cabo), Área, Reserva, Régua, Viabilidade. |
+| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, Caixa, POP, Datacenter, Torre, Poste, Cliente, Condomínio, Câmera, Cabo, Lançar (lançar cabo), Duto, Área, Reserva, Régua, Viabilidade. |
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
 
@@ -703,6 +703,52 @@ dentro dela).
 - **Salvar alterações**. Se você reduzir o número de fibras, as fusões das fibras que sobrarem são removidas
   (o sistema pergunta antes). Excluir o cabo também remove as fusões dele nas caixas.
 
+### Dutos subterrâneos
+
+O **duto** é a tubulação (geralmente enterrada) por onde os cabos passam entre caixas subterrâneas, POP,
+datacenter e postes (subida lateral). No mapa ele aparece como um **tubo largo marrom com o miolo escuro**, por
+baixo dos cabos, para não ser confundido com um cabo. Enquanto estiver *Em projeto*, a borda fica tracejada.
+
+**Desenhar**
+
+1. Escolha **Duto** na barra de ferramentas.
+2. Clique na **caixa, POP, datacenter ou poste de origem** (o duto já nasce ligado a ele) ou no mapa, para uma ponta
+   solta.
+3. Clique no mapa para fazer as curvas do traçado. O **botão direito** (ou **Desfazer ponto**) tira o último ponto.
+4. Clique no objeto de destino para concluir já ligado, ou aperte **Enter** / **Finalizar duto**. **Esc** cancela.
+
+O duto ganha o nome *Duto 1*, *Duto 2*... e o painel dele abre à esquerda.
+
+**Painel do duto** (clique no duto com **Selecionar**)
+
+- **Ocupação**: num duto simples, a barra mostra quanto da seção interna os cabos ocupam, com um traço no limite
+  recomendado (**53%** para 1 cabo, **31%** para 2 e **40%** para 3 ou mais). Verde = dentro do limite, âmbar =
+  perto dele, vermelho = acima. O cálculo é uma estimativa: diâmetro interno ≈ 82% do externo (PEAD) e o diâmetro
+  do cabo pelo número de fibras (drop 5 mm, até 12FO 8 mm, 36FO 10 mm, 72FO 12 mm, 144FO 14 mm). Com **subdutos**
+  (ex.: tritubo = 3), cada cabo ocupa um subduto e o painel mostra quantos estão livres; mais cabos que subdutos
+  fica vermelho.
+- **Cabos no duto**: a lista dos cabos que passam por ele. Clique no nome para selecionar o cabo; o **X** tira o cabo
+  do duto (o cabo não é apagado). Para colocar cabos:
+  - **Passar cabos do traçado (N)**: coloca de uma vez os cabos que correm junto com o duto (a até 8 m dele em pelo
+    menos metade do caminho, ou o cabo inteiro dentro do duto).
+  - **Adicionar cabo…**: escolha qualquer cabo do projeto (os que estão no traçado aparecem primeiro, marcados
+    *no traçado*) e clique no **+**.
+  Essas mudanças são salvas na hora. Com o duto selecionado, os cabos que passam por ele ficam com um **halo claro**
+  no mapa, e o painel do cabo mostra *Passa pelo duto ...* (clique para voltar ao duto).
+- **Nome**, **Material** (PEAD, PVC, Corrugado, Aço galvanizado, Concreto, Outro), **Diâmetro (mm)** (sugestões de
+  25 a 160 mm), **Subdutos** (0 = duto simples), **Status**, **Instalação** (*Enterrado (vala)*, *Perfuração
+  direcional (MND)* ou *Aparente*: fachada, ponte, galeria), **Profundidade (m)**, **Cor** (tons de terra) e
+  **Observações**. Clique em **Salvar duto**.
+- A lixeira exclui só o duto (os cabos continuam). O relógio abre o histórico do duto.
+
+**Traçado**: com o duto selecionado, arraste os **pontos** para mover, as **bolinhas menores** para criar pontos novos
+e use o **botão direito** num ponto para removê-lo. As pontas ligadas a uma caixa/POP/poste acompanham o objeto quando
+ele é arrastado.
+
+Excluir um cabo tira ele dos dutos. Numa **sangria**, os trechos novos que continuam dentro do duto também ficam
+nele. Os dutos aparecem na **camada Dutos** (painel de camadas › Elementos), na **busca**, no total da barra
+lateral, nos **relatórios** e no **KMZ**.
+
 ---
 
 ## 7. Editor do POP: rack, OLT e DIO
@@ -1304,7 +1350,8 @@ Barra lateral → **Dashboard**. Uma visão geral do projeto:
 - Da rede toda: barra lateral → **Relatório da rede**.
 
 O relatório traz **Elementos** (quantidade por tipo e status), **Lista de materiais** (cabos por modelo com a
-reserva técnica que está dentro da área, reservas suspensas e subterrâneas, splitters, caixas e fusões), **Caixas** com portas usadas e livres, e o sinal dos clientes.
+reserva técnica que está dentro da área, **dutos por material e diâmetro**, reservas suspensas e subterrâneas, splitters, caixas e fusões), **Caixas** com portas usadas e livres, e o sinal dos clientes. Se o projeto tiver dutos, o CSV e o PDF trazem também a tabela **Dutos** (material, diâmetro,
+status, metragem e cabos que passam por cada um; no relatório de área, só a metragem dentro dela).
 
 - **Planilha (CSV)**: baixa um arquivo que abre direto no Excel (separador `;`).
 - **Imprimir / PDF**: abre a impressão do navegador. Para PDF, escolha **Salvar como PDF** como impressora.
@@ -1380,13 +1427,16 @@ Use para comparar com a medição do OTDR de campo e achar onde está um problem
 3. As linhas viram cabos. Se o nome tiver a quantidade de fibras (ex.: *12FO*, *24 fibras*) ela é usada; *backbone*,
    *tronco* ou *BCK* define o tipo. A **cor e a espessura** da linha no arquivo são mantidas. As pontas dos cabos se
    ligam às caixas que estiverem a até **15 m**.
-4. Os **polígonos** viram **áreas** (com nome e cor).
-5. A **descrição** do ponto ou da linha vai para **Observações** (ex.: "SINAL -18.45" anotado na CTO).
-6. Se o nome do arquivo disser de quem são os postes (ex.: *POSTES COSERN*, *POSTES INTELNET*), esse nome é gravado
+4. Linhas dentro de uma pasta **Dutos** (ou *Subdutos*, *Tubulação*) viram **dutos**, não cabos. O material
+   (*PVC*, *corrugado*, *aço*, *concreto*; o padrão é PEAD), o diâmetro (*40 mm*) e os subdutos (*3 subdutos*,
+   *tritubo*) são lidos do nome, da pasta ou da descrição.
+5. Os **polígonos** viram **áreas** (com nome e cor).
+6. A **descrição** do ponto ou da linha vai para **Observações** (ex.: "SINAL -18.45" anotado na CTO).
+7. Se o nome do arquivo disser de quem são os postes (ex.: *POSTES COSERN*, *POSTES INTELNET*), esse nome é gravado
    como **proprietário** dos postes (veja na Tabela de postes).
-7. Pontos repetidos (mesmo tipo e nome a menos de 2 m) são ignorados. Assim dá para importar vários arquivos no mesmo
+8. Pontos repetidos (mesmo tipo e nome a menos de 2 m) são ignorados. Assim dá para importar vários arquivos no mesmo
    projeto (por exemplo, postes COSERN e postes próprios) sem duplicar nada.
-8. Ao final aparece quantos pontos, cabos e áreas foram importados.
+9. Ao final aparece quantos pontos, cabos, dutos e áreas foram importados.
 
 Dica: no Google Earth, organize as pastas com nomes como *CTOs*, *CEOs*, *Postes*, *Clientes* antes de exportar.
 
@@ -1406,7 +1456,8 @@ Dica: no Google Earth, organize as pastas com nomes como *CTOs*, *CEOs*, *Postes
    objeto só, compartilhado entre os projetos (veja [Mesmo objeto em mais de um projeto](#mesmo-objeto-em-mais-de-um-projeto-compartilhado)).
 
 **Exportar** (barra lateral → **Exportar KMZ**): baixa o projeto inteiro em KMZ, com pastas por tipo e cores, para
-abrir no Google Earth.
+abrir no Google Earth. Os dutos vão na pasta **Dutos** (linha marrom, com material, diâmetro, subdutos e os cabos
+que passam por cada um), e voltam como dutos se o arquivo for importado de novo.
 
 ---
 
@@ -1479,15 +1530,15 @@ Ao salvar, todos os sinais, cores e relatórios são recalculados.
 
 | Tecla / ação | Onde | Efeito |
 | --- | --- | --- |
-| **Esc** | Mapa | Cancela o cabo, a área ou a régua e volta para Selecionar. |
-| **Enter** | Mapa | Finaliza o cabo ou a área em desenho. |
+| **Esc** | Mapa | Cancela o cabo, o duto, a área ou a régua e volta para Selecionar. |
+| **Enter** | Mapa | Finaliza o cabo, o duto ou a área em desenho. |
 | **Duplo clique** numa caixa | Mapa | Abre o diagrama de fusão / editor do POP. |
 | **Duplo clique** em poste, cliente ou cabo | Mapa | Abre o painel de edição no campo Nome. |
 | **Arrastar** elemento | Mapa | Move o elemento e os cabos ligados a ele. |
 | **Enter** / **Esc** ao soltar | Mapa | Confirma ou cancela o novo lugar do elemento arrastado. |
 | **Ctrl+Z** | Mapa | Desfaz o último movimento de elemento. |
 | **Arrastar** alça do cabo | Mapa | Move ou cria um ponto do traçado (botão direito remove). |
-| **Botão direito** desenhando cabo | Mapa | Desfaz o último ponto. |
+| **Botão direito** desenhando cabo ou duto | Mapa | Desfaz o último ponto. |
 | **Botão direito** no cabo | Mapa | Menu: Editar, Conectar a caixa, poste ou POP, Conectar caixas no traçado, Excluir. |
 | **Esc** no modo conectar | Mapa | Sai do modo (mesmo que **Concluir**). |
 | **Delete** | Diagrama | Remove a fusão ou o bloco selecionado. |

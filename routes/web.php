@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AccountController;
 use App\Http\Controllers\Api\ActivityController;
 use App\Http\Controllers\Api\AreaController;
+use App\Http\Controllers\Api\DuctController;
 use App\Http\Controllers\Api\CableController;
 use App\Http\Controllers\Api\CameraController;
 use App\Http\Controllers\Api\DuplicateController;
@@ -59,6 +60,9 @@ Route::middleware('auth')->group(function () {
         Route::post('/projects/{project}/areas', [AreaController::class, 'store']);
         Route::put('/areas/{area}', [AreaController::class, 'update']);
         Route::delete('/areas/{area}', [AreaController::class, 'destroy']);
+        Route::post('/projects/{project}/ducts', [DuctController::class, 'store']);
+        Route::put('/ducts/{duct}', [DuctController::class, 'update']);
+        Route::delete('/ducts/{duct}', [DuctController::class, 'destroy']);
         Route::get('/projects/{project}/members', [MemberController::class, 'index']);
         Route::post('/projects/{project}/members', [MemberController::class, 'store']);
         Route::put('/projects/{project}/members/{member}', [MemberController::class, 'update']);

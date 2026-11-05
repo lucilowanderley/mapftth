@@ -54,6 +54,7 @@ class ProjectController extends Controller
             'areas' => $project->areas()->orderBy('id')->get(),
             'nodes' => $this->nodes($request, $project),
             'cables' => $project->cables()->orderBy('id')->get(),
+            'ducts' => $project->ducts()->orderBy('id')->get(),
         ]);
     }
 

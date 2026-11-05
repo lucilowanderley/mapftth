@@ -80,6 +80,7 @@ class NodeController extends Controller
         // Ao mover o objeto, as pontas dos cabos ligados a ele acompanham, assim como
         // os vértices de cabos que passam exatamente por ele (ex.: cabo apoiado num poste).
         $cables = collect();
+        $ducts = collect();
         if ($moved) {
             $point = [(float) $node->lat, (float) $node->lng];
             $same = fn ($p) => is_array($p) && count($p) === 2
@@ -106,6 +107,27 @@ class NodeController extends Controller
                     $cables->push($cable);
                 }
             }
+            // Dutos seguem a mesma regra: pontas ligadas ao objeto e vértices sobre ele acompanham.
+            foreach (\App\Models\Duct::whereIn('project_id', $projectIds)->get() as $duct) {
+                $path = $duct->path ?? [];
+                $last = count($path) - 1;
+                $changedPath = false;
+                foreach ($path as $i => $p) {
+                    $attached = ($i === 0 && $duct->from_node_id === $node->id)
+                        || ($i === $last && $duct->to_node_id === $node->id);
+                    $otherEnd = ($i === 0 && $duct->from_node_id && $duct->from_node_id !== $node->id)
+                        || ($i === $last && $duct->to_node_id && $duct->to_node_id !== $node->id);
+                    if ($attached || (! $endsOnly && ! $otherEnd && $same($p))) {
+                        $path[$i] = $point;
+                        $changedPath = true;
+                    }
+                }
+                if ($changedPath) {
+                    $duct->path = $path;
+                    $duct->save();
+                    $ducts->push($duct);
+                }
+            }
         }
         if ($changed) {
             ActivityLog::record($ctx, 'node', $node, $changed['action'], $changed['fields']);
@@ -117,8 +139,9 @@ class NodeController extends Controller
 
         return response()->json([
             'node' => $node,
-            // Só os cabos do projeto aberto; os dos outros projetos também foram ajustados no servidor.
+            // Só os cabos/dutos do projeto aberto; os dos outros projetos também foram ajustados no servidor.
             'cables' => $cables->filter(fn ($c) => (int) $c->project_id === $ctx->id)->values(),
+            'ducts' => $ducts->filter(fn ($d) => (int) $d->project_id === $ctx->id)->values(),
             'clients' => $clients->values(),
         ]);
     }
