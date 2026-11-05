@@ -1,4 +1,5 @@
-import { FolderOpen, LogOut, MapPin, Plus, Search, Trash2, Upload } from 'lucide-react';
+import { FolderOpen, Link2, LogOut, MapPin, Plus, Search, Trash2, Upload } from 'lucide-react';
+import DuplicatesModal from '../components/DuplicatesModal';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { STREETS_LAYER } from '../lib/basemaps';
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
@@ -23,6 +24,7 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
+  const [dedupe, setDedupe] = useState(false);
   const [importing, setImporting] = useState<ImportResult[] | 'loading' | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -85,6 +87,13 @@ export default function ProjectsPage() {
               title="Envie um .zip ou vários .kmz/.kml: cada arquivo vira um projeto (aceita a exportação do ISM)"
             >
               <Upload size={16} /> Importar projetos
+            </button>
+            <button
+              className="btn-ghost"
+              onClick={() => setDedupe(true)}
+              title="Junta o mesmo poste/POP/caixa repetido em vários projetos num objeto só, compartilhado entre eles"
+            >
+              <Link2 size={16} /> Unificar duplicados
             </button>
             <input
               ref={importRef}
@@ -187,6 +196,7 @@ export default function ProjectsPage() {
           onOpen={(id) => navigate(`/projects/${id}`)}
         />
       )}
+      {dedupe && <DuplicatesModal onClose={() => setDedupe(false)} onDone={() => api.projects().then(setProjects)} />}
       {creating && <CreateProjectModal onClose={() => setCreating(false)} onCreated={(p) => navigate(`/projects/${p.id}`)} />}
     </div>
   );

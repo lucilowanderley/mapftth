@@ -280,6 +280,24 @@ export interface NetNode {
   notes: string | null;
   attributes: Record<string, unknown> | null;
   diagram: Diagram | null;
+  /** Presente quando o objeto aparece em mais de um projeto (ou veio de outro projeto). */
+  share?: NodeShare | null;
+}
+
+/** Objeto compartilhado: projeto de origem, outros projetos onde aparece e se o usuário pode editá-lo daqui. */
+export interface NodeShare {
+  home_id: number;
+  home_name: string;
+  projects: { id: number; name: string }[];
+  can_edit: boolean;
+}
+
+/** Grupo de objetos repetidos em projetos diferentes (mesmo tipo, a poucos metros). */
+export interface DuplicateGroup {
+  type: NodeType;
+  distance_m: number;
+  keep_id: number;
+  nodes: { id: number; name: string; project_id: number; project_name: string; lat: number; lng: number; cables: number; has_diagram: boolean }[];
 }
 
 export interface Cable {

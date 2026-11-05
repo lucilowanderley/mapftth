@@ -77,8 +77,8 @@ class LaunchController extends Controller
             'slacks.*.point' => ['required', 'integer', 'min:0'],
             'slacks.*.length_m' => ['required', 'integer', 'between:1,5000'],
             'slacks.*.kind' => ['sometimes', Rule::in(Cable::SLACK_KINDS)],
-            'from_node_id' => ['nullable', 'integer', Rule::exists('network_nodes', 'id')->where('project_id', $project->id)],
-            'to_node_id' => ['nullable', 'integer', Rule::exists('network_nodes', 'id')->where('project_id', $project->id)],
+            'from_node_id' => ['nullable', 'integer', $project->nodeRule()],
+            'to_node_id' => ['nullable', 'integer', $project->nodeRule()],
         ]);
 
         // O validador remonta os itens campo a campo: as chaves podem vir fora de ordem.
@@ -86,7 +86,7 @@ class LaunchController extends Controller
         ksort($points);
         $points = array_values($points);
         $poleIds = array_values(array_unique(array_filter(array_column($points, 'pole_id'))));
-        $poles = $project->nodes()->whereIn('id', $poleIds)->where('type', 'pole')->get()->keyBy('id');
+        $poles = $project->visibleNodes()->whereIn('id', $poleIds)->where('type', 'pole')->get()->keyBy('id');
         if ($poles->count() !== count($poleIds)) {
             throw ValidationException::withMessages(['points' => 'Algum poste escolhido não existe mais neste projeto.']);
         }

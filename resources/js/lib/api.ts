@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Activity, Area, CameraStatus, Cable, EquipmentModel, LatLng, Member, NetNode, Project, Role, Settings } from './types';
+import type { Activity, Area, DuplicateGroup, CameraStatus, Cable, EquipmentModel, LatLng, Member, NetNode, Project, Role, Settings } from './types';
 import type { GoogleKeySource } from './basemaps';
 
 export const http = axios.create({
@@ -49,6 +49,13 @@ export type ImportResult = {
   skipped?: number;
 };
 
+/** Projeto aberto no mapa: vai junto ao editar/excluir objetos (um objeto compartilhado aparece em vários projetos). */
+let contextProject: number | undefined;
+export function setContextProject(id: number | undefined) {
+  contextProject = id;
+}
+const ctx = () => (contextProject ? { project: contextProject } : {});
+
 export const api = {
   equipmentModels: (projectId?: number) =>
     http.get<EquipmentModel[]>('/api/equipment-models', { params: projectId ? { project: projectId } : {} }).then((r) => r.data),
@@ -83,8 +90,18 @@ export const api = {
     http.post<NetNode>(`/api/projects/${projectId}/nodes`, data).then((r) => r.data),
   /** ends_only: ao mover, só as pontas dos cabos ligados ao objeto acompanham (objeto fixado no poste/caixa). */
   updateNode: (id: number, data: Partial<NetNode> & { ends_only?: boolean }) =>
-    http.put<{ node: NetNode; cables: Cable[]; clients?: NetNode[] }>(`/api/nodes/${id}`, data).then((r) => r.data),
-  deleteNode: (id: number) => http.delete(`/api/nodes/${id}`),
+    http.put<{ node: NetNode; cables: Cable[]; clients?: NetNode[] }>(`/api/nodes/${id}`, data, { params: ctx() }).then((r) => r.data),
+  /** No projeto de origem apaga o objeto; num projeto com quem foi compartilhado, só tira o objeto dele. */
+  deleteNode: (id: number) => http.delete(`/api/nodes/${id}`, { params: ctx() }),
+  /** Compartilha com outro projeto (objetos fixados no poste/caixa vão junto). */
+  shareNode: (id: number, projectId: number) =>
+    http.post<{ nodes: NetNode[] }>(`/api/nodes/${id}/shares`, { project_id: projectId }, { params: ctx() }).then((r) => r.data.nodes),
+  unshareNode: (id: number, projectId: number) =>
+    http.delete<{ node: NetNode; cables: Cable[] }>(`/api/nodes/${id}/shares/${projectId}`, { params: ctx() }).then((r) => r.data),
+  duplicates: (params: { types?: string[]; radius?: number; project?: number }) =>
+    http.get<{ groups: DuplicateGroup[] }>('/api/duplicates', { params }).then((r) => r.data.groups),
+  mergeDuplicates: (groups: { keep_id: number; ids: number[] }[]) =>
+    http.post<{ merged: number }>('/api/duplicates/merge', { groups }).then((r) => r.data.merged),
   /** Câmera: o servidor testa HTTP/RTSP/ONVIF e guarda o resultado em attributes.cam_status. */
   checkCamera: (id: number) => http.post<{ node: NetNode; status: CameraStatus }>(`/api/nodes/${id}/camera/check`).then((r) => r.data),
   /** Câmera: foto atual buscada pelo servidor (a senha não sai dele). */

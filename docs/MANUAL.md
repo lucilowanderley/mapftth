@@ -10,7 +10,7 @@ seções como consulta.
 2. [Conta e login](#2-conta-e-login)
 3. [Meus projetos](#3-meus-projetos)
 4. [A tela do mapa](#4-a-tela-do-mapa)
-5. [Adicionar POP, datacenter, torre, CEO, CTO, caixa, poste, cliente e condomínio](#5-adicionar-pop-datacenter-torre-ceo-cto-caixa-poste-cliente-e-condomínio) (inclui a [Caixa de parede ou subterrânea](#caixa-de-parede-ou-subterrânea), a [Fixação da CTO/CEO](#fixação-da-ctoceo-poste-parede-ou-caixa), os [Objetos fixados no poste/caixa e o editor do poste/caixa](#objetos-fixados-no-postecaixa-e-o-editor-do-postecaixa) e a [Câmera: IP, analógica e DVR/NVR](#câmera-ip-analógica-e-dvrnvr))
+5. [Adicionar POP, datacenter, torre, CEO, CTO, caixa, poste, cliente e condomínio](#5-adicionar-pop-datacenter-torre-ceo-cto-caixa-poste-cliente-e-condomínio) (inclui a [Caixa de parede ou subterrânea](#caixa-de-parede-ou-subterrânea), a [Fixação da CTO/CEO](#fixação-da-ctoceo-poste-parede-ou-caixa), os [Objetos fixados no poste/caixa e o editor do poste/caixa](#objetos-fixados-no-postecaixa-e-o-editor-do-postecaixa) a [Câmera: IP, analógica e DVR/NVR](#câmera-ip-analógica-e-dvrnvr) e o [Mesmo objeto em mais de um projeto](#mesmo-objeto-em-mais-de-um-projeto-compartilhado))
 6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos) (inclui as [3 formas de ligar a CTO no cabo](#ligar-a-cto-no-cabo-3-formas) e o [Lançar cabo](#lançar-cabo-com-postes-e-reservas))
 7. [Editor do POP: rack, OLT e DIO](#7-editor-do-pop-rack-olt-e-dio)
 8. [Diagrama de fusão da CEO e da CTO (splitters)](#8-diagrama-de-fusão-da-ceo-e-da-cto)
@@ -82,6 +82,8 @@ Para ver a rede funcionando de ponta a ponta, faça nesta ordem:
 - **Excluir**: passe o mouse sobre o cartão e clique na lixeira. Só o **dono** do projeto vê essa opção, e a
   exclusão apaga toda a rede (não tem volta).
 - Projetos que outras pessoas compartilharam com você mostram **Compartilhado por (nome) · (papel)**.
+- **Unificar duplicados**: junta o mesmo poste, POP, caixa... que aparece repetido em vários projetos num objeto
+  só, compartilhado entre eles. Veja [Mesmo objeto em mais de um projeto](#mesmo-objeto-em-mais-de-um-projeto-compartilhado).
 
 ---
 
@@ -460,6 +462,55 @@ Para evitar movimentos acidentais, ao soltar o elemento o rodapé pergunta **Mov
 cabos voltarem ao lugar. Se preferir mover sem pergunta, desmarque **Confirmar ao mover** no painel da direita (a
 escolha fica salva neste navegador). Errou mesmo assim? Aperte **Ctrl+Z** ou clique em **Desfazer movimento** no
 rodapé para voltar o último movimento.
+
+
+### Mesmo objeto em mais de um projeto (compartilhado)
+
+Um poste, POP, datacenter, torre, caixa, CTO ou CEO pode fazer parte de **mais de um projeto**. Exemplo: o POP de
+Nova Cruz aparece no projeto do *Backbone* e no projeto *Nova Cruz - RN*; o mesmo poste é usado pela rede de dois
+bairros. Não é uma cópia: é **o mesmo objeto**. Mover, renomear, mudar os dados ou o diagrama (fusões, DIO, OLT) em
+um projeto muda em todos. Cabos de qualquer um desses projetos podem chegar nele.
+
+**Compartilhar com outro projeto**
+
+1. Selecione o objeto no mapa.
+2. No painel de propriedades, no quadro com o ícone de corrente, clique em **Compartilhar…**.
+3. Escolha o projeto e clique em **Ok**. Aparecem só os projetos onde você pode editar.
+4. Se for um poste ou uma caixa, as CTOs, CEOs e câmeras fixadas nele vão junto.
+
+**Como reconhecer no mapa**: o ícone ganha um **selo escuro com uma corrente** no canto inferior esquerdo. O quadro
+do painel mostra **Compartilhado · origem (projeto)** e a lista dos outros projetos onde ele aparece. O projeto de
+origem é o projeto onde o objeto foi criado.
+
+**Tirar de um projeto**: no mesmo quadro, clique no **X** ao lado do projeto. No projeto de origem dá para tirar o
+objeto de qualquer outro; nos demais projetos, só do projeto aberto. Os cabos daquele projeto que chegavam no objeto
+ficam com a ponta solta, mas o traçado não muda.
+
+**Excluir**
+
+- No **projeto de origem**, **Excluir** apaga o objeto de **todos** os projetos. O aviso diz em quantos outros ele
+  está.
+- Em qualquer **outro projeto**, **Excluir** só tira o objeto daquele projeto. Ele continua na origem.
+
+**Permissões**: para editar um objeto compartilhado você precisa poder editar (dono, administrador ou projetista) no
+projeto aberto **e** no projeto de origem. Se não puder, o objeto aparece **só para consulta**: o painel avisa e o
+ícone não pode ser arrastado. Mesmo assim, quem é projetista no projeto aberto pode tirar o objeto dele.
+
+**Unificar duplicados** (tela **Meus projetos** → **Unificar duplicados**)
+
+Serve para quando o mesmo objeto foi criado várias vezes, uma em cada projeto. Isso acontece, por exemplo, ao
+importar a exportação do ISM: o mesmo poste vem em vários arquivos e vira um poste em cada projeto.
+
+1. Marque os tipos (Postes, POPs, Datacenters, Torres, Caixas, CTOs, CEOs, Condomínios) e a **distância até**
+   (padrão 3 m).
+2. Clique em **Procurar**. A lista mostra cada grupo de objetos do mesmo tipo, a essa distância, em projetos
+   diferentes. Só entram projetos onde você pode editar.
+3. Em cada grupo, escolha qual objeto **fica**. Já vem marcado o que tem diagrama de fusão ou mais cabos ligados.
+   Desmarque os grupos que não são o mesmo objeto.
+4. Clique em **Unificar**. Em cada grupo fica um objeto só, compartilhado com todos os projetos do grupo. Os
+   cabos, as CTOs/CEOs e câmeras fixadas, as reservas fixadas no poste e os clientes do diagrama passam para ele.
+   Dados que só o outro tinha (como o dono do poste) são aproveitados. Os repetidos são excluídos e o histórico de
+   cada projeto registra a unificação.
 
 ---
 
@@ -1351,6 +1402,8 @@ Dica: no Google Earth, organize as pastas com nomes como *CTOs*, *CEOs*, *Postes
    em Observações como *Código de origem*.
 4. No fim aparece uma tabela com o que entrou em cada projeto e um botão **Abrir**. Se um arquivo falhar, os outros
    continuam sendo importados e o erro aparece na linha dele.
+5. Se os arquivos tiverem os mesmos postes ou POPs, use **Unificar duplicados** depois. Assim cada poste vira um
+   objeto só, compartilhado entre os projetos (veja [Mesmo objeto em mais de um projeto](#mesmo-objeto-em-mais-de-um-projeto-compartilhado)).
 
 **Exportar** (barra lateral → **Exportar KMZ**): baixa o projeto inteiro em KMZ, com pastas por tipo e cores, para
 abrir no Google Earth.

@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\ActivityController;
 use App\Http\Controllers\Api\AreaController;
 use App\Http\Controllers\Api\CableController;
 use App\Http\Controllers\Api\CameraController;
+use App\Http\Controllers\Api\DuplicateController;
 use App\Http\Controllers\Api\EquipmentModelController;
 use App\Http\Controllers\Api\KmzController;
 use App\Http\Controllers\Api\LaunchController;
@@ -40,6 +41,11 @@ Route::middleware('auth')->group(function () {
         Route::post('/projects/{project}/nodes/bulk', [NodeController::class, 'bulk']);
         Route::put('/nodes/{node}', [NodeController::class, 'update']);
         Route::delete('/nodes/{node}', [NodeController::class, 'destroy']);
+        // Objetos compartilhados entre projetos
+        Route::post('/nodes/{node}/shares', [NodeController::class, 'share']);
+        Route::delete('/nodes/{node}/shares/{project}', [NodeController::class, 'unshare']);
+        Route::get('/duplicates', [DuplicateController::class, 'index']);
+        Route::post('/duplicates/merge', [DuplicateController::class, 'merge']);
         Route::post('/nodes/{node}/camera/check', [CameraController::class, 'check'])->middleware('throttle:30,1');
         Route::get('/nodes/{node}/camera/snapshot', [CameraController::class, 'snapshot'])->middleware('throttle:60,1');
         Route::post('/projects/{project}/cables', [CableController::class, 'store']);

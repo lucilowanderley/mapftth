@@ -112,7 +112,7 @@ class KmlService
             // Evita duplicar o mesmo elemento (mesmo tipo e nome a menos de 2 m),
             // por exemplo ao importar "postes COSERN" e "postes INTELNET" no mesmo projeto.
             $seen = [];
-            foreach ($project->nodes()->get(['type', 'name', 'lat', 'lng']) as $n) {
+            foreach ($project->visibleNodes()->get(['type', 'name', 'lat', 'lng']) as $n) {
                 $seen[$n->type.'|'.mb_strtolower($n->name)][] = [$n->lat, $n->lng];
             }
             foreach ($points as $p) {
@@ -204,7 +204,7 @@ class KmlService
     /** Gera um KML completo do projeto, com pastas por tipo de elemento. */
     public function export(Project $project): string
     {
-        $nodes = $project->nodes()->orderBy('id')->get()->groupBy('type');
+        $nodes = $project->visibleNodes()->orderBy('id')->get()->groupBy('type');
         $cables = $project->cables()->orderBy('id')->get()->groupBy('category');
         $e = fn ($s) => htmlspecialchars((string) $s, ENT_XML1 | ENT_QUOTES, 'UTF-8');
 
