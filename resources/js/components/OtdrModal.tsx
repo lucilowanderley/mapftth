@@ -1,7 +1,10 @@
-import { Download, Flashlight, Printer } from 'lucide-react';
+import { Download, Flashlight, Printer, Stethoscope } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { downloadText, toCsv } from '../lib/analysis';
 import { locateDistance, OTDR_END_LABEL, OTDR_KIND_COLOR, OTDR_KIND_LABEL, otdrCurve, type OtdrTrace } from '../lib/otdr';
+import { CAUSE_COLOR, CAUSE_LABEL, otdrDiagnosis } from '../lib/otdrdiag';
+import { HEALTH_COLORS, HEALTH_LABEL, describeStep } from '../lib/signal';
+import type { Network } from '../lib/types';
 import { Modal, formatLength } from './ui';
 
 const W = 760;
@@ -14,12 +17,14 @@ const km = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(3)} km` : `${Math.r
 /** Gráfico (curva simulada do OTDR) e relatório de eventos de um disparo feito pela ferramenta OTDR. */
 export default function OtdrModal({
   trace,
+  network,
   distance: initial,
   projectName,
   onClose,
   onLaser,
 }: {
   trace: OtdrTrace;
+  network: Network;
   distance: number | null;
   projectName: string;
   onClose: () => void;
@@ -29,6 +34,9 @@ export default function OtdrModal({
   const [hover, setHover] = useState<number | null>(null);
   const [dist, setDist] = useState(initial != null ? String(Math.round(initial)) : '');
   const svgRef = useRef<SVGSVGElement>(null);
+  const [diagOpen, setDiagOpen] = useState(false);
+  /** Trecho destacado no gráfico (zona suspeita ou a causa clicada). */
+  const [band, setBand] = useState<{ from: number; to: number } | null>(null);
 
   const { node, cable, fiber, toward } = trace.start;
   const title = `${node.name} → ${toward?.name ?? 'ponta solta'} · ${cable.name} · fibra ${fiber}`;
@@ -43,6 +51,8 @@ export default function OtdrModal({
   const meters = dist.trim() === '' ? null : Number(dist.replace(',', '.'));
   const valid = meters !== null && Number.isFinite(meters) && meters >= 0 && meters <= trace.total;
   const where = valid ? locateDistance(trace, meters!) : null;
+  const diag = useMemo(() => otdrDiagnosis(network, trace, valid ? meters : null), [network, trace, valid, meters]);
+  const shown = band ?? (diagOpen ? diag.zone : null);
   const avg = trace.total > 0 ? (trace.spans.reduce((a, s) => a + s.loss, 0) / trace.total) * 1000 : 0;
 
   const eventRows = trace.events.map((e, i) => [
@@ -80,6 +90,10 @@ export default function OtdrModal({
       <div class="kpis"><div class="kpi">Comprimento<b>${esc(km(trace.total))}</b></div><div class="kpi">Perda total<b>${trace.totalLoss.toFixed(2)} dB</b></div><div class="kpi">Atenuação média<b>${avg.toFixed(3)} dB/km</b></div><div class="kpi">Fim<b>${esc(OTDR_END_LABEL[trace.end.kind])}</b></div></div>
       ${where ? `<div class="alert"><b>Evento medido a ${esc(km(meters!))}</b>: ${where.span ? `cabo ${esc(where.span.name)}, a ${esc(km(where.fromStart!))} de ${esc(where.span.fromNode)} e ${esc(km(where.toEnd!))} de ${esc(where.span.toNode)}` : 'dentro de uma caixa'}.</div>` : ''}
       ${svg}
+      <h2>Diagnóstico${diag.client ? ` · ${esc(diag.client.name)}` : ''}</h2>
+      ${diag.signal ? `<div class="kpis"><div class="kpi">Estimada<b>${diag.signal.estimated !== null ? diag.signal.estimated.toFixed(2) + ' dBm' : '—'}</b></div><div class="kpi">Medida<b>${diag.signal.measured !== null ? diag.signal.measured.toFixed(2) + ' dBm' : '—'}</b></div><div class="kpi">Saúde<b>${esc(HEALTH_LABEL[diag.signal.health])}</b></div></div><p>${esc(diag.signal.summary)}</p>${diag.signal.fault ? `<p>${esc(diag.signal.fault.text)}</p>` : ''}` : ''}
+      ${diag.zone ? `<p><b>Trecho suspeito:</b> de ${esc(km(diag.zone.from))} a ${esc(km(diag.zone.to))} do disparo.</p>` : ''}
+      ${diag.causes.length ? table(['Probabilidade', 'Causa', 'Detalhe', 'Onde'], diag.causes.map((c) => [CAUSE_LABEL[c.level], c.title, c.detail, c.where ?? ''])) : '<p>Nada fora do esperado.</p>'}
       <h2>Eventos</h2>${table(EVENT_HEAD, eventRows)}
       <h2>Trechos de cabo</h2>${table(SPAN_HEAD, spanRows)}
       <script>window.onload=()=>window.print()</script></body></html>`);
@@ -124,6 +138,16 @@ export default function OtdrModal({
         <text x={8} y={PAD.t + 4} fontSize={10} fill="#94a3b8">
           dB
         </text>
+        {shown && (
+          <rect
+            x={x(shown.from) - (shown.to - shown.from < maxAt * 0.01 ? 6 : 0)}
+            y={PAD.t}
+            width={Math.max(12, x(shown.to) - x(shown.from))}
+            height={H - PAD.t - PAD.b}
+            fill="#ef4444"
+            opacity={0.15}
+          />
+        )}
         <path d={d} fill="none" stroke="#facc15" strokeWidth={1.6} />
         {valid && (
           <g>
@@ -187,6 +211,16 @@ export default function OtdrModal({
           </span>
         )}
         <div className="flex gap-2 ml-auto">
+          <button
+            className={diagOpen ? 'btn-primary' : 'btn-ghost'}
+            onClick={() => {
+              setDiagOpen((o) => !o);
+              setBand(null);
+            }}
+            title="Potência na ONU, trecho suspeito e possíveis causas"
+          >
+            <Stethoscope size={16} /> Diagnóstico
+          </button>
           <button className="btn-ghost" onClick={onLaser} title="Volta para o mapa com o laser aceso">
             <Flashlight size={16} /> Laser no mapa
           </button>
@@ -198,6 +232,100 @@ export default function OtdrModal({
           </button>
         </div>
       </div>
+
+      {diagOpen && (
+        <div className="mt-4 rounded-lg border border-slate-700 bg-slate-950 p-3 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Stethoscope size={16} /> Diagnóstico
+            {diag.client && <span className="font-normal text-slate-400">· {diag.client.name}</span>}
+          </div>
+
+          {diag.signal ? (
+            <div className="grid sm:grid-cols-3 gap-2 text-xs">
+              <div className="rounded-md bg-slate-900 px-3 py-2">
+                <div className="text-slate-400">Potência estimada</div>
+                <b className="text-base text-emerald-400 font-mono">{diag.signal.estimated !== null ? `${diag.signal.estimated.toFixed(2)} dBm` : '—'}</b>
+              </div>
+              <div className="rounded-md bg-slate-900 px-3 py-2">
+                <div className="text-slate-400">Potência medida</div>
+                <b className="text-base font-mono">{diag.signal.measured !== null ? `${diag.signal.measured.toFixed(2)} dBm` : '—'}</b>
+              </div>
+              <div className="rounded-md bg-slate-900 px-3 py-2">
+                <div className="text-slate-400 flex items-center justify-between">
+                  Saúde
+                  <span className="rounded-full px-2 py-px text-[11px] font-semibold text-white" style={{ background: HEALTH_COLORS[diag.signal.health] }}>
+                    {HEALTH_LABEL[diag.signal.health]}
+                  </span>
+                </div>
+                <div className="mt-0.5">{diag.signal.summary}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs text-slate-400">
+              Este disparo não chega a um cliente: o diagnóstico usa só o projeto. Dispare a partir do cliente (ou até ele) para comparar a potência estimada com a medida.
+            </div>
+          )}
+
+          {diag.signal?.fault && (
+            <div className="text-xs">
+              <div className="text-slate-300">{diag.signal.fault.text}</div>
+              {diag.zone && (
+                <div className="mt-1 text-red-300">
+                  Trecho suspeito no traço: de {km(diag.zone.from)} a {km(diag.zone.to)} do disparo (destacado em vermelho no gráfico).
+                </div>
+              )}
+              <div className="mt-2 text-slate-400">Pontos a verificar:</div>
+              <ol className="list-decimal pl-5 text-slate-300">
+                {diag.checks.slice(0, 10).map((c, i) => (
+                  <li key={i}>
+                    <button
+                      type="button"
+                      className="text-left hover:text-white cursor-pointer"
+                      onClick={() => c.at !== null && setBand({ from: c.at, to: c.to ?? c.at })}
+                    >
+                      {describeStep(c.step)}
+                      <span className="text-slate-500">
+                        {' '}
+                        · {c.step.loss.toFixed(2)} dB previstos{c.at !== null ? ` · ${c.to !== null && c.to !== c.at ? `${km(c.at)} a ${km(c.to)}` : km(c.at)}` : ''}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          <div>
+            <div className="text-xs text-slate-400 mb-1">Possíveis causas (da mais provável para a menos):</div>
+            {diag.causes.length ? (
+              <ul className="space-y-1.5">
+                {diag.causes.map((c, i) => (
+                  <li key={i}>
+                    <button
+                      type="button"
+                      disabled={c.from === undefined}
+                      onClick={() => c.from !== undefined && setBand({ from: c.from, to: c.to ?? c.from })}
+                      className="w-full text-left rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-xs hover:border-slate-600 cursor-pointer disabled:cursor-default"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="rounded px-1.5 py-px text-[10px] font-semibold uppercase text-white" style={{ background: CAUSE_COLOR[c.level] }}>
+                          {CAUSE_LABEL[c.level]}
+                        </span>
+                        <b>{c.title}</b>
+                        {c.from !== undefined && <span className="ml-auto text-slate-500 font-mono">{c.to !== undefined && c.to !== c.from ? `${km(c.from)}–${km(c.to)}` : km(c.from)}</span>}
+                      </div>
+                      <div className="mt-0.5 text-slate-300">{c.detail}</div>
+                      {c.where && <div className="text-slate-500">Onde: {c.where}</div>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="text-xs text-emerald-400">Nada fora do esperado: sinal dentro do estimado e projeto sem pendências neste percurso.</div>
+            )}
+          </div>
+        </div>
+      )}
 
       <h3 className="text-sm font-semibold mt-4 mb-1">Eventos</h3>
       <table className="w-full text-sm">

@@ -1579,8 +1579,31 @@ O fim da fibra pode ser: **Fim da fibra (sem emenda)** numa caixa, **Ponta solta
 (ONU)**, **Chega na OLT**, **Chega num equipamento ativo** ou **Splitter sem saídas ligadas**. Um rompimento
 real antes do fim previsto aparece no aparelho de campo como uma distância menor que a do painel.
 
-No painel do cliente, **OTDR a partir deste cliente** abre a ferramenta já no cabo drop, disparando no sentido
-da OLT.
+No painel do cliente, **OTDR deste cliente** abre a ferramenta já no cabo drop, disparando no sentido
+da OLT. Ao lado dele, **Ticket** imprime o ticket de atendimento (formato de impressora térmica de 80 mm, também
+sai em A4): dados do cliente, potência estimada × medida, pontos a verificar, possíveis causas, o percurso da fibra
+e campos para o técnico anotar a causa, o serviço e a potência após o reparo.
+
+### Diagnóstico
+
+Na janela do gráfico, o botão **Diagnóstico** abre, abaixo dos controles:
+
+- **Potência estimada**, **Potência medida** e a **Saúde** do sinal do cliente do disparo (o cliente de onde sai o
+  OTDR ou onde a fibra chega). Disparos que não chegam a um cliente usam só o projeto.
+- O **trecho suspeito** no traço (de X m a Y m do disparo), destacado em vermelho no gráfico, quando há outros
+  clientes com sinal bom para comparar.
+- Os **pontos a verificar**, com a distância de cada um no traço. Clique num ponto para destacá-lo no gráfico.
+- As **possíveis causas**, da mais provável para a menos (Alta, Média, Baixa), com o porquê e onde verificar. Por
+  exemplo: splitter de razão maior instalado (quando a perda a mais bate com a diferença entre os splitters), ramos de
+  splitter desbalanceado trocados, conector sujo ou APC ligado em UPC, fusão ruim, curvatura no drop, rompimento,
+  ponto comum a vários clientes com sinal ruim, projeto fora do orçamento ou fibra sem continuidade. Com a
+  **distância medida** preenchida, o evento do OTDR de campo vira a primeira causa, já com o cabo e as caixas
+  vizinhas. Clique numa causa para destacar o trecho dela no gráfico.
+
+O diagnóstico também sai no **Imprimir** do relatório.
+
+No card **Potência na ONU** do cliente, a lista de pontos a verificar fica recolhida: a **seta** ao lado do resumo
+abre a lista (para baixo) e fecha (para cima).
 
 ---
 

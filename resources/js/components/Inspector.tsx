@@ -1,4 +1,4 @@
-import { Anchor, Building2, Layers, Layers2, Copy, Crosshair, History, Home, Link2, Network, Activity, Store, Trash2, UtilityPole, X } from 'lucide-react';
+import { Anchor, Building2, Layers, Layers2, Copy, Crosshair, History, Home, Link2, Network, Activity, Printer, Store, Trash2, UtilityPole, X } from 'lucide-react';
 import type { SignalAnalysis } from '../lib/signal';
 import { ClientSignalCard } from './SignalHealthBox';
 import { CLIENT_SEGMENTS, clientDataOf, normalizeSerial, type ClientSegment } from '../lib/client';
@@ -49,6 +49,8 @@ interface Props {
   cables?: Cable[];
   onHistory?: (kind: 'node' | 'cable', id: number, name: string) => void;
   onOtdr?: (n: NetNode) => void;
+  /** Imprime o ticket de atendimento do cliente (dados, potência e diagnóstico). */
+  onTicket?: (n: NetNode) => void;
   /** Muda a cada duplo clique no objeto: coloca o cursor no primeiro campo. */
   focusKey?: number;
   onLocate?: (at: LatLng) => void;
@@ -297,6 +299,7 @@ function NodeForm({
   onError,
   onHistory,
   onOtdr,
+  onTicket,
   focusKey,
   onLocate,
   onSelectNode,
@@ -488,9 +491,16 @@ function NodeForm({
           />
         )}
         {node.type === 'client' && onOtdr && cables?.some((c) => c.from_node_id === node.id || c.to_node_id === node.id) && (
-          <button type="button" className="btn-ghost w-full" onClick={() => onOtdr(node)}>
-            <Activity size={16} /> OTDR a partir deste cliente
-          </button>
+          <div className="flex gap-2">
+            <button type="button" className="btn-ghost flex-1" onClick={() => onOtdr(node)}>
+              <Activity size={16} /> OTDR deste cliente
+            </button>
+            {onTicket && (
+              <button type="button" className="btn-ghost" onClick={() => onTicket(node)} title="Imprimir ticket de atendimento com o diagnóstico do sinal">
+                <Printer size={16} /> Ticket
+              </button>
+            )}
+          </div>
         )}
         {node.type === 'client' && !budget?.steps.length && !readOnly && (
           <button className="btn-ghost w-full" onClick={() => onConnectClient(node)}>

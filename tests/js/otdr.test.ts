@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { otdrDiagnosis } from '../../resources/js/lib/otdrdiag';
 import { laserTo, locateDistance, otdrCurve, otdrTrace, type OtdrTrace } from '../../resources/js/lib/otdr';
 import type { Cable, LatLng, NetNode, Network } from '../../resources/js/lib/types';
 
@@ -102,5 +103,45 @@ describe('OTDR da rede', () => {
     expect(c[0]).toEqual({ at: 0, db: 0 });
     c.forEach((p, i) => i && expect(p.at).toBeGreaterThanOrEqual(c[i - 1].at));
     expect(Math.min(...c.map((p) => p.db))).toBeLessThan(-t.totalLoss);
+  });
+});
+
+describe('Diagnóstico do OTDR', () => {
+  it('compara estimada × medida e aponta splitter de razão maior', () => {
+    const n = net();
+    n.nodes[2] = { ...n.nodes[2], attributes: { rx_dbm: -9.5 } };
+    const t = ok(otdrTrace(n, { nodeId: 3, cableId: 20, fiber: 1 }));
+    const d = otdrDiagnosis(n, t);
+    expect(d.client?.name).toBe('client-3');
+    expect(d.signal?.estimated).toBeCloseTo(-6.16, 1);
+    expect(d.signal?.health).toBe('warn');
+    expect(d.causes[0].level).toBe('alta');
+    expect(d.causes.some((c) => c.title.includes('1:16'))).toBe(true);
+    expect(d.zone).toBeNull();
+    expect(d.checks.find((c) => c.step.kind === 'splitter')?.at).toBeCloseTo(111.19, 0);
+  });
+
+  it('sem medição pede o sinal medido e avisa fibra sem continuidade', () => {
+    const n = net();
+    const t = ok(otdrTrace(n, { nodeId: 1, cableId: 10, fiber: 1, choices: { '2:ks': 2 } }));
+    const d = otdrDiagnosis(n, t);
+    expect(d.client).toBeNull();
+    expect(d.causes.some((c) => c.title === 'Fibra sem continuidade no projeto')).toBe(true);
+    const withField = otdrDiagnosis(n, t, 500);
+    expect(withField.causes[0].title).toContain('500 m');
+  });
+});
+
+describe('Ticket do cliente', () => {
+  it('traz dados, potência e causas', async () => {
+    const { ticketHtml } = await import('../../resources/js/lib/ticket');
+    const n = net();
+    n.nodes[2] = { ...n.nodes[2], attributes: { rx_dbm: -9.5, client_code: 'C-77', onu_serial: 'ZTEGC0FFEE01' } };
+    const html = ticketHtml(n, n.nodes[2], 'Projeto X', new Date('2026-11-05T12:00:00Z'));
+    expect(html).toContain('client-3');
+    expect(html).toContain('C-77');
+    expect(html).toContain('-9.50 dBm');
+    expect(html).toContain('Possíveis causas');
+    expect(html).toContain('1:16');
   });
 });

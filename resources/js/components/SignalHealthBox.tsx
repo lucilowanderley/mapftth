@@ -1,4 +1,5 @@
-import { Activity } from 'lucide-react';
+import { Activity, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState } from 'react';
 import { POWER_COLORS, POWER_LABEL, type BudgetResult, type PowerLevel } from '../lib/budget';
 import { HEALTH_COLORS, HEALTH_LABEL, describeStep, type SignalAnalysis } from '../lib/signal';
 
@@ -60,6 +61,8 @@ export function ClientSignalCard({ budget, level, signal, onOpen }: { budget?: B
   // Com estimativa e medição, o resumo compara as duas; sem estimativa, basta o motivo (o resumo só o repetiria).
   const note = budget?.error ?? (signal && measured !== null && estimated !== null ? signal.summary : null);
   const color = level ? POWER_COLORS[level] : '#334155';
+  // Os pontos a verificar ficam recolhidos: a seta abre (para baixo) e fecha (para cima) a lista.
+  const [open, setOpen] = useState(false);
   return (
     <div className="rounded-md border px-2.5 py-2 text-xs space-y-1.5" style={{ borderColor: color }}>
       <button type="button" onClick={onOpen} disabled={!onOpen} className="block w-full text-left cursor-pointer disabled:cursor-default" title="Abrir orçamento óptico">
@@ -88,9 +91,24 @@ export function ClientSignalCard({ budget, level, signal, onOpen }: { budget?: B
           </div>
         </div>
       </button>
-      {note && <div className="text-slate-400 leading-snug">{note}</div>}
+      {(note || signal?.fault) && (
+        <div className="flex items-start gap-2">
+          {note && <div className="text-slate-400 leading-snug flex-1">{note}</div>}
+          {signal?.fault && (
+            <button
+              type="button"
+              onClick={() => setOpen((o) => !o)}
+              className={`ml-auto shrink-0 rounded-md border p-0.5 cursor-pointer ${open ? 'border-slate-600 text-slate-300' : 'border-red-500/60 text-red-400'} hover:bg-slate-800`}
+              title={open ? 'Fechar os pontos a verificar' : `Ver os pontos a verificar (${signal.fault.suspects.length})`}
+              aria-expanded={open}
+            >
+              {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+          )}
+        </div>
+      )}
       {measured !== null && when && <div className="text-[11px] text-slate-500">Medido em {when}</div>}
-      {signal?.fault && <FaultDetails fault={signal.fault} />}
+      {signal?.fault && open && <FaultDetails fault={signal.fault} />}
     </div>
   );
 }
