@@ -137,3 +137,15 @@ path.leaflet-interactive:focus {
 .inspector .btn-danger {
   padding-block: 0.4375rem;
 }
+
+/* Leque da barra de ferramentas: cada opção abre do botão para a sua posição no arco. */
+.tool-fan-item {
+    transform: translateX(-50%);
+    animation: tool-fan-in 0.16s ease-out both;
+}
+@keyframes tool-fan-in {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) scale(0.5);
+    }
+}
