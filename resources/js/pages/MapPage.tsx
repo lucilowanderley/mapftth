@@ -40,9 +40,10 @@ import {
   Cctv,
   Video,
   Route as LaunchIcon,
+  Magnet,
 } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Circle, CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
+import { Circle, CircleMarker, MapContainer, Marker, Pane, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import { Link, useParams } from 'react-router-dom';
 import L from 'leaflet';
 import { api, errorMessage } from '../lib/api';
@@ -83,8 +84,9 @@ import { groupView, loadGroups, saveGroups } from '../lib/mapgroup';
 import { useFloatPanel } from '../lib/floatpanel';
 import PanelLock from '../components/PanelLock';
 import LaunchPanel, { type LaunchPick, type LaunchPreview } from '../components/LaunchPanel';
+import BulkFixPanel, { type BulkPreview } from '../components/BulkFixPanel';
 
-type Tool = 'select' | NodeType | 'cable' | 'launch' | 'slack' | 'ruler' | 'area' | 'viability';
+type Tool = 'select' | NodeType | 'cable' | 'launch' | 'bulkfix' | 'slack' | 'ruler' | 'area' | 'viability';
 
 const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'select', label: 'Selecionar', icon: <MousePointer2 size={18} /> },
@@ -100,6 +102,7 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   { id: 'camera', label: 'Câmera', icon: <Cctv size={18} /> },
   { id: 'cable', label: 'Cabo', icon: <CableIcon size={18} /> },
   { id: 'launch', label: 'Lançar', icon: <LaunchIcon size={18} /> },
+  { id: 'bulkfix', label: 'Fixar', icon: <Magnet size={18} /> },
   { id: 'area', label: 'Área', icon: <Pentagon size={18} /> },
   { id: 'slack', label: 'Reserva', icon: <SlackToolIcon size={18} /> },
   { id: 'ruler', label: 'Régua', icon: <Ruler size={18} /> },
@@ -111,6 +114,50 @@ const READ_TOOLS: Tool[] = ['select', 'ruler', 'viability'];
 
 
 /** Prévia do lançamento de cabo: caminho da rua, cabo planejado, postes (existentes numerados e novos) e reservas. */
+/** Prévia do Fixar em massa: linha tracejada de cada objeto até o alvo e um anel no alvo. */
+function BulkFixLayer({ preview }: { preview: BulkPreview }) {
+  const seen = new Set<string>();
+  const targets = preview.targets.filter((t) => {
+    const k = `${t[0].toFixed(7)}:${t[1].toFixed(7)}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  // Pane acima dos ícones: as distâncias são curtas e a linha ficaria escondida embaixo deles.
+  return (
+    <Pane name="bulkfix-preview" style={{ zIndex: 650, pointerEvents: 'none' }}>
+      {preview.lines.map((l, i) => (
+        <Polyline key={`l${i}`} positions={l} interactive={false} pathOptions={{ color: '#facc15', weight: 3, dashArray: '6 5', opacity: 1 }} />
+      ))}
+      {targets.slice(0, 3000).map((t, i) => (
+        <CircleMarker key={`t${i}`} center={t} radius={14} interactive={false} pathOptions={{ color: '#facc15', weight: 2.5, fill: false }} />
+      ))}
+      {preview.focus?.map((l, i) => (
+        <Polyline key={`f${i}`} positions={l} interactive={false} pathOptions={{ color: '#facc15', weight: 6, opacity: 0.9 }} />
+      ))}
+    </Pane>
+  );
+}
+
+/** Área visível do mapa (atualiza ao mover/dar zoom). */
+function ViewBounds({ onChange }: { onChange: (b: [LatLng, LatLng]) => void }) {
+  const map = useMapEvents({
+    moveend: () => report(),
+  });
+  const report = () => {
+    const b = map.getBounds();
+    onChange([
+      [b.getSouth(), b.getWest()],
+      [b.getNorth(), b.getEast()],
+    ]);
+  };
+  useEffect(() => {
+    report();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+}
+
 function LaunchLayer({ preview, nodes }: { preview: LaunchPreview; nodes: NetNode[] }) {
   const { plan, route, color } = preview;
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -195,6 +242,8 @@ export default function MapPage() {
   /** Ferramenta Lançar cabo: cliques no mapa encaminhados ao painel e o que ele desenha. */
   const [launchPick, setLaunchPick] = useState<LaunchPick | null>(null);
   const [launchPreview, setLaunchPreview] = useState<LaunchPreview | null>(null);
+  const [bulkPreview, setBulkPreview] = useState<BulkPreview | null>(null);
+  const [mapBounds, setMapBounds] = useState<[LatLng, LatLng] | null>(null);
   const [condoKind, setCondoKind] = useState<CondoKind>('buildings');
   const [cameraKind, setCameraKind] = useState<CameraKind>('ip');
   const [boxKindTool, setBoxKindTool] = useState<BoxKind>('underground');
@@ -505,8 +554,16 @@ export default function MapPage() {
     setSelection({ kind: 'node', id: n.id });
   }
 
-  const mergeCables = (updated: Cable[]) => setCables((list) => list.map((c) => updated.find((u) => u.id === c.id) ?? c));
-  const mergeNodes = (updated: NetNode[]) => setNodes((list) => list.map((n) => updated.find((u) => u.id === n.id) ?? n));
+  const mergeCables = (updated: Cable[]) => {
+    if (!updated.length) return;
+    const byId = new Map(updated.map((u) => [u.id, u]));
+    setCables((list) => list.map((c) => byId.get(c.id) ?? c));
+  };
+  const mergeNodes = (updated: NetNode[]) => {
+    if (!updated.length) return;
+    const byId = new Map(updated.map((u) => [u.id, u]));
+    setNodes((list) => list.map((n) => byId.get(n.id) ?? n));
+  };
 
   async function addNode(type: NodeType, at: LatLng, mount?: NetNode): Promise<NetNode | null> {
     try {
@@ -852,6 +909,7 @@ export default function MapPage() {
   }
 
   function nodeClicked(node: NetNode) {
+    if (tool === 'bulkfix') return;
     if (tool === 'launch') {
       setLaunchPick({ at: [node.lat, node.lng], node, t: Date.now() });
       return;
@@ -1050,7 +1108,7 @@ export default function MapPage() {
   const overlayOpen = !!(diagramNode || modal || budget || history || report || otdr);
   /** Painel à esquerda aberto (propriedades, Lançar, Viabilidade, Área): a barra de ferramentas se afasta dele. */
   const leftPanelOpen =
-    (tool === 'launch' && !readOnly) || tool === 'viability' || !!selectedArea || !!selectedNode || !!selectedCable;
+    ((tool === 'launch' || tool === 'bulkfix') && !readOnly) || tool === 'viability' || !!selectedArea || !!selectedNode || !!selectedCable;
   const deployed = nodes.filter((n) => n.status === 'deployed' || n.status === 'certified').length;
   const pct = nodes.length ? Math.round((deployed / nodes.length) * 100) : 0;
   const hint =
@@ -1058,6 +1116,8 @@ export default function MapPage() {
       ? `Clique para marcar os vértices da área (${areaDraft.length}). Enter ou "Finalizar área" conclui. Esc cancela.`
       : tool === 'launch'
         ? 'Lançar cabo: marque o início e o fim, adicione pontos de referência ou escolha os postes (clique no mapa). Esc volta para Selecionar.'
+      : tool === 'bulkfix'
+        ? 'Fixar em massa: escolha o que fixar, onde e a distância máxima. Confira as linhas amarelas e clique em Fixar. Esc volta para Selecionar.'
       : tool === 'slack'
         ? 'Clique sobre o cabo (ou no poste/caixa por onde ele passa) para posicionar a reserva técnica. Esc volta para Selecionar.'
         : tool === 'viability'
@@ -1191,6 +1251,7 @@ export default function MapPage() {
               else if (tool === 'cable') setDraft((d) => (d ? { ...d, path: [...d.path, at] } : { path: [at], from: null }));
               else if (tool === 'ruler') setRuler((r) => [...r, at]);
               else if (tool === 'slack') placeSlack(at);
+              else if (tool === 'bulkfix') return;
               else addNode(tool, at);
             }}
             onMove={setCursor}
@@ -1446,6 +1507,7 @@ export default function MapPage() {
                   eventHandlers={{
                     click: (e) => {
                       L.DomEvent.stopPropagation(e);
+                      if (tool === 'bulkfix') return;
                       setSelection({ kind: 'cable', id: c.id });
                     },
                     dragend: (e) => {
@@ -1645,6 +1707,8 @@ export default function MapPage() {
             </>
           )}
           {tool === 'launch' && launchPreview && <LaunchLayer preview={launchPreview} nodes={nodes} />}
+          {tool === 'bulkfix' && bulkPreview && <BulkFixLayer preview={bulkPreview} />}
+          {tool === 'bulkfix' && <ViewBounds onChange={setMapBounds} />}
           {ruler.length > 0 && <Polyline positions={cursor && tool === 'ruler' ? [...ruler, cursor] : ruler} pathOptions={{ color: '#f472b6', weight: 3 }} />}
         </MapContainer>
 
@@ -1675,7 +1739,7 @@ export default function MapPage() {
                   setDraft(null);
                   setAreaDraft([]);
                   if (t.id !== 'ruler') setRuler([]);
-                  if (t.id === 'viability' || t.id === 'launch') setSelection(null);
+                  if (t.id === 'viability' || t.id === 'launch' || t.id === 'bulkfix') setSelection(null);
                   // Lançar cabo escolhe postes no mapa: a camada de postes precisa estar visível.
                   if (t.id === 'launch') setVisible((v) => ({ ...v, pole: true }));
                 }}
@@ -2101,6 +2165,27 @@ export default function MapPage() {
               const r = cable.slacks?.length ?? 0;
               notify(`Cabo lançado${created.length ? ` com ${created.length} poste${created.length > 1 ? 's' : ''} novo${created.length > 1 ? 's' : ''}` : ''}${r ? ` e ${r} reserva${r > 1 ? 's' : ''} técnica${r > 1 ? 's' : ''}` : ''}.`);
             }}
+            onClose={() => setTool('select')}
+          />
+        )}
+
+        {tool === 'bulkfix' && !readOnly && (
+          <BulkFixPanel
+            projectId={projectId}
+            nodes={nodes}
+            cables={cables}
+            view={mapBounds}
+            onPreview={setBulkPreview}
+            onFocus={(lines) => {
+              const pts = lines.flat();
+              if (pts.length) mapRef.current?.fitBounds(L.latLngBounds(pts), { paddingTopLeft: [340, 60], paddingBottomRight: [40, 60], maxZoom: 19 });
+            }}
+            onApplied={(changed, changedCables, message) => {
+              mergeNodes(changed);
+              mergeCables(changedCables);
+              notify(message);
+            }}
+            onError={(m) => notify(m, 'error')}
             onClose={() => setTool('select')}
           />
         )}

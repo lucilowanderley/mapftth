@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { BulkPayload } from './bulkfix';
 import type { Activity, Area, CameraStatus, Cable, EquipmentModel, LatLng, Member, NetNode, Project, Role, Settings } from './types';
 import type { GoogleKeySource } from './basemaps';
 
@@ -101,6 +102,9 @@ export const api = {
   /** Lançamento de cabo: cria o cabo com os postes novos e as reservas fixadas nos postes. */
   launchCable: (projectId: number, data: LaunchRequest) =>
     http.post<{ cable: Cable; nodes: NetNode[] }>(`/api/projects/${projectId}/launch`, data).then((r) => r.data),
+  /** Fixar em massa (e desfazer): só posição e chaves de fixação mudam. */
+  fixBulk: (projectId: number, data: BulkPayload & { label?: string }) =>
+    http.post<{ nodes: NetNode[]; cables: Cable[] }>(`/api/projects/${projectId}/fix-bulk`, data).then((r) => r.data),
   updateCable: (id: number, data: Partial<Cable>) =>
     http.put<{ cable: Cable; nodes: NetNode[] }>(`/api/cables/${id}`, data).then((r) => r.data),
   /** Sangria: divide o cabo nas caixas dos vértices indicados. */

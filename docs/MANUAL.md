@@ -10,7 +10,7 @@ seções como consulta.
 2. [Conta e login](#2-conta-e-login)
 3. [Meus projetos](#3-meus-projetos)
 4. [A tela do mapa](#4-a-tela-do-mapa)
-5. [Adicionar POP, datacenter, torre, CEO, CTO, caixa, poste, cliente e condomínio](#5-adicionar-pop-datacenter-torre-ceo-cto-caixa-poste-cliente-e-condomínio) (inclui a [Caixa de parede ou subterrânea](#caixa-de-parede-ou-subterrânea), a [Fixação da CTO/CEO](#fixação-da-ctoceo-poste-parede-ou-caixa), os [Objetos fixados no poste/caixa e o editor do poste/caixa](#objetos-fixados-no-postecaixa-e-o-editor-do-postecaixa) e a [Câmera: IP, analógica e DVR/NVR](#câmera-ip-analógica-e-dvrnvr))
+5. [Adicionar POP, datacenter, torre, CEO, CTO, caixa, poste, cliente e condomínio](#5-adicionar-pop-datacenter-torre-ceo-cto-caixa-poste-cliente-e-condomínio) (inclui a [Caixa de parede ou subterrânea](#caixa-de-parede-ou-subterrânea), a [Fixação da CTO/CEO](#fixação-da-ctoceo-poste-parede-ou-caixa), o [Fixar em massa](#fixar-em-massa), os [Objetos fixados no poste/caixa e o editor do poste/caixa](#objetos-fixados-no-postecaixa-e-o-editor-do-postecaixa) e a [Câmera: IP, analógica e DVR/NVR](#câmera-ip-analógica-e-dvrnvr))
 6. [Desenhar e editar cabos](#6-desenhar-e-editar-cabos) (inclui as [3 formas de ligar a CTO no cabo](#ligar-a-cto-no-cabo-3-formas) e o [Lançar cabo](#lançar-cabo-com-postes-e-reservas))
 7. [Editor do POP: rack, OLT e DIO](#7-editor-do-pop-rack-olt-e-dio)
 8. [Diagrama de fusão da CEO e da CTO (splitters)](#8-diagrama-de-fusão-da-ceo-e-da-cto)
@@ -92,11 +92,11 @@ A tela tem quatro partes:
 | Onde | O que tem |
 | --- | --- |
 | **Barra lateral (esquerda)** | Nome do projeto, % implantado, seu papel, busca, menu (Meus projetos, Dashboard, Análise de rede, Relatório da rede, Tabela de postes, Equipe, Histórico, Importar KMZ/KML, Exportar KMZ, Configurações) e os totais de POPs, CEOs, CTOs, clientes e metros de cabo. |
-| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, Caixa, POP, Datacenter, Torre, Poste, Cliente, Condomínio, Câmera, Cabo, Lançar (lançar cabo), Área, Reserva, Régua, Viabilidade. |
+| **Barra de ferramentas (topo)** | Selecionar, CTO, CEO, Caixa, POP, Datacenter, Torre, Poste, Cliente, Condomínio, Câmera, Cabo, Lançar (lançar cabo), Fixar (fixar em massa), Área, Reserva, Régua, Viabilidade. |
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
 
-Quando um painel abre à esquerda do mapa (propriedades do objeto, **Lançar**, **Viabilidade** ou uma área), a barra de
+Quando um painel abre à esquerda do mapa (propriedades do objeto, **Lançar**, **Fixar**, **Viabilidade** ou uma área), a barra de
 ferramentas se afasta para a direita dele, para nunca ficar coberta; se não couber numa linha, ela quebra em duas. Ao
 fechar o painel, ela volta ao centro. Se você arrastou a barra para outro lugar, ela fica onde você deixou.
 
@@ -287,6 +287,44 @@ nele. Clicando no mapa a até 8 m de um poste ou caixa, ela também é fixada so
 CTO/CEO antigas, sem fixação, continuam funcionando normalmente, mas ganham um **ponto âmbar** no canto do ícone, um
 aviso no painel e aparecem em **Análise de rede → CTO/CEO com fixação pendente**. O botão **Salvar alterações** da
 CTO/CEO só grava depois que a fixação (e o endereço, quando pedido) estiver preenchida.
+
+### Fixar em massa
+
+A ferramenta **Fixar** (barra do mapa, ao lado de **Lançar**) fixa muitos objetos de uma vez, cada um no alvo mais
+perto. É útil depois de importar uma rede (por exemplo, a exportação do ISM), quando as CTOs, CEOs e reservas vêm
+soltas, perto dos postes, mas sem fixação. O painel à esquerda faz três perguntas:
+
+1. **O que fixar**: CTO, CEO, Reserva técnica, Câmera ou Cabo (traçado).
+2. **Onde fixar** (só aparecem os lugares que valem para o objeto escolhido):
+
+   | Objeto | Onde pode fixar |
+   | --- | --- |
+   | CTO / CEO | Poste, Caixa ou Cabo |
+   | Reserva técnica | Poste ou Caixa |
+   | Câmera | Poste ou Parede (do cliente, condomínio, POP ou datacenter mais perto) |
+   | Cabo | Poste ou Caixa: os vértices do traçado perto de um poste/caixa vão para cima dele |
+
+3. **Distância máxima** (em metros, por exemplo **10 m**): só entra quem tem um alvo a até essa distância. Os botões
+   5, 10, 20 e 50 m preenchem o campo; o máximo é 200 m.
+
+Opções:
+
+- **Trocar também os que já estão fixados**: por padrão só entram os objetos **sem fixação**; marcando, os já fixados
+  também vão para o alvo mais perto (aparecem com "(trocar)" na lista).
+- **Só na área visível do mapa**: limita ao que está na tela (aproxime o mapa no bairro que quer arrumar).
+- Para **Cabo**: **Passar também pelos postes perto do traçado** acrescenta um vértice em cada poste que fica ao lado
+  do cabo, sem vértice nele. As pontas do cabo ligadas a uma caixa (CTO, CEO, POP...) nunca mudam.
+
+**Prévia**: o painel mostra quantos serão fixados, quantos ficaram **sem alvo** dentro da distância e quantos já
+estavam fixados (ignorados). No mapa, uma **linha amarela tracejada** liga cada objeto ao alvo e um anel amarelo marca
+o alvo. Na lista, desmarque o que não quer; passe o mouse num item para destacar a linha e clique nele para ver no
+mapa. Clique em **Fixar N** (ou **Ajustar N cabos**) para gravar tudo de uma vez.
+
+O resultado é o mesmo da fixação feita um a um: no **poste** ou na **caixa** o objeto vai para a posição dele e o ícone
+se funde ao dele (os cabos ligados à CTO/CEO acompanham pela ponta); no **cabo** a CTO/CEO vai para cima do traçado;
+na **parede** a câmera fica onde está e passa a contar como instalada no imóvel. Depois de fixar, o botão **Desfazer a
+última fixação em massa** volta tudo como estava (enquanto o painel estiver aberto). A ação fica registrada no
+**Histórico** ("fixou em massa").
 
 ### Objetos fixados no poste/caixa e o editor do poste/caixa
 
@@ -1351,6 +1389,8 @@ Dica: no Google Earth, organize as pastas com nomes como *CTOs*, *CEOs*, *Postes
    em Observações como *Código de origem*.
 4. No fim aparece uma tabela com o que entrou em cada projeto e um botão **Abrir**. Se um arquivo falhar, os outros
    continuam sendo importados e o erro aparece na linha dele.
+5. Depois de importar, use a ferramenta [Fixar em massa](#fixar-em-massa) para prender de uma vez as CTOs, CEOs e
+   reservas nos postes mais perto (as que vêm do ISM chegam sem fixação, com o ponto âmbar).
 
 **Exportar** (barra lateral → **Exportar KMZ**): baixa o projeto inteiro em KMZ, com pastas por tipo e cores, para
 abrir no Google Earth.

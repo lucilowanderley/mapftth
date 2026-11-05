@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AreaController;
 use App\Http\Controllers\Api\CableController;
 use App\Http\Controllers\Api\CameraController;
 use App\Http\Controllers\Api\EquipmentModelController;
+use App\Http\Controllers\Api\FixBulkController;
 use App\Http\Controllers\Api\KmzController;
 use App\Http\Controllers\Api\LaunchController;
 use App\Http\Controllers\Api\MemberController;
@@ -47,6 +48,7 @@ Route::middleware('auth')->group(function () {
         Route::delete('/cables/{cable}', [CableController::class, 'destroy']);
         Route::post('/projects/{project}/launch/route', [LaunchController::class, 'route'])->middleware('throttle:30,1');
         Route::post('/projects/{project}/launch', [LaunchController::class, 'store']);
+        Route::post('/projects/{project}/fix-bulk', [FixBulkController::class, 'store']);
         Route::post('/cables/{cable}/split', [CableController::class, 'split']);
         Route::post('/projects/{project}/import', [KmzController::class, 'import']);
         Route::get('/projects/{project}/export', [KmzController::class, 'export']);
