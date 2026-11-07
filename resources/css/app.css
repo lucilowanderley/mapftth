@@ -168,3 +168,12 @@ path.leaflet-interactive:focus {
     stroke-opacity: 0.4;
   }
 }
+
+/* Seleção por retângulo (arrastar com Ctrl/Shift no mapa ou arrastar no fundo dos editores). */
+.marquee-box {
+  position: absolute;
+  z-index: 1200;
+  pointer-events: none;
+  border: 1.5px dashed #facc15;
+  background: rgba(250, 204, 21, 0.12);
+}

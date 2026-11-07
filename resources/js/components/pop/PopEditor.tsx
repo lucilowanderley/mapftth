@@ -82,6 +82,7 @@ import EquipmentCatalog, { useEquipmentModels } from './EquipmentCatalog';
 import { LAG_COLORS } from './ActiveFields';
 import { lagKey, mgmtPath, vlanSummary } from '../../lib/netcfg';
 import ManobraView from './ManobraView';
+import { countLabel, intersects, isMarquee, joinCounts, rectFrom, type Rect } from '../../lib/marquee';
 
 type Olt = Extract<DiagramComponent, { kind: 'olt' }>;
 type Dio = Extract<DiagramComponent, { kind: 'dio' }>;
@@ -193,7 +194,10 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   const catalog = useEquipmentModels(node.project_id);
   const history = useRef<Diagram[]>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ key?: string; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
+  const drag = useRef<{ key?: string; sx: number; sy: number; ox: number; oy: number; moved: boolean; box?: { x: number; y: number } } | null>(null);
+  /** Seleção por retângulo (Ctrl/Shift + arrastar no fundo): equipamentos e racks marcados. */
+  const [picked, setPicked] = useState<string[]>([]);
+  const [marquee, setMarquee] = useState<Rect | null>(null);
   const [panning, setPanning] = useState(false);
 
   const notify = (text: string, error = false) => setToast({ text, error });
@@ -217,6 +221,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     setDirty(true);
     setPending(null);
     setSelectedConn(null);
+    setPicked([]);
   }
 
   // ---------- Dados derivados ----------
@@ -369,6 +374,13 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
   function startDrag(e: React.PointerEvent, key?: string) {
     if (e.button !== 0) return;
     e.stopPropagation();
+    if (!key && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+      // Fundo com Ctrl/Shift: retângulo de seleção.
+      const r = canvasRef.current!.getBoundingClientRect();
+      drag.current = { box: { x: (e.clientX - r.left - view.x) / view.k, y: (e.clientY - r.top - view.y) / view.k }, sx: e.clientX, sy: e.clientY, ox: 0, oy: 0, moved: false };
+      canvasRef.current?.setPointerCapture?.(e.pointerId);
+      return;
+    }
     let ox = view.x;
     let oy = view.y;
     if (key?.startsWith('space:')) {
@@ -399,6 +411,11 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
       if (d.key) history.current = [...history.current.slice(-49), diagram];
     }
     if (!d.moved) return;
+    if (d.box) {
+      const r = canvasRef.current!.getBoundingClientRect();
+      setMarquee(rectFrom(d.box, { x: (e.clientX - r.left - view.x) / view.k, y: (e.clientY - r.top - view.y) / view.k }));
+      return;
+    }
     if (!d.key) {
       setView((v) => ({ ...v, x: d.ox + dx, y: d.oy + dy }));
       return;
@@ -427,6 +444,12 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     const d = drag.current;
     drag.current = null;
     setPanning(false);
+    if (d?.box) {
+      const r = marquee;
+      setMarquee(null);
+      if (d.moved && r && isMarquee(r)) pickInRect(r);
+      return;
+    }
     // Rack solto arrastado para cima de uma fileira: entra nela, na próxima posição livre.
     const dropped = d?.moved && d.key ? diagram.components.find((c): c is Rack => c.id === d.key && isRack(c) && !c.space) : undefined;
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -443,7 +466,47 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
     if (d && !d.moved && !d.key) {
       setPending(null);
       setSelectedConn(null);
+      setPicked([]);
     }
+  }
+
+  // ---------- Seleção múltipla ----------
+  /** Equipamentos (cards visíveis) e racks que encostam no retângulo; soma ao que já estava marcado. */
+  function pickInRect(r: Rect) {
+    const found = cards.filter((c) => intersects(r, { x: c.x, y: c.y, ...anySize(c) })).map((c) => c.id);
+    const next = [...new Set([...picked, ...found])];
+    setPending(null);
+    setSelectedConn(null);
+    setPicked(next);
+    if (!found.length) notify('Nenhum equipamento ou rack dentro do retângulo.', true);
+  }
+  function pickedSummary(ids: string[]): string {
+    const kinds = new Map<string, number>();
+    ids.forEach((id) => {
+      const c = compById.get(id);
+      if (c) kinds.set(c.kind, (kinds.get(c.kind) ?? 0) + 1);
+    });
+    const names: Record<string, [string, string]> = { dio: ['DIO', 'DIOs'], olt: ['OLT', 'OLTs'], active: ['ativo', 'ativos'], rack: ['rack', 'racks'], splitter: ['splitter', 'splitters'] };
+    return joinCounts([...kinds.entries()].map(([k, n]) => countLabel(n, ...(names[k] ?? ['item', 'itens']))));
+  }
+  /** Delete com vários marcados: pergunta uma vez. Como no excluir de um só, o que está instalado num rack excluído (e não foi marcado) fica fora do rack. */
+  function deletePicked() {
+    const ids = picked.filter((id) => compById.has(id));
+    if (!ids.length || readOnly) return;
+    const gone = new Set(ids);
+    diagram.components.forEach((x) => x.kind === 'splitter' && x.dio && gone.has(x.dio) && gone.add(x.id));
+    const rackIds = new Set(ids.filter((id) => isRack(compById.get(id)!)));
+    const loose = diagram.components.filter((x) => isPopComp(x) && x.rack && rackIds.has(x.rack) && !gone.has(x.id)).length;
+    const note = loose ? ` ${loose} equipamento(s) instalados nos racks excluídos continuam em ${node.name}, fora do rack.` : '';
+    if (!confirm(`Excluir ${ids.length} selecionados (${pickedSummary(ids)}) e as conexões deles?${note} Ctrl+Z desfaz.`)) return;
+    update((d) => ({
+      ...d,
+      components: d.components.filter((x) => !gone.has(x.id)).map((x) => (isPopComp(x) && x.rack && rackIds.has(x.rack) ? unmount(x) : x)),
+      connections: d.connections.filter((k) => !gone.has(k.a.c) && !gone.has(k.b.c)),
+    }));
+    setPicked([]);
+    setPending(null);
+    setSelectedConn(null);
   }
 
   function onWheel(e: React.WheelEvent) {
@@ -894,8 +957,10 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
         e.preventDefault();
         undo();
       }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedConn && !readOnly) removeConn(selectedConn);
+      if ((e.key === 'Delete' || e.key === 'Backspace') && picked.length && !readOnly) deletePicked();
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedConn && !readOnly) removeConn(selectedConn);
       if (e.key === 'Escape') {
+        setPicked([]);
         setPending(null);
         setSelectedConn(null);
         setVflStart(null);
@@ -1074,6 +1139,23 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
             onPatch={setPatch}
           />
         ) : (
+          <>
+          {picked.length > 0 && (
+            <div className="absolute left-1/2 top-2 z-20 -translate-x-1/2 flex items-center gap-2 rounded-lg border border-yellow-500 bg-slate-900/95 px-3 py-1.5 text-xs text-slate-200 shadow">
+              <span>
+                <b>{picked.length} selecionados</b> · {pickedSummary(picked)}
+                {!readOnly && <span className="text-slate-400"> · Delete exclui</span>}
+              </span>
+              {!readOnly && (
+                <button className="btn-danger !py-0.5 text-xs" onClick={deletePicked} title="Delete">
+                  Excluir
+                </button>
+              )}
+              <button className="btn-ghost !py-0.5 text-xs" onClick={() => setPicked([])} title="Esc">
+                Limpar
+              </button>
+            </div>
+          )}
           <div
             ref={canvasRef}
             className="absolute inset-0 overflow-hidden select-none touch-none"
@@ -1147,6 +1229,26 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
                   }),
                 )}
               </svg>
+
+              {/* Seleção por retângulo: retângulo sendo desenhado e moldura nos marcados */}
+              {marquee && (
+                <div
+                  className="absolute pointer-events-none z-[60]"
+                  style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h, border: `${1.5 / view.k}px dashed #facc15`, background: 'rgba(250,204,21,0.12)' }}
+                />
+              )}
+              {cards
+                .filter((c) => picked.includes(c.id))
+                .map((c) => {
+                  const sz = anySize(c);
+                  return (
+                    <div
+                      key={`pk-${c.id}`}
+                      className="absolute pointer-events-none z-[59] rounded-lg"
+                      style={{ left: c.x - 4, top: c.y - 4, width: sz.w + 8, height: sz.h + 8, boxShadow: '0 0 0 3px #facc15, 0 0 14px #facc1588' }}
+                    />
+                  );
+                })}
 
               {/* Cabos */}
               {cables.map((c) => {
@@ -1388,6 +1490,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
               )}
             </div>
           </div>
+          </>
         )}
 
         {toast && (

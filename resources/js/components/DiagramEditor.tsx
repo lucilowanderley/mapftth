@@ -44,6 +44,7 @@ import { Field, Modal } from './ui';
 import JointForm from './JointForm';
 import { formatDb, jointLoss, jointName, jointLossSource } from '../lib/joints';
 import { routeMembers, routeName, type RouteComp, type RouteEnv } from '../lib/route';
+import { countLabel, intersects, isMarquee, joinCounts, pointIn, rectFrom, type Rect } from '../lib/marquee';
 
 const ROW = 14;
 const HEADER = 34;
@@ -104,6 +105,14 @@ interface Port {
   /** Saída conectorizada (splitter AC APC/UPC): desenhada como conector quadrado. */
   connector?: boolean;
 }
+
+/** Vários itens marcados no diagrama: blocos (cabos, splitters, clientes, grupos...), bandejas e fusões. */
+interface Picked {
+  blocks: string[];
+  trays: string[];
+  conns: string[];
+}
+const pickedCount = (p: Picked | null) => (p ? p.blocks.length + p.trays.length + p.conns.length : 0);
 
 // Ids de componentes começam com "k" para nunca colidir com cabos ("c{id}").
 const uid = () => `k${Math.random().toString(36).slice(2, 9)}`;
@@ -288,6 +297,9 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const [view, setView] = useState({ x: 40, y: 40, k: 1 });
   const [pending, setPending] = useState<End | null>(null);
   const [selected, setSelected] = useState<{ kind: 'conn' | 'block' | 'tray'; key: string } | null>(null);
+  /** Seleção por retângulo (Ctrl/Shift + arrastar no fundo) ou Ctrl+clique: vários de uma vez. */
+  const [picked, setPicked] = useState<Picked | null>(null);
+  const [marquee, setMarquee] = useState<Rect | null>(null);
   const [dialog, setDialog] = useState<'splitter' | 'olt' | 'dio' | 'auto' | 'sangria' | 'trays' | 'trayEdit' | 'client' | null>(null);
   const [trayFocus, setTrayFocus] = useState<string | null>(null);
   /** Cliente em edição na janela de cliente (null = novo cliente). */
@@ -322,8 +334,12 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   const drag = useRef<{
     key?: string;
     lane?: string;
-    /** Rota expandida: arrasta todos os objetos do grupo juntos (posições de partida). */
-    group?: { key: string; x: number; y: number; side?: 'left' | 'right'; cable: boolean }[];
+    /** Rota expandida (ou vários selecionados): arrasta todos juntos (posições de partida). */
+    group?: { key: string; x: number; y: number; side?: 'left' | 'right'; cable: boolean; tray?: boolean }[];
+    /** Retângulo de seleção: ponto de partida no sistema do desenho. */
+    box?: { x: number; y: number };
+    /** Ctrl/Shift apertado no clique: soma/tira o objeto da seleção múltipla. */
+    mod?: boolean;
     sx: number;
     sy: number;
     ox: number;
@@ -359,6 +375,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     setDiagram(prev);
     setDirty(true);
     setSelected(null);
+    setPicked(null);
     setPending(null);
     setHistoryTick((t) => t + 1);
   }
@@ -370,6 +387,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
     setDiagram(next);
     setDirty(true);
     setSelected(null);
+    setPicked(null);
     setHistoryTick((t) => t + 1);
   }
 
@@ -615,6 +633,19 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   function onPointerDown(e: React.PointerEvent, key?: string) {
     if (e.button !== 0) return;
     e.stopPropagation();
+    const mod = e.ctrlKey || e.metaKey || e.shiftKey;
+    if (!key && mod) {
+      // Fundo com Ctrl/Shift: retângulo de seleção.
+      drag.current = { box: toWorld(e.clientX, e.clientY), sx: e.clientX, sy: e.clientY, ox: 0, oy: 0, moved: false, mod };
+      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+      return;
+    }
+    if (key && !mod && !readOnly && pickedHas(key) && pickedCount(picked) > 1) {
+      // Arrastar um dos selecionados leva todos juntos.
+      drag.current = { key, group: pickedGroup(), sx: e.clientX, sy: e.clientY, ox: 0, oy: 0, moved: false };
+      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+      return;
+    }
     const b = key ? (blocks.find((x) => x.key === key) ?? diagram.trays?.find((t) => t.id === key) ?? rotaComps.find((r) => r.id === key)) : undefined;
     const rota = key ? rotaGeo.geo.get(key) : undefined;
     const group =
@@ -624,7 +655,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
             return m ? [{ key: k, x: m.x, y: m.y, side: m.kind === 'cable' ? m.side : undefined, cable: m.kind === 'cable' }] : [];
           })
         : undefined;
-    drag.current = { key, group, sx: e.clientX, sy: e.clientY, ox: b ? b.x : view.x, oy: b ? b.y : view.y, moved: false };
+    drag.current = { key, group, sx: e.clientX, sy: e.clientY, ox: b ? b.x : view.x, oy: b ? b.y : view.y, moved: false, mod };
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
   }
 
@@ -638,6 +669,10 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       if (d.key || d.lane) remember(diagram);
     }
     if (!d.moved) return;
+    if (d.box) {
+      setMarquee(rectFrom(d.box, toWorld(e.clientX, e.clientY)));
+      return;
+    }
     if (d.lane) {
       const id = d.lane;
       const x = Math.round((d.ox + dx / view.k) / 2) * 2;
@@ -661,6 +696,10 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         return {
           ...dg,
           cablePos,
+          trays: dg.trays?.map((t) => {
+            const g = start.get(t.id);
+            return g?.tray ? { ...t, x: g.x + ox, y: g.y + oy } : t;
+          }),
           components: dg.components.map((c) => {
             const g = start.get(c.id);
             return g ? { ...c, x: g.x + ox, y: g.y + oy } : c.id === d.key ? { ...c, x: d.ox + ox, y: d.oy + oy } : c;
@@ -691,13 +730,134 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
   function onPointerUp() {
     const d = drag.current;
     drag.current = null;
+    if (d?.box) {
+      const r = marquee;
+      setMarquee(null);
+      if (d.moved && r && isMarquee(r)) pickInRect(r);
+      return;
+    }
     if (d && !d.moved && !d.lane) {
-      if (d.key) setSelected({ kind: diagram.trays?.some((t) => t.id === d.key) ? 'tray' : 'block', key: d.key });
-      else {
+      const kind = diagram.trays?.some((t) => t.id === d.key) ? 'tray' : 'block';
+      if (d.key && d.mod) togglePick(kind === 'tray' ? 'trays' : 'blocks', d.key);
+      else if (d.key) {
+        setPicked(null);
+        setSelected({ kind, key: d.key });
+      } else {
         setSelected(null);
+        setPicked(null);
         setPending(null);
       }
     }
+  }
+
+  // ---------- Seleção múltipla ----------
+  const pickedHas = (key: string) => !!picked && (picked.blocks.includes(key) || picked.trays.includes(key));
+  /** Ponto de partida de cada selecionado, para arrastar todos juntos. */
+  function pickedGroup() {
+    if (!picked) return [];
+    return [
+      ...picked.blocks.flatMap((k) => {
+        const m = blocks.find((x) => x.key === k);
+        if (m) return [{ key: k, x: m.x, y: m.y, side: m.kind === 'cable' ? m.side : undefined, cable: m.kind === 'cable' }];
+        const r = rotaComps.find((x) => x.id === k);
+        return r ? [{ key: k, x: r.x, y: r.y, cable: false }] : [];
+      }),
+      ...picked.trays.flatMap((k) => {
+        const t = diagram.trays?.find((x) => x.id === k);
+        return t ? [{ key: k, x: t.x, y: t.y, cable: false, tray: true }] : [];
+      }),
+    ];
+  }
+  /** Ctrl+clique: soma ou tira da seleção (o selecionado simples entra junto). */
+  function togglePick(kind: 'blocks' | 'trays' | 'conns', key: string) {
+    const base: Picked = picked ? { ...picked } : { blocks: [], trays: [], conns: [] };
+    if (selected && !picked) {
+      const k = selected.kind === 'conn' ? 'conns' : selected.kind === 'tray' ? 'trays' : 'blocks';
+      base[k] = [...base[k], selected.key];
+    }
+    base[kind] = base[kind].includes(key) ? base[kind].filter((x) => x !== key) : [...base[kind], key];
+    setSelected(null);
+    setPending(null);
+    setPicked(pickedCount(base) ? base : null);
+  }
+  /** Marca o que encosta no retângulo (fusões: as duas pontas dentro). Soma ao que já estava marcado. */
+  function pickInRect(r: Rect) {
+    const found: Picked = { blocks: [], trays: [], conns: [] };
+    blocks.forEach((b) => {
+      if (rotaHidden.has(b.key)) return;
+      const box = b.kind === 'splitter' ? splitterFrame(b).box : { x: b.x, y: b.y, ...blockSize(b) };
+      if (intersects(r, box)) found.blocks.push(b.key);
+    });
+    rotaGeo.geo.forEach((g) => {
+      if (!g.r.open && g.box && intersects(r, g.box)) found.blocks.push(g.r.id);
+    });
+    (diagram.trays ?? []).forEach((t) => {
+      if (intersects(r, { x: t.x, y: t.y, w: TRAY_W, h: trayHeight(t) })) found.trays.push(t.id);
+    });
+    validConnections.forEach((c) => {
+      if (rotaInternal(c)) return;
+      const a = dispPort(c, c.a);
+      const b = dispPort(c, c.b);
+      if (a && b && pointIn(r, a) && pointIn(r, b)) found.conns.push(c.id);
+    });
+    const base: Picked = picked ?? { blocks: [], trays: [], conns: [] };
+    if (selected && !picked) {
+      const k = selected.kind === 'conn' ? 'conns' : selected.kind === 'tray' ? 'trays' : 'blocks';
+      base[k] = [...base[k], selected.key];
+    }
+    const join = (x: string[], y: string[]) => [...new Set([...x, ...y])];
+    const next: Picked = { blocks: join(base.blocks, found.blocks), trays: join(base.trays, found.trays), conns: join(base.conns, found.conns) };
+    setPending(null);
+    if (pickedCount(next) === 1) {
+      setPicked(null);
+      setSelected(next.conns.length ? { kind: 'conn', key: next.conns[0] } : next.trays.length ? { kind: 'tray', key: next.trays[0] } : { kind: 'block', key: next.blocks[0] });
+      return;
+    }
+    setSelected(null);
+    setPicked(pickedCount(next) ? next : null);
+  }
+  /** "2 splitters, 1 bandeja e 14 fusões". */
+  function pickedSummary(p: Picked): string {
+    const kinds = new Map<string, number>();
+    p.blocks.forEach((k) => {
+      const b = blocks.find((x) => x.key === k);
+      const label = rotaComps.some((x) => x.id === k) ? 'grupo' : !b ? '' : b.kind === 'cable' ? (b.client ? 'drop' : 'cabo') : b.kind;
+      if (label) kinds.set(label, (kinds.get(label) ?? 0) + 1);
+    });
+    const names: Record<string, [string, string]> = {
+      cabo: ['cabo', 'cabos'],
+      drop: ['drop', 'drops'],
+      splitter: ['splitter', 'splitters'],
+      client: ['cliente', 'clientes'],
+      olt: ['OLT', 'OLTs'],
+      dio: ['DIO', 'DIOs'],
+      active: ['ativo', 'ativos'],
+      grupo: ['grupo', 'grupos'],
+    };
+    const parts = [...kinds.entries()].map(([k, n]) => countLabel(n, ...(names[k] ?? [k, k])));
+    if (p.trays.length) parts.push(countLabel(p.trays.length, 'bandeja', 'bandejas'));
+    if (p.conns.length) parts.push(countLabel(p.conns.length, 'fusão/passagem', 'fusões/passagens'));
+    return joinCounts(parts);
+  }
+  /** Delete com vários marcados: pergunta uma vez. Cabos e drops do mapa não são excluídos aqui, só as fusões deles nesta caixa. */
+  function removePicked() {
+    if (!picked) return;
+    const cableKeys = new Set(picked.blocks.filter((k) => blocks.some((b) => b.key === k && b.kind === 'cable')));
+    const comps = new Set(picked.blocks.filter((k) => diagram.components.some((c) => c.id === k)));
+    const ends = new Set([...cableKeys, ...comps]);
+    const conns = new Set(picked.conns);
+    const total = pickedCount(picked);
+    const note = cableKeys.size ? ' Dos cabos selecionados saem só as fusões nesta caixa (o cabo continua no mapa).' : '';
+    if (!confirm(`Apagar ${total} itens selecionados (${pickedSummary(picked)})?${note} Ctrl+Z desfaz.`)) return;
+    const trayIds = new Set(picked.trays);
+    update((d) => ({
+      ...d,
+      components: d.components.filter((c) => !comps.has(c.id)),
+      trays: d.trays ? d.trays.filter((t) => !trayIds.has(t.id)) : d.trays,
+      connections: d.connections.filter((c) => !conns.has(c.id) && !ends.has(c.a.c) && !ends.has(c.b.c)),
+    }));
+    setPicked(null);
+    setSelected(null);
   }
 
   function onWheel(e: React.WheelEvent) {
@@ -996,7 +1156,10 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
         return;
       }
       if (mod) return;
-      if (e.key === 'Delete' || e.key === 'Backspace') removeSelected();
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (picked) removePicked();
+        else removeSelected();
+      }
       else if (e.key === 'r' || e.key === 'R') rotateSelected();
       else if (e.key === 'f' || e.key === 'F') setTool('fuse');
       else if (e.key === 'p' || e.key === 'P') setTool('pass');
@@ -1015,6 +1178,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       if (e.key === 'Escape') {
         setPending(null);
         setSelected(null);
+        setPicked(null);
         setShowHelp(false);
       }
     };
@@ -1282,8 +1446,8 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   ? 'Desfazer o grupo (Delete): os objetos continuam no diagrama'
                   : 'Apagar o selecionado (Delete)'
           }
-          onClick={removeSelected}
-          disabled={!selected}
+          onClick={() => (picked ? removePicked() : removeSelected())}
+          disabled={!selected && !picked}
           danger
         />
         <IconTool icon={<Eraser size={16} />} label="Limpar todas as emendas e passagens" onClick={clearConnections} disabled={!validConnections.length} danger />
@@ -1304,6 +1468,22 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
 
       {/* Canvas */}
       <div className="relative flex-1 min-h-0">
+        {picked && (
+          <div className="absolute left-1/2 bottom-3 z-10 -translate-x-1/2 flex items-center gap-2 rounded-lg border border-yellow-500 bg-white/95 px-3 py-1.5 text-xs text-slate-700 shadow">
+            <span>
+              <b>{pickedCount(picked)} selecionados</b> · {pickedSummary(picked)}
+              {!readOnly && <span className="text-slate-500"> · arraste um deles para mover todos · Delete apaga</span>}
+            </span>
+            {!readOnly && (
+              <button className="rounded bg-red-600 px-2 py-0.5 font-medium text-white hover:bg-red-500 cursor-pointer" onClick={removePicked} title="Delete">
+                Apagar
+              </button>
+            )}
+            <button className="rounded border border-slate-300 px-2 py-0.5 hover:bg-slate-100 cursor-pointer" onClick={() => setPicked(null)} title="Esc">
+              Limpar
+            </button>
+          </div>
+        )}
         <svg
           ref={svgRef}
           className="w-full h-full select-none touch-none"
@@ -1346,7 +1526,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                 const color = cablePort?.color ?? '#334155';
                 const pts = routes.get(c.id);
                 const d = pts ? polylinePath(pts) : curvePath(a, b);
-                const isSel = selected?.kind === 'conn' && selected.key === c.id;
+                const isSel = (selected?.kind === 'conn' && selected.key === c.id) || !!picked?.conns.includes(c.id);
                 // Emenda desenhada sobre a fibra, perto da ponta do cabo (fibras vizinhas ficam em coluna).
                 const splice = !c.pass ? (pts ? spliceAnchor(pts, aCable || !cablePort ? 'a' : 'b') : { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, vertical: false }) : null;
                 return (
@@ -1356,6 +1536,8 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (e.ctrlKey || e.metaKey || e.shiftKey) return togglePick('conns', c.id);
+                      setPicked(null);
                       setSelected({ kind: 'conn', key: c.id });
                     }}
                     onDoubleClick={(e) => {
@@ -1453,7 +1635,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   key={b.key}
                   showTubes={trays.length > 0}
                   block={b}
-                  selected={selected?.kind === 'block' && selected.key === b.key}
+                  selected={(selected?.kind === 'block' && selected.key === b.key) || pickedHas(b.key)}
                   onPointerDown={(e) => onPointerDown(e, b.key)}
                   power={isClientBlock(b) ? clientPower.get(b.key) : undefined}
                   signal={isClientBlock(b) ? clientSignal.get(b.key) : undefined}
@@ -1494,7 +1676,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                       })
                       .filter(Boolean)
                       .join(' + ')}
-                    selected={selected?.kind === 'tray' && selected.key === t.id}
+                    selected={(selected?.kind === 'tray' && selected.key === t.id) || pickedHas(t.id)}
                     onPointerDown={(e) => onPointerDown(e, t.id)}
                     onDoubleClick={() => {
                       setTrayFocus(t.id);
@@ -1511,7 +1693,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                 const b = portOf(c.b)!;
                 const left = a.dir < 0 ? a : b;
                 const d = polylinePath(pts);
-                const isSel = selected?.kind === 'conn' && selected.key === c.id;
+                const isSel = (selected?.kind === 'conn' && selected.key === c.id) || !!picked?.conns.includes(c.id);
                 const crossed = a.dir !== b.dir && Math.abs(a.y - b.y) > 0.5;
                 const sp = !c.pass ? spliceAnchor(pts, left === a ? 'a' : 'b', 30) : null;
                 return (
@@ -1521,6 +1703,8 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (e.ctrlKey || e.metaKey || e.shiftKey) return togglePick('conns', c.id);
+                      setPicked(null);
                       setSelected({ kind: 'conn', key: c.id });
                     }}
                     onDoubleClick={(e) => {
@@ -1553,11 +1737,27 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                     ports={[...g.ports.values()]}
                     from={rotaFrom(g.r)}
                     summary={rotaSummary(g.members)}
-                    selected={selected?.kind === 'block' && selected.key === g.r.id}
+                    selected={(selected?.kind === 'block' && selected.key === g.r.id) || pickedHas(g.r.id)}
                     onPointerDown={(e) => onPointerDown(e, g.r.id)}
                     onToggle={() => toggleRota(g.r.id)}
                   />
                 ),
+              )}
+
+              {/* Retângulo de seleção (Ctrl/Shift + arrastar no fundo) */}
+              {marquee && (
+                <rect
+                  x={marquee.x}
+                  y={marquee.y}
+                  width={marquee.w}
+                  height={marquee.h}
+                  fill="#facc15"
+                  fillOpacity={0.12}
+                  stroke="#ca8a04"
+                  strokeWidth={1.5 / view.k}
+                  strokeDasharray={`${6 / view.k} ${4 / view.k}`}
+                  pointerEvents="none"
+                />
               )}
 
               {/* Portas */}
@@ -1883,6 +2083,8 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
                   ['R', 'Girar o selecionado'],
                   ['Ctrl+D', 'Duplicar splitter'],
                   ['Delete', 'Apagar o selecionado'],
+                  ['Ctrl/Shift + arrastar', 'Selecionar vários (retângulo no fundo)'],
+                  ['Ctrl + clique', 'Somar ou tirar da seleção'],
                   ['Ctrl+Z / Ctrl+Y', 'Desfazer / refazer'],
                   ['Esc', 'Cancelar seleção'],
                   ['Roda do mouse', 'Zoom'],

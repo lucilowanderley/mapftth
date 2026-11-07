@@ -10,6 +10,7 @@ import type { Cable, NetNode, NodeType, PoleAttributes, Slack, SlackKind } from 
 import { IconTool, Sep } from './DiagramEditor';
 import { nodeGlyph } from './markers';
 import { formatLength } from './ui';
+import { countLabel, intersects, isMarquee, joinCounts, rectFrom, type Rect } from '../lib/marquee';
 
 /** Objetos soltos até essa distância (m) aparecem como "perto do poste/caixa", para fixar nele. */
 const NEAR_M = 15;
@@ -37,6 +38,8 @@ interface Props {
   onSlacksChange: (cable: Cable, slacks: Slack[], message: string) => void;
   /** Abre o painel do cabo/drop no mapa (duplo clique no rótulo). */
   onEditCable?: (cable: Cable) => void;
+  /** Exclui vários objetos fixados de uma vez (seleção por retângulo + Delete). */
+  onDeleteMany?: (ids: number[]) => Promise<void>;
   /** Sangria do cabo aqui: numa CTO/CEO fixada, na própria caixa ou numa CTO/CEO nova (tipo). */
   onSangria?: (option: SangriaOption, target: NetNode | NodeType) => Promise<NetNode | null>;
 }
@@ -45,7 +48,7 @@ interface Props {
  * Editor do poste / da caixa: tudo o que está fixado nele (CTO, CEO, câmera), as reservas técnicas
  * guardadas ali e os cabos que passam, com uma barra de ferramentas para implantar novos objetos.
  */
-export default function HostEditor({ host, nodes, cables, readOnly, covered, onClose, onAdd, onAnchor, onOpen, onOpenDiagram, onEditHost, onSlacksChange, onEditCable, onSangria }: Props) {
+export default function HostEditor({ host, nodes, cables, readOnly, covered, onClose, onAdd, onAnchor, onOpen, onOpenDiagram, onEditHost, onSlacksChange, onEditCable, onDeleteMany, onSangria }: Props) {
   const isPole = host.type === 'pole';
   const children = attachedTo(host, nodes);
   const ids = children.map((c) => c.id);
@@ -69,7 +72,26 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
       else next.add(key);
       return next;
     });
+  /** Seleção por retângulo (arrastar no fundo) ou Ctrl+clique: chaves "n{id}" (objeto) e "s{cabo}-{reserva}". */
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  const [marquee, setMarquee] = useState<Rect | null>(null);
+  const areaRef = useRef<HTMLDivElement>(null);
+  /** Ctrl/Shift no último clique (os ícones não repassam o evento) e arrasto recém-terminado (não limpa no clique). */
+  const modDown = useRef(false);
+  const justBoxed = useRef(false);
   const itemClick = (key: string, select: Sel) => {
+    if (modDown.current) {
+      setPicked((p) => {
+        const next = new Set(p);
+        if (!p.size && sel) next.add(sel.kind === 'node' ? `n${sel.id}` : `s${sel.cable}-${sel.id}`);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+      setSel(null);
+      return;
+    }
+    setPicked(new Set());
     setSel(select);
     window.clearTimeout(clickTimer.current);
     clickTimer.current = window.setTimeout(() => toggle(key), 230);
@@ -108,15 +130,107 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || covered) return;
+      if (covered) return;
       if ((e.target as HTMLElement).closest('input,textarea,select')) return;
-      if (sangriaForm) setSangriaForm(null);
+      if (e.key === 'Delete' && picked.size && !readOnly) {
+        e.preventDefault();
+        deletePicked();
+        return;
+      }
+      if (e.key !== 'Escape') return;
+      if (picked.size) setPicked(new Set());
+      else if (sangriaForm) setSangriaForm(null);
       else if (slackForm) setSlackForm(null);
       else onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [slackForm, sangriaForm, onClose, covered]);
+  });
+
+  // Objeto que saiu do poste/caixa (excluído, solto) sai da seleção.
+  const pickable = new Set([...children.map((n) => `n${n.id}`), ...slacks.map(({ cable, slack }) => `s${cable.id}-${slack.id}`), ...onCable.map((it) => (it.kind === 'node' ? `n${it.node.id}` : `s${it.cable.id}-${it.slack.id}`))]);
+  const pickedNow = [...picked].filter((k) => pickable.has(k));
+
+  /** Arrastar no fundo desenha o retângulo; ao soltar, marca o que encosta nele (Ctrl/Shift soma ao que já estava). */
+  function startMarquee(e: React.MouseEvent) {
+    modDown.current = e.ctrlKey || e.metaKey || e.shiftKey;
+    if (e.button !== 0 || (e.target as HTMLElement).closest('[data-pick],button,input,select,textarea,label,a')) return;
+    const area = areaRef.current;
+    if (!area) return;
+    const add = modDown.current;
+    const start = { x: e.clientX, y: e.clientY };
+    let rect: Rect | null = null;
+    const toArea = (r: Rect) => {
+      const b = area.getBoundingClientRect();
+      return { x: r.x - b.left + area.scrollLeft, y: r.y - b.top + area.scrollTop, w: r.w, h: r.h };
+    };
+    const move = (ev: MouseEvent) => {
+      const r = rectFrom(start, { x: ev.clientX, y: ev.clientY });
+      if (!rect && !isMarquee(r)) return;
+      rect = r;
+      setMarquee(toArea(r));
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      setMarquee(null);
+      if (!rect) return;
+      justBoxed.current = true;
+      setTimeout(() => (justBoxed.current = false), 0);
+      const r = rect;
+      const found = [...area.querySelectorAll<HTMLElement>('[data-pick]')]
+        .filter((el) => {
+          const b = el.getBoundingClientRect();
+          return intersects(r, { x: b.left, y: b.top, w: b.width, h: b.height });
+        })
+        .map((el) => el.dataset.pick!);
+      const next = new Set(add ? [...pickedNow, ...found] : found);
+      if (add && sel) next.add(sel.kind === 'node' ? `n${sel.id}` : `s${sel.cable}-${sel.id}`);
+      if (next.size === 1) {
+        const k = [...next][0];
+        setPicked(new Set());
+        const sk = slacks.find(({ cable, slack }) => `s${cable.id}-${slack.id}` === k);
+        setSel(k.startsWith('n') ? { kind: 'node', id: Number(k.slice(1)) } : sk ? { kind: 'slack', cable: sk.cable.id, id: sk.slack.id } : null);
+        return;
+      }
+      setSel(null);
+      setPicked(next);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+    e.preventDefault();
+  }
+
+  /** Reservas e objetos marcados, prontos para excluir. */
+  const pickedNodes = nodes.filter((n) => pickedNow.includes(`n${n.id}`));
+  const allSlacks = [...slacks, ...onCable.flatMap((it) => (it.kind === 'slack' ? [{ cable: it.cable, slack: it.slack }] : []))];
+  const pickedSlacks = allSlacks.filter(({ cable, slack }) => pickedNow.includes(`s${cable.id}-${slack.id}`));
+  function pickedSummary(): string {
+    const byType = new Map<NodeType, number>();
+    pickedNodes.forEach((n) => byType.set(n.type, (byType.get(n.type) ?? 0) + 1));
+    const parts = [...byType.entries()].map(([t, k]) => countLabel(k, NODE_TYPES[t].label, NODE_TYPES[t].plural));
+    if (pickedSlacks.length) parts.push(countLabel(pickedSlacks.length, 'reserva', 'reservas'));
+    return joinCounts(parts);
+  }
+  /** Delete com vários marcados: pergunta uma vez e exclui objetos e reservas. */
+  async function deletePicked() {
+    const total = pickedNodes.length + pickedSlacks.length;
+    if (!total || readOnly) return;
+    if (pickedNodes.length && !onDeleteMany) return;
+    const what = pickedNodes.some((n) => n.type === 'cto' || n.type === 'ceo') ? ' As fusões e splitters das CTO/CEO excluídas saem junto.' : '';
+    if (!confirm(`Excluir ${total === 1 ? 'o item selecionado' : `os ${total} itens selecionados`} (${pickedSummary()})?${what}`)) return;
+    const byCable = new Map<number, { cable: Cable; ids: Set<string> }>();
+    pickedSlacks.forEach(({ cable, slack }) => {
+      const g = byCable.get(cable.id) ?? { cable, ids: new Set<string>() };
+      g.ids.add(slack.id);
+      byCable.set(cable.id, g);
+    });
+    setPicked(new Set());
+    setSel(null);
+    for (const { cable, ids } of byCable.values())
+      onSlacksChange(cable, (cable.slacks ?? []).filter((r) => !ids.has(r.id)), `${countLabel(ids.size, 'reserva removida', 'reservas removidas')} de ${cable.name}`);
+    if (pickedNodes.length) await onDeleteMany!(pickedNodes.map((n) => n.id));
+  }
 
   async function add(type: NodeType) {
     const n = await onAdd(type);
@@ -197,9 +311,10 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
       node={n}
       nodes={nodes}
       cables={cables}
-      selected={sel?.kind === 'node' && sel.id === n.id}
+      pick={`n${n.id}`}
+      selected={(sel?.kind === 'node' && sel.id === n.id) || picked.has(`n${n.id}`)}
       readOnly={readOnly}
-      onSelect={() => setSel({ kind: 'node', id: n.id })}
+      onSelect={() => itemClick(`n${n.id}`, { kind: 'node', id: n.id })}
       onOpen={() => onOpen(n)}
       onAnchor={(on) => onAnchor(n, on)}
     />
@@ -209,9 +324,10 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
       key={`${cable.id}-${slack.id}`}
       cable={cable}
       slack={slack}
-      selected={sel?.kind === 'slack' && sel.cable === cable.id && sel.id === slack.id}
+      pick={`s${cable.id}-${slack.id}`}
+      selected={(sel?.kind === 'slack' && sel.cable === cable.id && sel.id === slack.id) || picked.has(`s${cable.id}-${slack.id}`)}
       readOnly={readOnly}
-      onSelect={() => setSel({ kind: 'slack', cable: cable.id, id: slack.id })}
+      onSelect={() => itemClick(`s${cable.id}-${slack.id}`, { kind: 'slack', cable: cable.id, id: slack.id })}
       onRemove={() => removeSlack(cable, slack.id)}
     />
   ));
@@ -368,10 +484,34 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
 
       {/* Área de desenho */}
       <div
-        className="relative flex-1 min-h-0 overflow-auto text-slate-800"
+        ref={areaRef}
+        className="relative flex-1 min-h-0 overflow-auto text-slate-800 select-none"
         style={{ background: '#f1f5f9', backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)', backgroundSize: '20px 20px' }}
-        onClick={() => setSel(null)}
+        onMouseDownCapture={(e) => (modDown.current = e.ctrlKey || e.metaKey || e.shiftKey)}
+        onMouseDown={startMarquee}
+        onClick={() => {
+          if (justBoxed.current) return;
+          setSel(null);
+          setPicked(new Set());
+        }}
       >
+        {marquee && <div className="marquee-box" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />}
+        {pickedNow.length > 1 && (
+          <div className="sticky top-2 z-20 mx-auto flex w-max items-center gap-2 rounded-lg border border-yellow-500 bg-white/95 px-3 py-1.5 text-xs text-slate-700 shadow" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+            <span>
+              <b>{pickedNow.length} selecionados</b> · {pickedSummary()}
+              {!readOnly && <span className="text-slate-500"> · Delete exclui</span>}
+            </span>
+            {!readOnly && (
+              <button className="rounded bg-red-600 px-2 py-0.5 font-medium text-white hover:bg-red-500 cursor-pointer" onClick={deletePicked} title="Delete">
+                Excluir
+              </button>
+            )}
+            <button className="rounded border border-slate-300 px-2 py-0.5 hover:bg-slate-100 cursor-pointer" onClick={() => setPicked(new Set())} title="Esc">
+              Limpar
+            </button>
+          </div>
+        )}
         {isPole ? (
           <PoleView
             host={host}
@@ -382,6 +522,7 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
             slacks={slacks}
             dropsOf={dropsOf}
             sel={sel}
+            picked={picked}
             open={open}
             readOnly={readOnly}
             onItemClick={itemClick}
@@ -397,7 +538,8 @@ export default function HostEditor({ host, nodes, cables, readOnly, covered, onC
                 node={n}
                 nodes={nodes}
                 cables={cables}
-                selected={sel?.kind === 'node' && sel.id === n.id}
+                pick={`n${n.id}`}
+                selected={(sel?.kind === 'node' && sel.id === n.id) || picked.has(`n${n.id}`)}
                 readOnly={readOnly}
                 onSelect={() => itemClick(`n${n.id}`, { kind: 'node', id: n.id })}
                 onOpen={() => itemDouble(() => onOpen(n))}
@@ -467,6 +609,7 @@ function ObjectCard({
   node: n,
   nodes,
   cables,
+  pick,
   selected,
   readOnly,
   onSelect,
@@ -477,6 +620,8 @@ function ObjectCard({
   node: NetNode;
   nodes: NetNode[];
   cables: Cable[];
+  /** Chave para a seleção por retângulo. */
+  pick?: string;
   selected: boolean;
   readOnly?: boolean;
   onSelect: () => void;
@@ -507,6 +652,7 @@ function ObjectCard({
   const health = n.type === 'camera' && n.attributes?.cam_kind !== 'dvr' ? cameraHealth(cameraOf(n).cam_status) : null;
   return (
     <div
+      data-pick={pick}
       className={`w-64 rounded-lg border bg-white shadow-sm cursor-pointer select-none ${selected ? 'ring-2 ring-emerald-500 border-emerald-500' : 'border-slate-300'}`}
       onClick={(e) => {
         e.stopPropagation();
@@ -573,6 +719,7 @@ function ObjectCard({
 function SlackCard({
   cable,
   slack,
+  pick,
   selected,
   readOnly,
   onSelect,
@@ -582,6 +729,7 @@ function SlackCard({
 }: {
   cable: Cable;
   slack: Slack;
+  pick?: string;
   selected: boolean;
   readOnly?: boolean;
   onSelect: () => void;
@@ -591,6 +739,7 @@ function SlackCard({
 }) {
   return (
     <div
+      data-pick={pick}
       className={`w-64 rounded-lg border bg-white shadow-sm cursor-pointer select-none ${selected ? 'ring-2 ring-emerald-500 border-emerald-500' : 'border-slate-300'}`}
       onClick={(e) => {
         e.stopPropagation();
@@ -703,10 +852,11 @@ function CoilGlyph({ kind, color, size }: { kind: SlackKind; color: string; size
 }
 
 /** Ícone recolhido de um objeto (como os equipamentos no rack): clique abre o cartão, duplo clique o editor. */
-function ObjIcon({ glyph, name, sub, selected, onClick, onDouble, title }: { glyph: React.ReactNode; name: string; sub?: string; selected: boolean; onClick: () => void; onDouble: () => void; title: string }) {
+function ObjIcon({ glyph, name, sub, selected, onClick, onDouble, title, pick }: { glyph: React.ReactNode; name: string; sub?: string; selected: boolean; onClick: () => void; onDouble: () => void; title: string; pick?: string }) {
   return (
     <button
       type="button"
+      data-pick={pick}
       title={title}
       className="group flex flex-col items-center gap-0.5 cursor-pointer select-none"
       onClick={(e) => {
@@ -736,6 +886,8 @@ interface PoleViewProps {
   slacks: { cable: Cable; slack: Slack }[];
   dropsOf: (n: NetNode) => Cable[];
   sel: Sel;
+  /** Marcados pela seleção por retângulo. */
+  picked: Set<string>;
   open: Set<string>;
   readOnly?: boolean;
   onItemClick: (key: string, sel: Sel) => void;
@@ -768,8 +920,8 @@ function PoleView(p: PoleViewProps) {
 
   const slackKey = (c: Cable, r: Slack) => `s${c.id}-${r.id}`;
   const slackSel = (c: Cable, r: Slack): Sel => ({ kind: 'slack', cable: c.id, id: r.id });
-  const isSlackSel = (c: Cable, r: Slack) => sel?.kind === 'slack' && sel.cable === c.id && sel.id === r.id;
-  const isNodeSel = (n: NetNode) => sel?.kind === 'node' && sel.id === n.id;
+  const isSlackSel = (c: Cable, r: Slack) => (sel?.kind === 'slack' && sel.cable === c.id && sel.id === r.id) || p.picked.has(slackKey(c, r));
+  const isNodeSel = (n: NetNode) => (sel?.kind === 'node' && sel.id === n.id) || p.picked.has(`n${n.id}`);
 
   const nodeItem = (n: NetNode, sub?: string) =>
     open.has(`n${n.id}`) ? (
@@ -779,6 +931,7 @@ function PoleView(p: PoleViewProps) {
         glyph={nodeGlyphEl(n)}
         name={n.name}
         sub={sub}
+        pick={`n${n.id}`}
         selected={isNodeSel(n)}
         title={`${NODE_TYPES[n.type].label} ${n.name}: clique para abrir o cartão, duplo clique para ${n.type === 'camera' ? 'abrir a câmera' : 'abrir o diagrama de fusão'}`}
         onClick={() => p.onItemClick(`n${n.id}`, { kind: 'node', id: n.id })}
@@ -790,6 +943,7 @@ function PoleView(p: PoleViewProps) {
       <SlackCard
         cable={c}
         slack={r}
+        pick={slackKey(c, r)}
         selected={isSlackSel(c, r)}
         readOnly={p.readOnly}
         onSelect={() => p.onItemClick(slackKey(c, r), slackSel(c, r))}
@@ -802,6 +956,7 @@ function PoleView(p: PoleViewProps) {
         glyph={<CoilGlyph kind={r.kind} color={c.color} size={28} />}
         name={`Reserva ${r.length_m} m`}
         sub={sub ?? c.name}
+        pick={slackKey(c, r)}
         selected={isSlackSel(c, r)}
         title={`Reserva técnica de ${r.length_m} m em ${c.name}: clique para abrir o cartão, duplo clique para editar o cabo`}
         onClick={() => p.onItemClick(slackKey(c, r), slackSel(c, r))}
