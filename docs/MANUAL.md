@@ -440,6 +440,12 @@ A **barra de ferramentas** só mostra o que pode ser implantado naquele suporte:
 O botão fica apagado quando não há cabo para sangria ali. Se os trechos já tiverem emendas no diagrama da caixa,
 desfaça-as antes de passar a sangria para uma CTO/CEO dentro dela.
 
+**Selecionar vários no editor do poste/caixa**: **arraste** o mouse num espaço vazio do desenho para marcar, com um
+retângulo, as CTOs, CEOs, câmeras e reservas que ele tocar (Ctrl/Shift + arrastar soma à seleção; **Ctrl+clique**
+num ícone ou cartão soma ou tira só ele). Aparece no alto **N selecionados** com **Excluir** e **Limpar**. **Delete**
+(ou **Excluir**) pergunta uma vez e exclui tudo: as CTOs/CEOs/câmeras saem do mapa (com as fusões e splitters delas)
+e as reservas saem dos cabos. **Esc** limpa a seleção.
+
 **Esc** fecha o editor (ou a faixa da sangria, se estiver aberta).
 
 **Datacenter**
@@ -561,6 +567,32 @@ acesso de consulta.
 sem objeto pai, com o ponto âmbar de "sem fixação"); as reservas dos cabos que estavam presas nele passam a ficar só
 no cabo. Ao excluir um cabo, as CTOs/CEOs fixadas nele também ficam sem fixação. A pergunta de confirmação avisa
 quantos objetos fixados vão ficar soltos. Depois é só fixá-los em outro poste ou caixa.
+
+### Selecionar vários arrastando o mouse
+
+Com **Selecionar**, segure **Ctrl** (ou **Shift**) e **arraste** o mouse no mapa: aparece um retângulo amarelo
+tracejado. Ao soltar, ficam selecionados (com destaque amarelo) os objetos visíveis dentro dele:
+
+- **Postes, caixas, CTOs, CEOs, câmeras, clientes, POPs** etc.: basta o ícone estar dentro do retângulo. As
+  CTOs/CEOs fixadas num poste ou numa caixa entram junto quando o ícone do poste/caixa está dentro.
+- **Cabos, dutos e áreas**: só entram quando o traçado **inteiro** está dentro do retângulo (assim um cabo longo que
+  só cruza a área não é pego sem querer).
+- Camadas desligadas e objetos escondidos por um grupo não entram.
+
+Arrastar outro retângulo com Ctrl/Shift **soma** à seleção (o objeto que já estava selecionado com um clique também
+entra). Se só um objeto cair no retângulo, ele vira a seleção normal e o painel de propriedades abre. Sem Ctrl/Shift,
+arrastar continua movendo o mapa, e **Ctrl+clique** num cabo ou duto continua indo para o **Unir**.
+
+No rodapé aparece **N selecionados** com o resumo (ex.: *3 CTO, 2 Postes e 4 cabos*) e os botões **Excluir** e
+**Limpar**. **Esc**, clicar no mapa vazio, clicar num objeto ou trocar de ferramenta limpa a seleção.
+
+**Excluir todos de uma vez**: aperte **Delete** (ou **Excluir** no rodapé). Aparece uma única barra vermelha
+**Excluir os N objetos selecionados (...)?** no meio da seleção; **Enter** (ou **Excluir**) apaga tudo e **Esc**
+desiste. As mesmas regras do Delete de um objeto só valem aqui: as fusões dos cabos excluídos saem das caixas, e o
+que estava **fixado** num poste, caixa ou cabo excluído **e não foi selecionado** fica sem fixação (a pergunta avisa
+quantos). Compartilhados saem só deste projeto, a não ser que este seja o projeto de origem. Se algum objeto não puder
+ser excluído, os outros são excluídos e o aviso mostra quantos deram erro. Quem só tem acesso de consulta pode
+selecionar, mas não excluir.
 
 ### Mesmo objeto em mais de um projeto (compartilhado)
 
@@ -1165,6 +1197,12 @@ Há três jeitos:
    escolher a **porta PON** (ou porta de ativo) e a **potência** em dBm. Em cada OLT aparecem as PON em uso e os
    uplinks, com a lista para ligá-los aos ativos.
 
+**Selecionar vários equipamentos**: no canvas, segure **Ctrl** (ou **Shift**) e **arraste** num espaço vazio. Os
+cards de equipamento (DIO, OLT, ativos) e os racks que o retângulo tocar ficam com uma moldura amarela, e aparece no
+alto **N selecionados** com **Excluir** e **Limpar** (outro retângulo soma). **Delete** (ou **Excluir**) pergunta uma
+vez e exclui todos com os cordões e conexões deles. Como no excluir de um rack só, o equipamento instalado num rack
+excluído que não foi marcado continua no POP, fora do rack. **Ctrl+Z** desfaz; **Esc** ou clique no fundo limpa.
+
 **Traço VFL**
 
 Clique em **Traço VFL** (o botão fica vermelho) e depois em qualquer porta. O caminho da luz acende em vermelho: as
@@ -1199,13 +1237,21 @@ como um bloco (*de POP...* / *para CTO...*), com as fibras nas cores ABNT.
 | camadas | **Bandejas** (B) | Cria as bandejas de emenda da caixa e vincula os tubos loose dos cabos a cada uma (veja abaixo). |
 | ↻ | **Girar** (R) | Splitter: gira **90°** a cada clique (entrada à esquerda, em cima, à direita, embaixo). Cabo: passa para o outro lado. Cliente: a porta troca de lado. |
 | ⧉ | **Duplicar** (Ctrl+D) | Cria uma cópia do splitter selecionado. |
-| lixeira | **Apagar** (Delete) | Apaga a emenda, o splitter ou as emendas do cabo selecionado. |
+| lixeira | **Apagar** (Delete) | Apaga a emenda, o splitter ou as emendas do cabo selecionado (ou tudo o que estiver marcado). |
 | borracha | **Limpar** | Apaga todas as emendas e passagens da caixa (pede confirmação; dá para desfazer). |
 | grade | **Organizar** | Cabos de entrada à esquerda, de saída à direita (lado a lado) e splitters numa fileira acima. |
 | curva | **Rotas** | Alterna as fibras entre **ângulo reto** (padrão) e **curvas**. A escolha fica salva no navegador. |
 | pulso | **Potência** | Mostra ou esconde a potência (dBm) nas saídas dos splitters. |
 | teclado | **Atalhos** (?) | Mostra a lista de atalhos do teclado. |
 | PNG | **PNG** | Exporta o unifilar da caixa. |
+
+**Selecionar vários no diagrama**: segure **Ctrl** (ou **Shift**) e **arraste** num espaço vazio do fundo. O
+retângulo marca os cabos, drops, splitters, clientes, grupos recolhidos e bandejas que ele tocar, e as fusões com as
+duas pontas dentro dele. **Ctrl+clique** num bloco ou numa fusão soma ou tira só ele. Aparece no alto **N
+selecionados** com **Apagar** e **Limpar**. **Arrastar um dos marcados move todos juntos.** **Delete** (ou
+**Apagar**) pergunta uma vez e apaga tudo: splitters, clientes, bandejas e fusões saem do diagrama; dos **cabos**
+marcados saem só as fusões nesta caixa (o cabo continua no mapa; para excluir o cabo use o Delete nele sozinho).
+**Ctrl+Z** desfaz e **Esc** limpa a seleção.
 
 **Como o diagrama é desenhado**
 
@@ -1734,17 +1780,21 @@ Ao salvar, todos os sinais, cores e relatórios são recalculados.
 | **Enter** / **Esc** ao soltar | Mapa | Confirma ou cancela o novo lugar do elemento arrastado. |
 | **Ctrl+Z** | Mapa | Desfaz o último movimento de elemento. |
 | **Delete** e depois **Enter** | Mapa | Exclui o objeto selecionado (Esc cancela). Os fixados nele ficam sem fixação. |
+| **Ctrl** (ou **Shift**) + **arrastar** | Mapa | Seleciona vários com um retângulo; outro retângulo soma. **Delete** + **Enter** exclui todos. |
 | **Ctrl+clique** em cabos ou dutos | Mapa | Marca vários para **Unir** num só. |
 | **Arrastar** alça do cabo | Mapa | Move ou cria um ponto do traçado (botão direito remove). |
 | **Botão direito** desenhando cabo ou duto | Mapa | Desfaz o último ponto. |
 | **Botão direito** no cabo | Mapa | Menu: Editar, Conectar a caixa, poste ou POP, Conectar caixas no traçado, Excluir. |
 | **Esc** no modo conectar | Mapa | Sai do modo (mesmo que **Concluir**). |
-| **Delete** | Diagrama | Remove a fusão ou o bloco selecionado. |
+| **Delete** | Diagrama | Remove a fusão ou o bloco selecionado (ou todos os marcados, com uma confirmação). |
+| **Ctrl/Shift + arrastar** no fundo | Diagrama | Marca vários (cabos, splitters, clientes, grupos, bandejas e fusões). **Ctrl+clique** soma ou tira um. Arrastar um marcado move todos. |
 | **G** | Diagrama | Cria o grupo do cabo (ou da fibra) selecionado; com um grupo selecionado, expande ou recolhe. |
 | **Esc** | Diagrama | Cancela a porta selecionada. |
 | **Rolar o mouse** | Diagrama | Zoom. |
 | **Ctrl+Z** | Editor do POP | Desfaz a última alteração. |
-| **Delete** | Editor do POP | Remove o cordão ou a conexão selecionada. |
+| **Delete** | Editor do POP | Remove o cordão ou a conexão selecionada (ou os equipamentos marcados, com uma confirmação). |
+| **Ctrl/Shift + arrastar** no fundo | Editor do POP | Marca vários equipamentos e racks. |
+| **Arrastar** no fundo | Editor do poste/caixa | Marca vários objetos e reservas (**Ctrl+clique** soma ou tira um). **Delete** exclui todos. |
 | **Esc** | Editor do POP | Cancela a porta selecionada e apaga o Traço VFL. |
 | **Arrastar** o cabeçalho do card | Editor do POP | Move o card; arrastar o fundo move a vista. |
 

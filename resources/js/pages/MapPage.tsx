@@ -67,7 +67,8 @@ import { connectIcon, midpointIcon, nodeGlyph, nodeIcon, slackIcon, vertexIcon, 
 import { ALONG_TOLERANCE_M, nearestOnPath, planBoxesAlong, pointOnPath, type AlongPlan } from '../lib/connect';
 import { formatCoord, parseLatLng, parsePair } from '../lib/coords';
 import { movePath, roundLatLng } from '../lib/move';
-import { cableDeleteQuestion, nodeDeleteQuestion } from '../lib/remove';
+import { isMarquee, rectFrom } from '../lib/marquee';
+import { bulkDeleteQuestion, cableDeleteQuestion, multiCount, multiSummary, nodeDeleteQuestion, type MultiSelection } from '../lib/remove';
 import { Logo, Toast, formatLength } from '../components/ui';
 import Inspector from '../components/Inspector';
 import DiagramEditor from '../components/DiagramEditor';
@@ -341,6 +342,11 @@ export default function MapPage() {
   const [selection, setSelection] = useState<Selection>(null);
   /** Delete pressionado com algo selecionado: falta confirmar (Enter) ou cancelar (Esc). */
   const [pendingDelete, setPendingDelete] = useState<Selection>(null);
+  /** Seleção por retângulo (Ctrl ou Shift + arrastar no mapa): vários objetos de uma vez. */
+  const [multi, setMulti] = useState<(MultiSelection & { at: LatLng }) | null>(null);
+  /** Delete com vários selecionados: falta confirmar (Enter) ou cancelar (Esc). */
+  const [pendingBulk, setPendingBulk] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [draft, setDraft] = useState<{
     path: LatLng[];
     from: number | null;
@@ -572,6 +578,23 @@ export default function MapPage() {
         if (e.key === 'Escape') cancelPendingMove();
         return;
       }
+      if (pendingBulk) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          confirmBulkDelete();
+        } else if (e.key === 'Escape') setPendingBulk(false);
+        return;
+      }
+      // Delete com vários selecionados (retângulo): pede confirmação uma vez só.
+      if (e.key === 'Delete' && multi && !readOnly && tool === 'select' && !diagramNodeId && !document.querySelector('.fixed.inset-0')) {
+        e.preventDefault();
+        setPendingBulk(true);
+        return;
+      }
+      if (e.key === 'Escape' && multi) {
+        setMulti(null);
+        return;
+      }
       if (pendingDelete) {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -607,6 +630,15 @@ export default function MapPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+
+  // Clicar num objeto (seleção simples) ou trocar de ferramenta desfaz a seleção por retângulo.
+  useEffect(() => {
+    if (selection) setMulti(null);
+  }, [selection]);
+  useEffect(() => setMulti(null), [tool, projectId]);
+  useEffect(() => {
+    if (!multi) setPendingBulk(false);
+  }, [multi]);
 
   // Selecionar outra coisa (ou nada) desiste da exclusão pedida com Delete.
   useEffect(() => {
@@ -1147,6 +1179,91 @@ export default function MapPage() {
     }
   }
 
+  /**
+   * Retângulo desenhado com Ctrl/Shift + arrastar: marca os objetos visíveis dentro dele
+   * (ícones pelo ponto; cabos, dutos e áreas só quando o traçado inteiro está dentro).
+   * Soma ao que já estava selecionado. Um objeto só vira a seleção normal (abre as propriedades).
+   */
+  function boxSelect(b: L.LatLngBounds) {
+    const inside = (p: LatLng) => b.contains(p);
+    const found: MultiSelection = {
+      nodes: nodes.filter((n) => showNode(n) && inside(positionOf(n))).map((n) => n.id),
+      cables: cables.filter((c) => showCable(c) && c.path.length > 0 && displayPath(c).every(inside)).map((c) => c.id),
+      ducts: visible.ducts ? ducts.filter((d) => d.path.length > 0 && ductPath(d).every(inside)).map((d) => d.id) : [],
+      areas: visible.areas ? areas.filter((a) => a.polygon.length > 0 && a.polygon.every(inside)).map((a) => a.id) : [],
+    };
+    const base: MultiSelection = multi ? { nodes: multi.nodes, cables: multi.cables, ducts: multi.ducts, areas: multi.areas } : { nodes: [], cables: [], ducts: [], areas: [] };
+    if (selection) base[`${selection.kind}s` as keyof MultiSelection] = [...base[`${selection.kind}s` as keyof MultiSelection], selection.id];
+    const join = (a: number[], x: number[]) => [...new Set([...a, ...x])];
+    const next: MultiSelection = { nodes: join(base.nodes, found.nodes), cables: join(base.cables, found.cables), ducts: join(base.ducts, found.ducts), areas: join(base.areas, found.areas) };
+    const total = multiCount(next);
+    setCableMenu(null);
+    setConnectId(null);
+    if (!total) {
+      notify('Nenhum objeto dentro do retângulo (cabos, dutos e áreas precisam estar inteiros dentro).');
+      return;
+    }
+    if (total === 1) {
+      const kind = (['nodes', 'cables', 'ducts', 'areas'] as const).find((k) => next[k].length)!;
+      setMulti(null);
+      setSelection({ kind: kind.slice(0, -1) as 'node', id: next[kind][0] });
+      return;
+    }
+    const c = b.getCenter();
+    setSelection(null);
+    setMulti({ ...next, at: multi?.at ?? [c.lat, c.lng] });
+  }
+
+  /** Enter depois do Delete com vários selecionados: exclui um por um (fixados fora da seleção ficam sem fixação). */
+  async function confirmBulkDelete() {
+    const target = multi;
+    setPendingBulk(false);
+    if (!target) return;
+    await runBulkDelete(target);
+    setMulti(null);
+  }
+
+  /** Exclui vários objetos (mapa ou editor do poste/caixa), um por um, e avisa quantos saíram. */
+  async function runBulkDelete(target: MultiSelection) {
+    if (readOnly || bulkBusy) return;
+    setBulkBusy(true);
+    let done = 0;
+    const failed: string[] = [];
+    const run = async (label: string | undefined, fn: () => Promise<void>) => {
+      try {
+        await fn();
+        done++;
+      } catch (e) {
+        failed.push(`${label ?? 'objeto'}: ${errorMessage(e)}`);
+      }
+    };
+    // Áreas, dutos e cabos antes dos postes/caixas: menos coisas para soltar a cada exclusão.
+    for (const id of target.areas)
+      await run(areas.find((a) => a.id === id)?.name, async () => {
+        await api.deleteArea(id);
+        setAreas((list) => list.filter((x) => x.id !== id));
+      });
+    for (const id of target.ducts)
+      await run(ducts.find((d) => d.id === id)?.name, async () => {
+        await api.deleteDuct(id);
+        setDucts((list) => list.filter((x) => x.id !== id));
+      });
+    for (const id of target.cables)
+      await run(cables.find((c) => c.id === id)?.name, async () => {
+        const r = await api.deleteCable(id);
+        applyDeleted('cable', id, r.nodes, []);
+      });
+    for (const id of target.nodes)
+      await run(nodes.find((n) => n.id === id)?.name, async () => {
+        const r = await api.deleteNode(id);
+        applyDeleted('node', id, r.nodes, r.cables);
+      });
+    setBulkBusy(false);
+    setSelection(null);
+    if (failed.length) notify(`${done} excluído(s); ${failed.length} com erro. ${failed[0]}`, 'error');
+    else notify(`${done} objeto${done === 1 ? '' : 's'} excluído${done === 1 ? '' : 's'}`);
+  }
+
   async function deleteCable(cable: Cable, confirmed = false): Promise<boolean> {
     setCableMenu(null);
     if (!confirmed && !window.confirm(`Excluir o cabo ${cable.name}? As fusões dele nas caixas também serão removidas.`)) return false;
@@ -1415,6 +1532,10 @@ export default function MapPage() {
   }
 
   const selectedNode = selection?.kind === 'node' ? nodes.find((n) => n.id === selection.id) : undefined;
+  const multiNodes = useMemo(() => new Set(multi?.nodes ?? []), [multi]);
+  const multiCables = useMemo(() => new Set(multi?.cables ?? []), [multi]);
+  const multiDucts = useMemo(() => new Set(multi?.ducts ?? []), [multi]);
+  const multiAreas = useMemo(() => new Set(multi?.areas ?? []), [multi]);
   const selectedCable = selection?.kind === 'cable' ? cables.find((c) => c.id === selection.id) : undefined;
   const selectedArea = selection?.kind === 'area' ? areas.find((a) => a.id === selection.id) : undefined;
   const selectedDuct = selection?.kind === 'duct' ? ducts.find((d) => d.id === selection.id) : undefined;
@@ -1527,7 +1648,7 @@ export default function MapPage() {
                   ? 'Arraste os pontos do duto para mudar o traçado e as bolinhas menores para criar novos. Botão direito num ponto o remove.'
                   : selectedCable
                   ? 'Arraste os pontos para mover vértices e as bolinhas menores para criar novos. Botão direito num ponto o remove; no cabo, abre o menu de conexão.'
-                  : 'Clique para selecionar, duplo clique abre o editor. Arraste um objeto para reposicioná-lo.';
+                  : 'Clique para selecionar, duplo clique abre o editor. Arraste um objeto para reposicioná-lo. Ctrl (ou Shift) + arrastar seleciona vários.';
 
   return (
     <div className="h-full flex">
@@ -1624,14 +1745,21 @@ export default function MapPage() {
           maxZoom={21}
           className="h-full w-full"
           doubleClickZoom={false}
+          boxZoom={false}
           ref={mapRef}
         >
+          <BoxSelect enabled={tool === 'select' && !pendingMove && !pendingDelete && !pendingBulk && !bulkBusy} onSelect={boxSelect} />
           <AutoResize />
           <RememberView projectId={projectId} />
           {pendingMove && (
             <MoveConfirm at={pendingMove.at} onConfirm={confirmPendingMove} onCancel={cancelPendingMove}>
               Mover <b>{pendingMove.node.name}</b> {formatLength(distance([pendingMove.node.lat, pendingMove.node.lng], pendingMove.at))} para{' '}
               {formatCoord(roundLatLng(pendingMove.at)[0])}, {formatCoord(roundLatLng(pendingMove.at)[1])}?
+            </MoveConfirm>
+          )}
+          {multi && pendingBulk && (
+            <MoveConfirm at={multi.at} onConfirm={confirmBulkDelete} onCancel={() => setPendingBulk(false)} confirmLabel="Excluir" danger>
+              {bulkDeleteQuestion(multi, projectId, nodes, cables)}
             </MoveConfirm>
           )}
           {deleteTarget && (
@@ -1653,8 +1781,10 @@ export default function MapPage() {
               if (cableMenu) return setCableMenu(null);
               if (anchorPick) return setAnchorPick(null);
               if (connectId) return;
-              if (tool === 'select') setSelection(null);
-              else if (tool === 'viability') setViaPoint(at);
+              if (tool === 'select') {
+                setSelection(null);
+                setMulti(null);
+              } else if (tool === 'viability') setViaPoint(at);
               else if (tool === 'launch') setLaunchPick({ at, t: Date.now() });
               else if (tool === 'area') setAreaDraft((a) => [...a, at]);
               else if (tool === 'cable') setDraft((d) => (d ? { ...d, path: [...d.path, at] } : { path: [at], from: null }));
@@ -1680,7 +1810,7 @@ export default function MapPage() {
                 key={`${a.id}-${a.color}-${a.polygon.length}`}
                 positions={a.polygon}
                 pathOptions={{
-                  color: selection?.kind === 'area' && selection.id === a.id ? '#facc15' : a.color,
+                  color: (selection?.kind === 'area' && selection.id === a.id) || multiAreas.has(a.id) ? '#facc15' : a.color,
                   weight: 2,
                   fillOpacity: 0.12,
                 }}
@@ -1702,7 +1832,7 @@ export default function MapPage() {
           {/* Dutos: tubo largo (borda na cor do duto, miolo escuro) por baixo dos cabos. "Em projeto" fica tracejado. */}
           {visible.ducts &&
             ducts.map((d) => {
-              const sel = (selection?.kind === 'duct' && selection.id === d.id) || (tool === 'merge' && mergeSel.kind === 'duct' && mergeSel.ids.includes(d.id));
+              const sel = (selection?.kind === 'duct' && selection.id === d.id) || multiDucts.has(d.id) || (tool === 'merge' && mergeSel.kind === 'duct' && mergeSel.ids.includes(d.id));
               const path = ductPath(d);
               const planned = d.status === 'planned';
               const pick = (e: L.LeafletMouseEvent) => {
@@ -1745,6 +1875,12 @@ export default function MapPage() {
             cables
               .filter((c) => mergeSel.ids.includes(c.id) && showCable(c))
               .map((c) => <Polyline key={`mg${c.id}`} positions={displayPath(c)} interactive={false} pathOptions={{ color: '#facc15', weight: c.width + 8, opacity: 0.55 }} />)}
+
+          {/* Seleção por retângulo: halo nos cabos marcados. */}
+          {multiCables.size > 0 &&
+            cables
+              .filter((c) => multiCables.has(c.id) && showCable(c))
+              .map((c) => <Polyline key={`ms${c.id}`} positions={displayPath(c)} interactive={false} pathOptions={{ color: '#facc15', weight: c.width + 8, opacity: 0.55 }} />)}
 
           {/* Destaque do cabo selecionado: halo amarelo por baixo, o cabo mantém a cor e o estilo. */}
           {selectedCable && showCable(selectedCable) && (
@@ -1906,7 +2042,7 @@ export default function MapPage() {
                   icon={nodeIcon(n, {
                     stack,
                     coils: hostSlacks.byHost.get(n.id)?.map((x) => x.cable.color),
-                    selected: selection?.kind === 'node' && (selection.id === n.id || stack.some((c) => c.id === selection.id)),
+                    selected: (selection?.kind === 'node' && (selection.id === n.id || stack.some((c) => c.id === selection.id))) || multiNodes.has(n.id) || stack.some((c) => multiNodes.has(c.id)),
                     fill: level ? POWER_COLORS[level] : undefined,
                     group: grouped.counts.get(n.id),
                     shared: !!n.share,
@@ -2442,7 +2578,25 @@ export default function MapPage() {
 
         {/* Dica e ações do desenho */}
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2">
-          {connectedCable ? (
+          {multi ? (
+            <div className="panel px-3 py-1.5 text-xs text-slate-200 flex items-center gap-3 !border-yellow-500">
+              <span>
+                <b>{multiCount(multi)} selecionados</b> · {multiSummary(multi, nodes)}
+                <br />
+                <span className="text-slate-400">
+                  {readOnly ? 'Acesso somente leitura.' : 'Delete exclui todos (Enter confirma).'} Ctrl/Shift + arrastar soma mais objetos. Esc ou clique no mapa limpa.
+                </span>
+              </span>
+              {!readOnly && (
+                <button className="btn-danger !py-1 text-xs flex items-center gap-1 shrink-0" onClick={() => setPendingBulk(true)} disabled={bulkBusy} title="Delete">
+                  <Trash2 size={14} /> {bulkBusy ? 'Excluindo…' : 'Excluir'}
+                </button>
+              )}
+              <button className="btn-ghost !py-1 text-xs flex items-center gap-1 shrink-0" onClick={() => setMulti(null)} title="Esc">
+                <X size={14} /> Limpar
+              </button>
+            </div>
+          ) : connectedCable ? (
             <div className="panel px-3 py-1.5 text-xs text-slate-200 flex items-center gap-3 !border-emerald-500">
               <Link2 size={16} className="text-emerald-400 shrink-0" />
               <span>
@@ -2936,6 +3090,7 @@ export default function MapPage() {
             setEditorFocus(Date.now());
           }}
           onSlacksChange={(c, list, message) => saveSlacks(c, list, message)}
+          onDeleteMany={readOnly ? undefined : (ids) => runBulkDelete({ nodes: ids, cables: [], ducts: [], areas: [] })}
           onSangria={readOnly ? undefined : (option, target) => sangriaAtHost(hostEditorNode, option, target)}
           onEditCable={(c) => {
             // Cabo/drop: painel de propriedades no mapa (o editor do poste fecha).
@@ -3184,6 +3339,78 @@ function MoveConfirm({ at, onConfirm, onCancel, children, confirmLabel = 'Confir
       </button>
     </div>
   );
+}
+
+/**
+ * Seleção por retângulo: Ctrl (ou Shift) + arrastar desenha um retângulo; ao soltar, devolve a área.
+ * Enquanto a tecla está apertada o mapa não arrasta (nem os ícones). Sem arrastar é um clique normal
+ * (Ctrl+clique num cabo continua indo para o Unir).
+ */
+function BoxSelect({ enabled, onSelect }: { enabled: boolean; onSelect: (b: L.LatLngBounds) => void }) {
+  const map = useMap();
+  const cb = useRef(onSelect);
+  cb.current = onSelect;
+  useEffect(() => {
+    if (!enabled) return;
+    const el = map.getContainer();
+    let start: L.Point | null = null;
+    let box: HTMLDivElement | null = null;
+    let wasDragging = false;
+    const cleanup = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      box?.remove();
+      box = null;
+      start = null;
+      if (wasDragging) map.dragging.enable();
+    };
+    const move = (e: MouseEvent) => {
+      if (!start) return;
+      const p = map.mouseEventToContainerPoint(e);
+      const r = rectFrom(start, p);
+      if (!box) {
+        if (!isMarquee(r)) return;
+        box = document.createElement('div');
+        box.className = 'marquee-box';
+        el.appendChild(box);
+      }
+      Object.assign(box.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+    };
+    const up = (e: MouseEvent) => {
+      const s0 = start;
+      const drawn = !!box;
+      cleanup();
+      if (!s0 || !drawn) return;
+      // O clique que o navegador dispara depois do arrasto não pode limpar a seleção.
+      const swallow = (ev: MouseEvent) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+      };
+      window.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
+      const p = map.mouseEventToContainerPoint(e);
+      cb.current(L.latLngBounds(map.containerPointToLatLng(s0), map.containerPointToLatLng(p)));
+    };
+    const down = (e: MouseEvent) => {
+      if (e.button !== 0 || !(e.ctrlKey || e.metaKey || e.shiftKey)) return;
+      // Botões e painéis por cima do mapa continuam normais.
+      if ((e.target as HTMLElement).closest('.leaflet-control, .panel, button, input, select, textarea')) return;
+      // Para aqui: nem o mapa nem o ícone embaixo do mouse começam a arrastar.
+      e.stopPropagation();
+      e.preventDefault();
+      start = map.mouseEventToContainerPoint(e);
+      wasDragging = map.dragging.enabled();
+      if (wasDragging) map.dragging.disable();
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    };
+    el.addEventListener('mousedown', down, true);
+    return () => {
+      el.removeEventListener('mousedown', down, true);
+      cleanup();
+    };
+  }, [enabled, map]);
+  return null;
 }
 
 function MapEvents({
