@@ -110,19 +110,19 @@ mostra o ícone da última ferramenta usada nele e fica verde enquanto uma ferra
 | --- | --- |
 | **Selecionar** | Selecionar (botão direto, sem leque). |
 | **Infraestrutura** | Poste, Caixa (parede ou subterrânea), Duto. |
-| **Rede óptica** | CTO / CEO, Cabo (Desenhar ou Lançar), Reserva. |
+| **Rede óptica** | CTO, CEO, Cabo, Lançar, Reserva. |
 | **Centrais** | POP, Datacenter, Torre. |
 | **Clientes** | Cliente, Condomínio, Câmera. |
 | **Ajustar** | Fixar (fixar em massa), Unir (cabos ou dutos). |
 | **Medir** | Régua, Área, Viabilidade, OTDR. |
 
-Algumas ferramentas faziam a mesma coisa e viraram um botão só, com a escolha na faixa que aparece abaixo da barra:
+Cada ferramenta do leque **Rede óptica** tem o seu próprio botão:
 
-- **CTO / CEO**: as duas se lançam do mesmo jeito (clique num poste ou numa caixa para fixar, ou no mapa para parede).
-  Abaixo da barra escolha **CTO** ou **CEO**.
-- **Cabo**: abaixo da barra escolha **Desenhar** (clicar nos pontos do trajeto, com o **Tipo de cabo** ao lado) ou
-  **Lançar** (o antigo botão Lançar: pelas ruas, postes, caixas e dutos, com reservas; veja
+- **CTO** e **CEO**: clique num poste ou numa caixa para fixar, ou no mapa para parede.
+- **Cabo**: desenha o cabo clicando nos pontos do trajeto; o **Tipo de cabo** fica na faixa abaixo da barra.
+- **Lançar**: lança o cabo pelas ruas, postes, caixas e dutos, com reservas (veja
   [Lançar cabo](#lançar-cabo-com-postes-e-reservas)).
+- **Reserva**: marca uma reserva técnica num cabo.
 
 Quem tem só acesso de leitura vê **Selecionar** e o grupo **Medir** com **Régua**, **Viabilidade** e **OTDR**.
 
@@ -213,7 +213,7 @@ ocultos). O ícone volta ao normal e os objetos voltam a ser desenhados.
 
 ## 5. Adicionar POP, datacenter, torre, CEO, CTO, caixa, poste, cliente e condomínio
 
-1. Na barra de ferramentas, abra o grupo e escolha **POP**, **Datacenter** ou **Torre** (grupo **Centrais**), **CTO / CEO**
+1. Na barra de ferramentas, abra o grupo e escolha **POP**, **Datacenter** ou **Torre** (grupo **Centrais**), **CTO** ou **CEO**
    (grupo **Rede óptica**), **Poste** ou **Caixa** (grupo **Infraestrutura**), **Cliente**, **Condomínio** ou **Câmera**
    (grupo **Clientes**).
 2. Clique no mapa onde o elemento fica. Ele é criado na hora com um nome automático e o painel de edição abre
@@ -624,7 +624,7 @@ importar a exportação do ISM: o mesmo poste vem em vários arquivos e vira um 
 
 **Forma 1: lançar o cabo já ligado nas caixas (ferramenta Cabo)**
 
-1. Escolha **Rede óptica** › **Cabo** na barra de ferramentas (modo **Desenhar**). Logo abaixo dela aparece **Tipo de cabo**: escolha o modelo do
+1. Escolha **Rede óptica** › **Cabo** na barra de ferramentas. Logo abaixo dela aparece **Tipo de cabo**: escolha o modelo do
    catálogo (Drop 1FO a 144FO). O último tipo usado fica lembrado neste navegador; o padrão é **Cabo 12FO**.
 2. Clique na **caixa de origem** (ex.: o POP ou a CEO). O cabo já nasce conectado nela. Se clicar no mapa vazio,
    ele começa com a ponta solta.
@@ -673,7 +673,7 @@ O menu do botão direito no cabo também tem **Editar** (abre o painel do cabo),
 
 ### Lançar cabo com postes e reservas
 
-A ferramenta **Lançar** (barra do mapa, grupo **Rede óptica** › **Cabo** › **Lançar**) cria o cabo já passando pelos postes, cria os
+A ferramenta **Lançar** (barra do mapa, grupo **Rede óptica** › **Lançar**) cria o cabo já passando pelos postes, cria os
 postes que faltam e coloca as reservas técnicas fixadas nos postes, tudo de uma vez. Ao escolher a ferramenta abre
 um painel à esquerda. No alto do painel escolha o **Tipo** (Backbone ou Distribuição), o **Modelo** (6 a 144 FO),
 o **Nome** (opcional) e a **Situação**. O painel tem três jeitos de lançar:
