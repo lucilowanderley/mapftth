@@ -1469,7 +1469,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       {/* Canvas */}
       <div className="relative flex-1 min-h-0">
         {picked && (
-          <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2 flex items-center gap-2 rounded-lg border border-yellow-500 bg-white/95 px-3 py-1.5 text-xs text-slate-700 shadow">
+          <div className="absolute left-1/2 bottom-3 z-10 -translate-x-1/2 flex items-center gap-2 rounded-lg border border-yellow-500 bg-white/95 px-3 py-1.5 text-xs text-slate-700 shadow">
             <span>
               <b>{pickedCount(picked)} selecionados</b> · {pickedSummary(picked)}
               {!readOnly && <span className="text-slate-500"> · arraste um deles para mover todos · Delete apaga</span>}
