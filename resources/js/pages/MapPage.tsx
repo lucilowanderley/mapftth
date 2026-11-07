@@ -99,9 +99,8 @@ import MergePanel, { type MergeKind, type MergeSelection } from '../components/M
 type Tool = 'select' | NodeType | 'cable' | 'duct' | 'launch' | 'bulkfix' | 'merge' | 'slack' | 'ruler' | 'area' | 'viability' | 'otdr';
 
 /**
- * Barra de ferramentas agrupada por contexto; cada grupo abre em leque. Ferramentas com a mesma função ficam num
- * botão só (CTO/CEO: mesma forma de lançar; Cabo: desenhar à mão ou lançar pelos postes) e a escolha entre elas
- * fica na faixa abaixo da barra.
+ * Barra de ferramentas agrupada por contexto; cada grupo abre em leque com um botão por ferramenta
+ * (CTO, CEO, Cabo, Lançar e Reserva ficam separados no leque Rede óptica).
  */
 const TOOL_GROUPS: FanGroup<Tool>[] = [
   { key: 'select', label: 'Selecionar', items: [{ key: 'select', label: 'Selecionar', icon: <MousePointer2 size={18} />, tools: ['select'] }] },
@@ -118,8 +117,10 @@ const TOOL_GROUPS: FanGroup<Tool>[] = [
     key: 'fiber',
     label: 'Rede óptica',
     items: [
-      { key: 'closure', label: 'CTO / CEO', icon: <SquareStack size={18} />, tools: ['cto', 'ceo'] },
-      { key: 'cable', label: 'Cabo', icon: <CableIcon size={18} />, tools: ['cable', 'launch'] },
+      { key: 'cto', label: 'CTO', icon: <SquareStack size={18} />, tools: ['cto'] },
+      { key: 'ceo', label: 'CEO', icon: <Hexagon size={18} />, tools: ['ceo'] },
+      { key: 'cable', label: 'Cabo', icon: <CableIcon size={18} />, tools: ['cable'] },
+      { key: 'launch', label: 'Lançar', icon: <LaunchIcon size={18} />, tools: ['launch'] },
       { key: 'slack', label: 'Reserva', icon: <SlackToolIcon size={18} />, tools: ['slack'] },
     ],
   },
@@ -2324,16 +2325,9 @@ export default function MapPage() {
           {/* CTO/CEO: como fixar */}
           {!readOnly && (tool === 'cto' || tool === 'ceo') && (
             <div className="panel flex items-center gap-2 p-2 text-xs pointer-events-auto">
-              {(['cto', 'ceo'] as const).map((k) => (
-                <button
-                  key={k}
-                  onClick={() => setTool(k)}
-                  title={NODE_TYPES[k].label}
-                  className={`flex items-center gap-1 rounded px-2 py-1 cursor-pointer ${tool === k ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
-                >
-                  {k === 'cto' ? <SquareStack size={13} /> : <Hexagon size={13} />} {k.toUpperCase()}
-                </button>
-              ))}
+              <span className="text-slate-300 flex items-center gap-1">
+                {tool === 'cto' ? <SquareStack size={14} /> : <Hexagon size={14} />} {tool.toUpperCase()}
+              </span>
               <span className="text-slate-400">Clique num poste ou numa caixa para fixar nele. Na parede: clique no mapa e informe o endereço.</span>
             </div>
           )}
@@ -2389,26 +2383,11 @@ export default function MapPage() {
           )}
 
           {/* Tipo do cabo lançado pela ferramenta Cabo */}
-          {!readOnly && (tool === 'cable' || tool === 'launch') && (
+          {!readOnly && tool === 'cable' && (
             <div className="panel flex items-center gap-2 p-2 text-xs pointer-events-auto">
-              {(
-                [
-                  ['cable', 'Desenhar', <CableIcon key="c" size={13} />, 'Desenhar o cabo clicando nos pontos do trajeto'],
-                  ['launch', 'Lançar', <LaunchIcon key="l" size={13} />, 'Lançar o cabo pelas ruas, postes, caixas e dutos, com reservas'],
-                ] as const
-              ).map(([k, label, icon, hint]) => (
-                <button
-                  key={k}
-                  onClick={() => tool !== k && pickTool(k)}
-                  title={hint}
-                  className={`flex items-center gap-1 rounded px-2 py-1 cursor-pointer ${tool === k ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
-                >
-                  {icon} {label}
-                </button>
-              ))}
-              {tool === 'launch' && <span className="text-slate-500 hidden lg:inline">Siga o painel à esquerda.</span>}
-              {tool === 'cable' && (
-                <>
+              <span className="text-slate-300 flex items-center gap-1">
+                <CableIcon size={14} /> Cabo
+              </span>
               <span className="text-slate-600">|</span>
               <span className="text-slate-300">Tipo de cabo</span>
               <select className="input !py-1 !w-40" value={cableModelId} onChange={(e) => setCableModelId(e.target.value)} disabled={!!draft}>
@@ -2419,8 +2398,6 @@ export default function MapPage() {
                 ))}
               </select>
               <span className="text-slate-500 hidden lg:inline">Ligado a um cliente vira Drop.</span>
-                </>
-              )}
             </div>
           )}
 
