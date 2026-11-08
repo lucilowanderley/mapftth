@@ -43,6 +43,8 @@ import {
   Magnet,
   Cylinder,
   Merge,
+  Calculator,
+  Tags,
 } from 'lucide-react';
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Circle, CircleMarker, MapContainer, Marker, Pane, Polygon, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
@@ -80,6 +82,7 @@ import TeamModal, { ROLE_LABELS } from '../components/TeamModal';
 import HistoryModal from '../components/HistoryModal';
 import DashboardModal from '../components/DashboardModal';
 import ReportModal from '../components/ReportModal';
+import PricingCenter from '../components/PricingCenter';
 import PolesModal from '../components/PolesModal';
 import OtdrModal from '../components/OtdrModal';
 import OtdrPanel, { type OtdrLaser, type OtdrPick } from '../components/OtdrPanel';
@@ -315,6 +318,8 @@ export default function MapPage() {
     title: string;
     filter?: { type: string; subject_id: number };
   } | null>(null);
+  /** Cadastro de preços e orçamento do projeto. */
+  const [pricing, setPricing] = useState<'prices' | 'budget' | null>(null);
   const [report, setReport] = useState<{
     title: string;
     polygon?: LatLng[];
@@ -1700,6 +1705,8 @@ export default function MapPage() {
           <SideButton icon={<BarChart3 size={16} />} label="Dashboard" onClick={() => setModal('dashboard')} />
           <SideButton icon={<Activity size={16} />} label="Análise de rede" onClick={() => setModal('analysis')} />
           <SideButton icon={<FileText size={16} />} label="Relatório da rede" onClick={() => setReport({ title: 'Rede completa' })} />
+          <SideButton icon={<Tags size={16} />} label="Preços e quantitativos" onClick={() => setPricing('prices')} />
+          <SideButton icon={<Calculator size={16} />} label="Orçamento" onClick={() => setPricing('budget')} />
           <SideButton icon={<UtilityPole size={16} />} label="Tabela de postes" onClick={() => setModal('poles')} />
           <SideButton icon={<Users size={16} />} label="Equipe" onClick={() => setModal('team')} />
           <SideButton icon={<History size={16} />} label="Histórico" onClick={() => setHistory({ title: project.name })} />
@@ -3196,6 +3203,24 @@ export default function MapPage() {
         />
       )}
       {history && <HistoryModal projectId={projectId} title={history.title} filter={history.filter} onClose={() => setHistory(null)} />}
+      {pricing && (
+        <PricingCenter
+          view={pricing}
+          projectId={projectId}
+          projectName={project.name}
+          network={network}
+          ducts={ducts}
+          budget={project.budget}
+          isOwner={role === 'owner'}
+          canEdit={!readOnly}
+          onView={setPricing}
+          onBudgetSaved={(b) => {
+            setProject((p) => (p ? { ...p, budget: b } : p));
+            notify('Orçamento salvo');
+          }}
+          onClose={() => setPricing(null)}
+        />
+      )}
       {report && <ReportModal network={network} ducts={ducts} projectName={project.name} title={report.title} polygon={report.polygon} onClose={() => setReport(null)} />}
       {otdr && (
         <OtdrModal
