@@ -30,8 +30,9 @@ function fanPositions(n: number) {
     });
 }
 
+/** Botão da barra só com o ícone; o nome aparece na dica ao passar o mouse (title). */
 const BTN =
-    "flex flex-col items-center gap-0.5 rounded-md px-2.5 py-1.5 text-[10px] uppercase tracking-wide cursor-pointer whitespace-nowrap";
+    "flex h-9 w-9 items-center justify-center rounded-md cursor-pointer";
 
 /**
  * Barra de ferramentas agrupada: cada grupo mostra a última ferramenta usada nele; um clique abre as outras em leque
@@ -110,9 +111,9 @@ export default function ToolFan<T extends string>({
                             onClick={() => pickItem(it)}
                             className={`${BTN} ${activeItem ? "bg-emerald-600 text-white" : "text-slate-300 hover:bg-slate-800"}`}
                             title={it.label}
+                            aria-label={it.label}
                         >
                             {it.icon}
-                            {it.label}
                         </button>
                     );
                 }
@@ -137,10 +138,10 @@ export default function ToolFan<T extends string>({
                                       : "text-slate-300 hover:bg-slate-800"
                             }`}
                             title={`${g.label}: ${g.items.map((it) => it.label).join(", ")}`}
+                            aria-label={g.label}
                             aria-expanded={isOpen}
                         >
                             {shown.icon}
-                            {g.label}
                             <span
                                 className={`absolute right-0.5 bottom-0.5 border-l-[5px] border-l-transparent border-b-[5px] ${activeItem ? "border-b-emerald-200" : "border-b-slate-500"}`}
                             />

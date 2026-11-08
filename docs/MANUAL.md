@@ -105,7 +105,9 @@ fechar o painel, ela volta ao centro. Se você arrastou a barra para outro lugar
 
 **Grupos em leque**: as ferramentas ficam agrupadas por contexto. Clique num grupo e as opções dele se abrem em
 leque logo abaixo; clique na que quiser (clique fora ou **Esc** fecha o leque sem escolher). O botão do grupo
-mostra o ícone da última ferramenta usada nele e fica verde enquanto uma ferramenta dele está em uso.
+mostra o ícone da última ferramenta usada nele e fica verde enquanto uma ferramenta dele está em uso. Para
+economizar espaço, os botões da barra mostram só o ícone: pare o mouse sobre um deles para ver o nome do grupo e
+as ferramentas que ele tem (no leque aberto, cada opção continua com o nome embaixo).
 
 | Grupo | Ferramentas |
 | --- | --- |
