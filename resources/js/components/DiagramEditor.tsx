@@ -50,7 +50,15 @@ const ROW = 14;
 const HEADER = 34;
 const CLIENT_W = 180;
 const CLIENT_H = 70;
-const CABLE_W = 150;
+const CABLE_W = 170;
+/** Barra vertical com a descrição do cabo (nome girado), na borda externa do cabo. */
+const CABLE_BAR = 34;
+/** Topo das fibras do cabo (a descrição fica na barra lateral, sem cabeçalho). */
+const CABLE_TOP = 6;
+/** Altura mínima do cabo para caber a descrição girada. */
+const CABLE_MIN_H = 96;
+/** Fundo da barra de descrição do cabo: escuro e fixo, com texto branco (contraste garantido). */
+const CABLE_BAR_FILL = '#334155';
 const BOX_W = 130;
 const SPLIT_W = 56;
 /** Leque até os conectores das saídas de um splitter conectorizado. */
@@ -124,7 +132,7 @@ function blockSize(b: Block): { w: number; h: number } {
   switch (b.kind) {
     case 'cable':
       if (b.client) return { w: CLIENT_W, h: dropHeight(b.cable.fiber_count) };
-      return { w: CABLE_W, h: HEADER + rowsHeight(b.rows) + 6 };
+      return { w: CABLE_W, h: Math.max(CABLE_MIN_H, CABLE_TOP + rowsHeight(b.rows) + 6) };
     case 'splitter': {
       const n = splitterModel(b.model).outputs;
       return { w: SPLIT_W, h: Math.max(40, n * ROW + 12) };
@@ -165,7 +173,7 @@ function blockPorts(b: Block): Port[] {
               {
                 end: { c: b.key, p: `f${r.fiber}` },
                 x: right ? b.x + w : b.x,
-                y: b.y + HEADER + r.y + ROW / 2,
+                y: b.y + CABLE_TOP + r.y + ROW / 2,
                 dir: (right ? 1 : -1) as 1 | -1,
                 color: fiberColor(r.fiber, b.cable.fibers_per_tube).hex,
                 label: String(r.fiber),
@@ -419,7 +427,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
       const pos = diagram.cablePos[key];
       const side = pos?.side ?? (incoming ? 'left' : 'right');
       const rows = cableRows(key, c, diagram.trays, ROW);
-      const h = HEADER + rowsHeight(rows) + 30;
+      const h = Math.max(CABLE_MIN_H, CABLE_TOP + rowsHeight(rows) + 6) + 24;
       const auto = side === 'left' ? { x: 0, y: (leftY += h) - h } : { x: 520, y: (rightY += h) - h };
       return {
         key,
@@ -1317,7 +1325,7 @@ export default function DiagramEditor({ node, network, onClose, onSaved, onShowB
           color: tubeColor(f1, b.cable.fibers_per_tube).hex,
           fan,
           ports: tp,
-          a: { x: inner ? b.x + CABLE_W : b.x, y: b.y + HEADER + r.y + r.h / 2, dir: inner ? 1 : -1 },
+          a: { x: inner ? b.x + CABLE_W : b.x, y: b.y + CABLE_TOP + r.y + r.h / 2, dir: inner ? 1 : -1 },
           b: { x: fan.x, y: fan.y, dir: left ? -1 : 1 },
         });
       });
@@ -2823,6 +2831,9 @@ function BlockView({
     // Rótulo abaixo do splitter; girado 90°/270°, fica ao lado (embaixo/em cima estão as portas).
     const lx = vertical ? g.box.x + g.box.w + 10 + labelW / 2 : g.cx;
     const ly = vertical ? g.cy - 6.5 : g.box.y + g.box.h + 4;
+    const ratioText = m.balanced ? `1:${n}` : m.name;
+    const ratioSize = m.balanced ? 9 : 7;
+    const ratio = g.pt(b.x + w * 0.7, b.y + h / 2);
     return (
       <g onPointerDown={onPointerDown} onDoubleClick={onDoubleClick} className="cursor-move">
         <title>{`${b.name || m.name} · duplo clique para editar ou trocar o tipo`}</title>
@@ -2841,6 +2852,10 @@ function BlockView({
             strokeLinejoin="round"
           />
         </g>
+        {/* Razão (1:8, 10/90...) dentro do corpo, perto da base e sempre de pé. */}
+        <text x={ratio.x} y={ratio.y + ratioSize * 0.36} fontSize={ratioSize} fontWeight="bold" textAnchor="middle" fill="#ffffff" className="pointer-events-none">
+          {ratioText}
+        </text>
         <rect x={lx - labelW / 2} y={ly} width={labelW} height={13} rx={3} fill="#ffffff" stroke="#cbd5e1" strokeWidth={0.6} />
         <text x={lx} y={ly + 9.5} fontSize={8} textAnchor="middle" fill="#0f172a" fontWeight="bold">
           {b.name || m.name}
@@ -2849,54 +2864,62 @@ function BlockView({
     );
   }
 
-  const title = b.kind === 'cable' ? `${b.cable.name} (${b.letter})` : b.name;
-  const subtitle =
-    b.kind === 'cable'
-      ? `${b.cable.fiber_count} fibras · ${b.label}`
-      : b.kind === 'olt'
-        ? `${b.slots} slot(s) × ${b.ports} PON · ${b.tx_dbm} dBm`
-        : `${b.ports} portas · conector ◂ ▸ fusão`;
-  const right = b.kind === 'cable' ? b.side === 'left' : b.kind === 'olt';
-  const fill = b.kind === 'olt' ? '#ede9fe' : b.kind === 'dio' ? '#e0f2fe' : '#ffffff';
-
-  return (
-    <g onPointerDown={onPointerDown} onDoubleClick={onDoubleClick} className="cursor-move">
-      {b.kind === 'cable' && <title>{`${b.cable.name} · duplo clique para editar o cabo (atenuação, status...)`}</title>}
-      <rect x={b.x} y={b.y} width={w} height={h} rx={4} fill={fill} stroke={stroke} strokeWidth={sw} />
-      <text x={b.x + 8} y={b.y + 14} fontSize={11} fontWeight="bold" fill="#0f172a">
-        {title.length > 22 ? `${title.slice(0, 21)}…` : title}
-      </text>
-      <text x={b.x + 8} y={b.y + 26} fontSize={8.5} fill="#64748b">
-        {subtitle.length > 32 ? `${subtitle.slice(0, 31)}…` : subtitle}
-      </text>
-      {b.kind === 'cable' &&
-        b.rows.map((r) => {
-          const y = b.y + HEADER + r.y;
-          // Faixa do tubo loose na borda externa (cabos com mais de um tubo ou quando há bandejas).
-          const showTube = showTubes || b.cable.fiber_count > b.cable.fibers_per_tube;
+  if (b.kind === 'cable') {
+    // Fibras (barra colorida + bolinha numerada) na borda voltada para o centro do diagrama;
+    // descrição do cabo numa barra vertical na borda externa, com o nome girado.
+    const right = b.side === 'left';
+    const barX = right ? b.x : b.x + w - CABLE_BAR;
+    const fx = right ? b.x + CABLE_BAR : b.x;
+    const fw = w - CABLE_BAR;
+    const title = `${b.cable.name} (${b.letter})`;
+    const subtitle = `${b.cable.fiber_count} FO · ${b.label}`;
+    const fit = (t: string, size: number) => {
+      const max = Math.max(4, Math.floor((h - 14) / (size * 0.58)));
+      return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+    };
+    const cx = barX + CABLE_BAR / 2;
+    const cy = b.y + h / 2;
+    const showTube = showTubes || b.cable.fiber_count > b.cable.fibers_per_tube;
+    return (
+      <g onPointerDown={onPointerDown} onDoubleClick={onDoubleClick} className="cursor-move">
+        <title>{`${b.cable.name} · duplo clique para editar o cabo (atenuação, status...)`}</title>
+        <rect x={b.x} y={b.y} width={w} height={h} rx={4} fill="#ffffff" stroke={stroke} strokeWidth={sw} />
+        <rect x={barX} y={b.y} width={CABLE_BAR} height={h} rx={4} fill={CABLE_BAR_FILL} stroke={stroke} strokeWidth={sw} />
+        {/* Filete com a cor do cabo no mapa, na borda externa da barra. */}
+        <rect x={right ? barX + 2 : barX + CABLE_BAR - 6} y={b.y + 2} width={4} height={h - 4} rx={2} fill={b.cable.color || '#94a3b8'} />
+        <g transform={`rotate(-90 ${cx} ${cy})`}>
+          <text x={cx} y={cy - 2} fontSize={10.5} fontWeight="bold" textAnchor="middle" fill="#ffffff">
+            {fit(title, 10.5)}
+          </text>
+          <text x={cx} y={cy + 9.5} fontSize={8} textAnchor="middle" fill="#e2e8f0">
+            {fit(subtitle, 8)}
+          </text>
+        </g>
+        {b.rows.map((r) => {
+          const y = b.y + CABLE_TOP + r.y;
           if (r.kind === 'tube') {
             const [f1, f2] = tubeFibers(r.tube, b.cable);
             const tc = tubeColor(f1, b.cable.fibers_per_tube);
             const text = `Tubo ${r.tube} ${tc.name} · FO ${f1}–${f2}`;
+            const tx = right ? fx + 26 : fx + fw - 26;
             return (
               <g key={`t${r.tube}`}>
-                <rect x={b.x + 3} y={y + 2} width={w - 6} height={r.h - 4} rx={4} fill="#f1f5f9" stroke="#cbd5e1" strokeWidth={0.6} />
-                <rect x={right ? b.x + 10 : b.x + w - 26} y={y + 6} width={16} height={r.h - 12} rx={3} fill={tc.hex} stroke="#64748b" strokeWidth={0.6} />
-                <text x={right ? b.x + 32 : b.x + w - 32} y={y + 11.5} fontSize={8.5} fill="#0f172a" fontWeight="bold" textAnchor={right ? 'start' : 'end'}>
+                <rect x={fx + 3} y={y + 2} width={fw - 6} height={r.h - 4} rx={4} fill="#f1f5f9" stroke="#cbd5e1" strokeWidth={0.6} />
+                <rect x={right ? fx + 6 : fx + fw - 22} y={y + 6} width={16} height={r.h - 12} rx={3} fill={tc.hex} stroke="#64748b" strokeWidth={0.6} />
+                <text x={tx} y={y + 11.5} fontSize={8.5} fill="#0f172a" fontWeight="bold" textAnchor={right ? 'start' : 'end'}>
                   {text}
                 </text>
-                <text x={right ? b.x + 32 : b.x + w - 32} y={y + 21} fontSize={7.5} fill="#0369a1" textAnchor={right ? 'start' : 'end'}>
+                <text x={tx} y={y + 21} fontSize={7.5} fill="#0369a1" textAnchor={right ? 'start' : 'end'}>
                   → {r.tray.name.length > 18 ? `${r.tray.name.slice(0, 17)}…` : r.tray.name}
                 </text>
               </g>
             );
           }
-          const i = r.fiber - 1;
           const tube = tubeColor(r.fiber, b.cable.fibers_per_tube);
           const fc = fiberColor(r.fiber, b.cable.fibers_per_tube);
           return (
-            <g key={i}>
-              {showTube && <rect x={right ? b.x + 3 : b.x + w - (showTubes ? 9 : 8)} y={y} width={showTubes ? 6 : 4} height={ROW} fill={tube.hex} stroke="#cbd5e1" strokeWidth={0.3} />}
+            <g key={r.fiber}>
+              {showTube && <rect x={right ? fx + 1 : fx + fw - (showTubes ? 7 : 5)} y={y} width={showTubes ? 6 : 4} height={ROW} fill={tube.hex} stroke="#cbd5e1" strokeWidth={0.3} />}
               <rect x={right ? b.x + w - 50 : b.x + 10} y={y + 3} width={40} height={ROW - 6} rx={2} fill={fc.hex} stroke="#94a3b8" strokeWidth={0.4} />
               <text x={right ? b.x + w - 56 : b.x + 56} y={y + ROW - 3.5} fontSize={8.5} fill="#334155" textAnchor={right ? 'end' : 'start'}>
                 {r.fiber} {fc.name}
@@ -2904,6 +2927,23 @@ function BlockView({
             </g>
           );
         })}
+      </g>
+    );
+  }
+
+  const title = b.name;
+  const subtitle = b.kind === 'olt' ? `${b.slots} slot(s) × ${b.ports} PON · ${b.tx_dbm} dBm` : `${b.ports} portas · conector ◂ ▸ fusão`;
+  const fill = b.kind === 'olt' ? '#ede9fe' : b.kind === 'dio' ? '#e0f2fe' : '#ffffff';
+
+  return (
+    <g onPointerDown={onPointerDown} onDoubleClick={onDoubleClick} className="cursor-move">
+      <rect x={b.x} y={b.y} width={w} height={h} rx={4} fill={fill} stroke={stroke} strokeWidth={sw} />
+      <text x={b.x + 8} y={b.y + 14} fontSize={11} fontWeight="bold" fill="#0f172a">
+        {title.length > 22 ? `${title.slice(0, 21)}…` : title}
+      </text>
+      <text x={b.x + 8} y={b.y + 26} fontSize={8.5} fill="#64748b">
+        {subtitle.length > 32 ? `${subtitle.slice(0, 31)}…` : subtitle}
+      </text>
       {(b.kind === 'olt' || b.kind === 'dio') &&
         blockPorts(b)
           .filter((p) => b.kind === 'olt' || p.end.p.startsWith('b'))
