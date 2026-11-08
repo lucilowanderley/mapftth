@@ -50,7 +50,7 @@ const ROW = 14;
 const HEADER = 34;
 const CLIENT_W = 180;
 const CLIENT_H = 70;
-const CABLE_W = 170;
+const CABLE_W = 120;
 /** Barra vertical com a descrição do cabo (nome girado), na borda externa do cabo. */
 const CABLE_BAR = 34;
 /** Topo das fibras do cabo (a descrição fica na barra lateral, sem cabeçalho). */
@@ -2900,7 +2900,7 @@ function BlockView({
           if (r.kind === 'tube') {
             const [f1, f2] = tubeFibers(r.tube, b.cable);
             const tc = tubeColor(f1, b.cable.fibers_per_tube);
-            const text = `Tubo ${r.tube} ${tc.name} · FO ${f1}–${f2}`;
+            const text = `Tubo ${r.tube} · ${f1}–${f2}`;
             const tx = right ? fx + 26 : fx + fw - 26;
             return (
               <g key={`t${r.tube}`}>
@@ -2910,7 +2910,7 @@ function BlockView({
                   {text}
                 </text>
                 <text x={tx} y={y + 21} fontSize={7.5} fill="#0369a1" textAnchor={right ? 'start' : 'end'}>
-                  → {r.tray.name.length > 18 ? `${r.tray.name.slice(0, 17)}…` : r.tray.name}
+                  → {r.tray.name.length > 10 ? `${r.tray.name.slice(0, 9)}…` : r.tray.name}
                 </text>
               </g>
             );
@@ -2920,10 +2920,9 @@ function BlockView({
           return (
             <g key={r.fiber}>
               {showTube && <rect x={right ? fx + 1 : fx + fw - (showTubes ? 7 : 5)} y={y} width={showTubes ? 6 : 4} height={ROW} fill={tube.hex} stroke="#cbd5e1" strokeWidth={0.3} />}
-              <rect x={right ? b.x + w - 50 : b.x + 10} y={y + 3} width={40} height={ROW - 6} rx={2} fill={fc.hex} stroke="#94a3b8" strokeWidth={0.4} />
-              <text x={right ? b.x + w - 56 : b.x + 56} y={y + ROW - 3.5} fontSize={8.5} fill="#334155" textAnchor={right ? 'end' : 'start'}>
-                {r.fiber} {fc.name}
-              </text>
+              <rect x={right ? b.x + w - 66 : b.x + 10} y={y + 3} width={56} height={ROW - 6} rx={2} fill={fc.hex} stroke="#94a3b8" strokeWidth={0.4}>
+                <title>{`FO ${r.fiber} ${fc.name}`}</title>
+              </rect>
             </g>
           );
         })}
