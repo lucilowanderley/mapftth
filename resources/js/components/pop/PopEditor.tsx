@@ -1563,6 +1563,7 @@ export default function PopEditor({ node, network, onClose, onSaved, onShowBudge
           hidden={catalog.hidden}
           initialKind={dialog.kind}
           readOnly={readOnly}
+          projectId={node.project_id}
           onChanged={catalog.reload}
           onClose={() => setDialog(dialog.back ?? null)}
         />

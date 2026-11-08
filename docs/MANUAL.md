@@ -20,14 +20,15 @@ seções como consulta.
 12. [Análise de rede](#12-análise-de-rede)
 13. [Dashboard](#13-dashboard)
 14. [Áreas e relatórios (CSV e PDF)](#14-áreas-e-relatórios)
-15. [Tabela de postes e importação BDGD/ANEEL](#15-tabela-de-postes)
-16. [Viabilidade de atendimento](#16-viabilidade)
-17. [OTDR](#17-otdr)
-18. [Importar e exportar KMZ/KML (Google Earth)](#18-kmz-e-kml)
-19. [Equipe e permissões](#19-equipe-e-permissões)
-20. [Histórico de alterações](#20-histórico)
-21. [Configurações do projeto (parâmetros de perda)](#21-configurações-do-projeto)
-22. [Atalhos e dicas](#22-atalhos-e-dicas)
+15. [Preços, quantitativos e orçamento](#15-preços-quantitativos-e-orçamento)
+16. [Tabela de postes e importação BDGD/ANEEL](#16-tabela-de-postes)
+17. [Viabilidade de atendimento](#17-viabilidade)
+18. [OTDR](#18-otdr)
+19. [Importar e exportar KMZ/KML (Google Earth)](#19-kmz-e-kml)
+20. [Equipe e permissões](#20-equipe-e-permissões)
+21. [Histórico de alterações](#21-histórico)
+22. [Configurações do projeto (parâmetros de perda)](#22-configurações-do-projeto)
+23. [Atalhos e dicas](#23-atalhos-e-dicas)
 
 ---
 
@@ -93,7 +94,7 @@ A tela tem quatro partes:
 
 | Onde | O que tem |
 | --- | --- |
-| **Barra lateral (esquerda)** | Nome do projeto, % implantado, seu papel, busca, menu (Meus projetos, Dashboard, Análise de rede, Relatório da rede, Tabela de postes, Equipe, Histórico, Importar KMZ/KML, Exportar KMZ, Configurações) e os totais de POPs, CEOs, CTOs, clientes e metros de cabo. |
+| **Barra lateral (esquerda)** | Nome do projeto, % implantado, seu papel, busca, menu (Meus projetos, Dashboard, Análise de rede, Relatório da rede, Preços e quantitativos, Orçamento, Tabela de postes, Equipe, Histórico, Importar KMZ/KML, Exportar KMZ, Configurações) e os totais de POPs, CEOs, CTOs, clientes e metros de cabo. |
 | **Barra de ferramentas (topo)** | Selecionar e seis grupos que abrem em leque: **Infraestrutura**, **Rede óptica**, **Centrais**, **Clientes**, **Ajustar** e **Medir** (veja abaixo). |
 | **Painel de camadas (direita)** | Mapa base e os elementos visíveis. |
 | **Dica (rodapé do mapa)** | Explica o que fazer com a ferramenta escolhida e mostra botões como **Finalizar cabo** e **Finalizar área**. |
@@ -130,7 +131,7 @@ A barra de ferramentas e o painel de camadas podem ser arrastados para outro lug
 **Cadeado** mais abaixo).
 
 **Mapa base** (painel da direita): clique em **Satélite**, **Ruas** ou **Relevo**. Abaixo dos botões aparece o
-**motor** de mapas em uso. O motor é escolhido em **Configurações** ([seção 21](#21-configurações-do-projeto)) e o
+**motor** de mapas em uso. O motor é escolhido em **Configurações** ([seção 21](#22-configurações-do-projeto)) e o
 padrão é o **OpenStreetMap**. O sistema lembra o último estilo e o último motor escolhidos neste navegador, mesmo
 depois de fechar ou apertar F5.
 
@@ -824,7 +825,7 @@ dentro dela).
   do tubo.
 - **Tipo** (Backbone, Distribuição, Drop) e **Status**.
 - **Atenuação (dB/km)**: a atenuação deste cabo no orçamento óptico. Vazio usa a do projeto
-  ([seção 21](#21-configurações-do-projeto)). Embaixo aparece a perda total da fibra (comprimento + reservas ×
+  ([seção 21](#22-configurações-do-projeto)). Embaixo aparece a perda total da fibra (comprimento + reservas ×
   dB/km). Valores típicos: 0,35 dB/km em 1310 nm e 0,22 dB/km em 1550 nm.
 - **Reserva técnica**: o painel mostra a soma das reservas do cabo, que entra no **Total**, no orçamento óptico e
   nos relatórios. Cada reserva tem local no mapa (veja [Reserva técnica no mapa](#reserva-técnica-no-mapa)).
@@ -1058,6 +1059,7 @@ cadastrou. Para cadastrar, clique em **Cadastrar** e preencha:
 - **Fabricante** e **Modelo**;
 - **OLT**: **Slots**, **PON/slot**, **Uplinks** e **TX dBm**; **DIO**: **Portas**; **Ativo**: **Tipo** e **Portas**;
 - **Altura (U)**: quantas unidades de rack o equipamento ocupa;
+- **Valor de mercado (R$)**: preço por unidade, usado no [orçamento do projeto](#15-preços-quantitativos-e-orçamento);
 - **Ativo**: **Grupos de portas** (opcional). Clique em **+ Grupo** e escolha o **Tipo** de porta na lista, separada
   por categoria: **Ethernet (cobre)** (RJ45, ETH 10/100, RJ45 2.5G/5G/10G, RJ45 PoE), **Óptico** (SFP, SFP+, SFP28,
   SFP56, XFP, QSFP+, QSFP28, QSFP56, QSFP-DD, OSFP, CFP), **PON** (GPON, XG-PON, XGS-PON, Combo PON, EPON, 10G-EPON),
@@ -1293,7 +1295,7 @@ Para o cálculo de potência ficar mais preciso, cada emenda pode ter o próprio
    Na fusão, o campo vira **Método**: fusão por alinhamento de núcleo (0,03 dB), por alinhamento de casca
    (0,08 dB) ou emenda mecânica (0,20 dB).
 3. **Perda desta emenda (dB)**: digite o valor **medido** (máquina de fusão ou OTDR) quando tiver. Deixe vazio
-   para usar a perda típica do tipo; sem tipo, vale a perda padrão do projeto ([seção 21](#21-configurações-do-projeto)).
+   para usar a perda típica do tipo; sem tipo, vale a perda padrão do projeto ([seção 21](#22-configurações-do-projeto)).
 4. O quadro **Perda usada no cálculo** mostra o valor e de onde ele vem (informada, típica do tipo ou padrão do
    projeto). Acima de 0,75 dB num conector ou 0,30 dB numa fusão aparece um aviso.
 
@@ -1553,7 +1555,60 @@ status, metragem e cabos que passam por cada um; no relatório de área, só a m
 
 ---
 
-## 15. Tabela de postes
+## 15. Preços, quantitativos e orçamento
+
+O MapFTTH calcula quanto a rede custa: as **quantidades** vêm do mapa e os **preços** (valor de mercado) vêm de um
+cadastro seu, que vale para todos os seus projetos.
+
+**Cadastro de preços e quantitativos**
+
+Barra lateral → **Preços e quantitativos** (no mapa ou na tela **Meus projetos**).
+
+- Os itens ficam em abas: **Ativos** (OLTs, switches, roteadores, câmeras e os outros ativos do cadastro de
+  equipamentos), **Passivos** (DIOs, splitters e racks), **Cabos** (por metro, por número de fibras, e cabos drop),
+  **Caixas** (CTO, CEO e caixa de passagem/parede), **Postes e ferragens** (poste, kit de ferragens de fixação e
+  suporte de reserva técnica), **Dutos** (por metro, por material, diâmetro e subdutos), **Lançamento** (lançamento
+  de cabo aéreo, subterrâneo e drop, vala, perfuração direcional/MND e duto aparente, por metro), **Mão de obra**
+  (fusão, instalação de CTO/CEO/caixa, implantação de poste, instalação de equipamento em rack, instalação e
+  ativação de cliente e hora técnica) e **Outros** (estrutura de POP, torre e itens avulsos).
+- Digite o **Valor de mercado** na coluna da direita: grava ao sair do campo ou com **Enter**. O ícone ↺ limpa o
+  preço do item.
+- Aberto dentro de um projeto, a coluna **No projeto** mostra quanto a rede usa de cada item e o aviso em amarelo
+  conta os itens usados ainda **sem preço**. Marque **Só os usados no projeto** para ver só eles.
+- **Cadastrar item avulso**: para materiais, serviços ou despesas que não vêm do mapa (alça preformada, ONU,
+  aluguel de veículo, projeto executivo...). Escolha a categoria, a unidade (un, m, h, dia, kit, vb...) e o valor.
+- **Planilha** baixa a tabela em CSV; **Importar** lê uma planilha no mesmo formato (colunas **chave**,
+  **categoria**, **item**, **unidade** e **preco**) e grava os preços de uma vez. Exporte primeiro para usar como
+  modelo: a coluna **chave** liga a linha ao item da rede (deixe vazia para itens avulsos).
+- O **valor de mercado** dos equipamentos também aparece e pode ser editado no **Cadastro de equipamentos** do POP
+  (campo **Valor de mercado**).
+- A equipe usa a tabela de preços do **dono** do projeto; só o dono altera os preços.
+
+**Orçamento do projeto**
+
+Barra lateral → **Orçamento**.
+
+- **Considerar**: **Rede inteira** ou **Só o que falta implantar** (objetos, cabos e dutos *Em projeto* e *Não
+  implantado*).
+- As quantidades são calculadas do mapa: cabos com as reservas técnicas, lançamento aéreo e subterrâneo (o trecho
+  do cabo dentro de um duto conta como subterrâneo), drop, caixas, postes, kits de ferragens (postes com cabo
+  apoiado), suportes de reserva, dutos e a instalação deles, splitters, OLTs/DIOs/ativos/racks dos POPs, fusões,
+  instalações e clientes.
+- Cada linha mostra **Quantidade × Preço unit. = Total**, agrupada por categoria com o subtotal. Para corrigir uma
+  quantidade, digite outro valor (a linha fica marcada **ajustado** e o ↺ volta ao valor da rede). O dono pode
+  digitar o preço direto na linha: ele vai para o cadastro de preços.
+- O ícone de olho cortado tira o item do orçamento (ele aparece em **Fora do orçamento**, com **voltar**).
+- **Adicionar item extra**: escolha um item avulso do cadastro (o preço vem dele) ou digite um novo, com a
+  quantidade.
+- **BDI (%)** incide sobre o subtotal e **Desconto (%)** sobre o valor com BDI. Os cartões no topo mostram
+  **Subtotal**, **BDI**, **Desconto** e **Total**.
+- **Observações** (validade, condições de pagamento, prazo...) saem no PDF.
+- **Salvar** grava o orçamento do projeto (editor, administrador ou dono). **Planilha (CSV)** e **Imprimir / PDF**
+  funcionam como nos relatórios.
+
+---
+
+## 16. Tabela de postes
 
 Barra lateral → **Tabela de postes**.
 
@@ -1577,7 +1632,7 @@ Barra lateral → **Tabela de postes**.
 
 ---
 
-## 16. Viabilidade
+## 17. Viabilidade
 
 Serve para responder rápido "dá para atender este endereço?".
 
@@ -1594,7 +1649,7 @@ A distância é em linha reta e a potência é na saída do splitter (sem o drop
 
 ---
 
-## 17. OTDR
+## 18. OTDR
 
 A ferramenta **OTDR** (barra de ferramentas, grupo **Medir**, ícone de onda) simula o aparelho ligado em **qualquer ponto da rede**:
 você escolhe o cabo, a ponta onde o OTDR é conectado e o sentido do disparo, e o sistema segue a fibra pelas fusões,
@@ -1653,7 +1708,7 @@ abre a lista (para baixo) e fecha (para cima).
 
 ---
 
-## 18. KMZ e KML
+## 19. KMZ e KML
 
 **Importar** (barra lateral → **Importar KMZ/KML**)
 
@@ -1703,7 +1758,7 @@ que passam por cada um), e voltam como dutos se o arquivo for importado de novo.
 
 ---
 
-## 19. Equipe e permissões
+## 20. Equipe e permissões
 
 Barra lateral → **Equipe**.
 
@@ -1727,7 +1782,7 @@ sair do projeto pelo mesmo ícone no próprio nome.
 
 ---
 
-## 20. Histórico
+## 21. Histórico
 
 - **Do projeto inteiro**: barra lateral → **Histórico**.
 - **De um elemento**: selecione a caixa ou o cabo e clique no **relógio** ao lado de *Salvar alterações*.
@@ -1736,7 +1791,7 @@ Cada criação, alteração, movimentação e edição de diagrama aparece com o
 
 ---
 
-## 21. Configurações do projeto
+## 22. Configurações do projeto
 
 Barra lateral → **Configurações**.
 
@@ -1768,7 +1823,7 @@ Ao salvar, todos os sinais, cores e relatórios são recalculados.
 
 ---
 
-## 22. Atalhos e dicas
+## 23. Atalhos e dicas
 
 | Tecla / ação | Onde | Efeito |
 | --- | --- | --- |

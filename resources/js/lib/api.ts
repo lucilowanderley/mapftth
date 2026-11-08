@@ -1,6 +1,6 @@
 import axios from 'axios';
 import type { BulkPayload } from './bulkfix';
-import type { Activity, Area, DuplicateGroup, CameraStatus, Cable, Duct, EquipmentModel, LatLng, Member, NetNode, Project, Role, Settings } from './types';
+import type { Activity, Area, PriceItem, ProjectBudget, DuplicateGroup, CameraStatus, Cable, Duct, EquipmentModel, LatLng, Member, NetNode, Project, Role, Settings } from './types';
 import type { GoogleKeySource } from './basemaps';
 
 export const http = axios.create({
@@ -60,6 +60,13 @@ export function setContextProject(id: number | undefined) {
 const ctx = () => (contextProject ? { project: contextProject } : {});
 
 export const api = {
+  /** Preços do usuário ou, com projeto, os do dono do projeto. */
+  priceItems: (projectId?: number) => http.get<PriceItem[]>('/api/price-items', { params: projectId ? { project: projectId } : {} }).then((r) => r.data),
+  savePriceItem: (data: Omit<PriceItem, 'id' | 'own'>) => http.post<PriceItem>('/api/price-items', data).then((r) => r.data),
+  updatePriceItem: (id: number, data: Omit<PriceItem, 'id' | 'own' | 'key'>) => http.put<PriceItem>(`/api/price-items/${id}`, data).then((r) => r.data),
+  savePriceItems: (items: Omit<PriceItem, 'id' | 'own'>[]) => http.post<{ saved: number }>('/api/price-items/bulk', { items }).then((r) => r.data),
+  deletePriceItem: (id: number) => http.delete(`/api/price-items/${id}`),
+  saveBudget: (projectId: number, budget: ProjectBudget) => http.put<ProjectBudget>(`/api/projects/${projectId}/budget`, budget).then((r) => r.data),
   equipmentModels: (projectId?: number) =>
     http.get<EquipmentModel[]>('/api/equipment-models', { params: projectId ? { project: projectId } : {} }).then((r) => r.data),
   createEquipmentModel: (data: Partial<EquipmentModel>) => http.post<EquipmentModel>('/api/equipment-models', data).then((r) => r.data),

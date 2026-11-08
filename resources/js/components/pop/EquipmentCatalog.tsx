@@ -4,6 +4,8 @@ import { api, errorMessage } from '../../lib/api';
 import { ACTIVE_TYPES, BUILTIN_EQUIPMENT, EQUIPMENT_KINDS, equipmentLabel } from '../../lib/catalog';
 import type { EquipmentModel } from '../../lib/types';
 import { Field } from '../ui';
+import { PriceInput, usePriceItems } from '../PriceCatalog';
+import { equipmentKey, formatBRL } from '../../lib/pricing';
 import { PopDialog } from './dialogs';
 import { PortGroupsEditor } from './ActiveFields';
 import { groupsTotal, speedLabel } from '../../lib/pop';
@@ -58,6 +60,7 @@ export default function EquipmentCatalog({
   hidden = [],
   initialKind = 'olt',
   readOnly,
+  projectId,
   onChanged,
   onClose,
 }: {
@@ -65,6 +68,8 @@ export default function EquipmentCatalog({
   hidden?: EquipmentModel[];
   initialKind?: Kind;
   readOnly?: boolean;
+  /** Projeto aberto: mostra o valor de mercado da tabela de preços do dono do projeto. */
+  projectId?: number;
   onChanged: () => void;
   onClose: () => void;
 }) {
@@ -72,6 +77,10 @@ export default function EquipmentCatalog({
   const [form, setForm] = useState<Partial<EquipmentModel> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Valor de mercado (cadastro de preços), pela chave do modelo. `price` = valor digitado no formulário.
+  const priceTable = usePriceItems(projectId);
+  const priceOf = (m: EquipmentModel) => priceTable.prices.find((p) => p.key === equipmentKey(m))?.price ?? 0;
+  const [price, setPrice] = useState(0);
   // Foto escolhida (enviada ao salvar) ou foto atual marcada para remover.
   const [photo, setPhoto] = useState<File | null>(null);
   const [dropPhoto, setDropPhoto] = useState(false);
@@ -80,6 +89,7 @@ export default function EquipmentCatalog({
   useEffect(() => {
     setPhoto(null);
     setDropPhoto(false);
+    setPrice(form ? priceOf(form as EquipmentModel) : 0);
   }, [form?.id, form?.replaces, !!form]);
   const list = models.filter((m) => m.kind === kind);
   const set = (patch: Partial<EquipmentModel>) => setForm((f) => (f ? { ...f, ...patch } : f));
@@ -94,6 +104,11 @@ export default function EquipmentCatalog({
       if (typeof saved.id === 'number') {
         if (photo) await api.uploadEquipmentImage(saved.id, photo);
         else if (dropPhoto && saved.image_url) await api.deleteEquipmentImage(saved.id);
+        const key = equipmentKey(saved);
+        const current = priceTable.prices.find((p) => p.key === key)?.price ?? 0;
+        if (price !== current)
+          await api.savePriceItem({ key, category: saved.kind === 'dio' ? 'passive' : 'active', name: `${saved.kind === 'olt' ? 'OLT ' : ''}${equipmentLabel(saved)}`, unit: 'un', price, notes: null });
+        priceTable.reload();
       }
       setForm(null);
       onChanged();
@@ -162,6 +177,7 @@ export default function EquipmentCatalog({
               <th className="px-3 py-2">Fabricante / modelo</th>
               <th>Características</th>
               <th className="text-center">Altura</th>
+              <th className="text-right">Valor de mercado</th>
               <th />
             </tr>
           </thead>
@@ -179,6 +195,7 @@ export default function EquipmentCatalog({
                 </td>
                 <td className="text-xs text-slate-400">{detail(m)}</td>
                 <td className="text-center font-mono">{m.height_u}U</td>
+                <td className="text-right font-mono text-xs">{priceOf(m) ? formatBRL(priceOf(m)) : <span className="text-slate-600">—</span>}</td>
                 <td className="pr-2 text-right whitespace-nowrap">
                   {(m.builtin || m.replaces) && <span className="text-[10px] uppercase text-slate-500 mr-1">{m.builtin ? 'padrão' : 'padrão editado'}</span>}
                   {(m.builtin || m.own) && !readOnly ? (
@@ -264,6 +281,9 @@ export default function EquipmentCatalog({
               </Field>
             )}
           </div>
+          <Field label="Valor de mercado (R$, por unidade)">
+            <PriceInput value={price} onSave={setPrice} />
+          </Field>
           <div className="flex items-center gap-3">
             {photoUrl || (form.image_url && !dropPhoto) ? (
               <a href={photoUrl ?? form.image_url ?? undefined} target="_blank" rel="noreferrer" title="Abrir a foto">

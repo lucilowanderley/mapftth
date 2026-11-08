@@ -49,6 +49,11 @@ class User extends Authenticatable
         return $this->hasMany(EquipmentModel::class);
     }
 
+    public function priceItems(): HasMany
+    {
+        return $this->hasMany(PriceItem::class);
+    }
+
     public function projects(): HasMany
     {
         return $this->hasMany(Project::class);

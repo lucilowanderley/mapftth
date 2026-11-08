@@ -1,4 +1,6 @@
-import { FolderOpen, Link2, LogOut, MapPin, Plus, Search, Trash2, Upload } from 'lucide-react';
+import { FolderOpen, Link2, LogOut, MapPin, Plus, Search, Tags, Trash2, Upload } from 'lucide-react';
+import PriceCatalog, { usePriceItems } from '../components/PriceCatalog';
+import { useEquipmentModels } from '../components/pop/EquipmentCatalog';
 import DuplicatesModal from '../components/DuplicatesModal';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { STREETS_LAYER } from '../lib/basemaps';
@@ -27,6 +29,7 @@ export default function ProjectsPage() {
   const [dedupe, setDedupe] = useState(false);
   const [importing, setImporting] = useState<ImportResult[] | 'loading' | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
+  const [prices, setPrices] = useState(false);
   const navigate = useNavigate();
 
   async function importProjects(files: File[]) {
@@ -60,6 +63,9 @@ export default function ProjectsPage() {
           <span className="flex items-center gap-2 rounded-md bg-emerald-600 px-3 py-2 font-medium">
             <FolderOpen size={16} /> Meus projetos
           </span>
+          <button onClick={() => setPrices(true)} className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-slate-300 hover:bg-slate-800 cursor-pointer">
+            <Tags size={16} /> Preços e quantitativos
+          </button>
         </nav>
         <div className="mt-auto text-sm">
           <div className="font-medium truncate">{currentUser.name}</div>
@@ -196,6 +202,7 @@ export default function ProjectsPage() {
           onOpen={(id) => navigate(`/projects/${id}`)}
         />
       )}
+      {prices && <MyPrices onClose={() => setPrices(false)} />}
       {dedupe && <DuplicatesModal onClose={() => setDedupe(false)} onDone={() => api.projects().then(setProjects)} />}
       {creating && <CreateProjectModal onClose={() => setCreating(false)} onCreated={(p) => navigate(`/projects/${p.id}`)} />}
     </div>
@@ -213,6 +220,13 @@ function Recenter({ center }: { center: [number, number] }) {
 function ClickToSet({ onPick }: { onPick: (lat: number, lng: number) => void }) {
   useMapEvents({ click: (e) => onPick(e.latlng.lat, e.latlng.lng) });
   return null;
+}
+
+/** Cadastro de preços da conta (vale para todos os projetos do usuário). */
+function MyPrices({ onClose }: { onClose: () => void }) {
+  const { prices, reload } = usePriceItems();
+  const { models } = useEquipmentModels();
+  return <PriceCatalog prices={prices} models={models} onChanged={reload} onClose={onClose} />;
 }
 
 function CreateProjectModal({ onClose, onCreated }: { onClose: () => void; onCreated: (p: Project) => void }) {

@@ -17,6 +17,7 @@ class Project extends Model
             'center_lng' => 'float',
             'zoom' => 'integer',
             'settings' => 'array',
+            'budget' => 'array',
         ];
     }
 

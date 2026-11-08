@@ -50,6 +50,47 @@ export interface Project {
   cable_length_m?: number | null;
   role?: Role;
   user?: { id: number; name: string };
+  /** Orçamento do projeto (BDI, desconto, ajustes e itens extras). */
+  budget?: ProjectBudget | null;
+}
+
+export type PriceCategory = 'active' | 'passive' | 'cable' | 'box' | 'pole' | 'duct' | 'launch' | 'labor' | 'other';
+
+/** Item do cadastro de preços (valor de mercado). Com `key`, é o preço de um item padrão ligado à rede. */
+export interface PriceItem {
+  id: number;
+  key: string | null;
+  category: PriceCategory;
+  name: string;
+  unit: string;
+  price: number;
+  notes?: string | null;
+  /** Cadastrado por quem está usando (pode editar). */
+  own?: boolean;
+}
+
+/** Item extra do orçamento (fora das quantidades da rede): do cadastro (item_id) ou digitado. */
+export interface BudgetExtra {
+  id: string;
+  item_id?: number | null;
+  category: PriceCategory;
+  name: string;
+  unit: string;
+  price: number | null;
+  qty: number;
+}
+
+export interface ProjectBudget {
+  bdi_pct: number;
+  discount_pct: number;
+  /** all = rede inteira; pending = só o que falta implantar (em projeto e não implantado). */
+  scope: 'all' | 'pending';
+  notes: string | null;
+  /** Quantidade ajustada à mão, por chave do item. */
+  overrides: Record<string, number>;
+  /** Itens tirados do orçamento. */
+  hidden: string[];
+  extras: BudgetExtra[];
 }
 
 /** Modelo do cadastro de equipamentos (padrões do sistema ou cadastrados pelo usuário). */
