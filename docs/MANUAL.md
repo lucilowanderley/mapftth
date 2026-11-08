@@ -1257,7 +1257,13 @@ marcados saem só as fusões nesta caixa (o cabo continua no mapa; para excluir 
 
 **Como o diagrama é desenhado**
 
-- Os cabos aparecem como cartões **CABO 12FO (A)**, **(B)**... com as fibras numeradas nas cores ABNT.
+- Os cabos aparecem como cartões com as fibras nas cores ABNT (barra colorida + bolinha com o número, sem o nome da cor;
+  passe o mouse na barra para ver "FO 3 Branco")
+  na borda voltada para o centro. A **descrição do cabo** fica numa **barra vertical escura** na borda de fora,
+  com o nome girado (**CABO 12FO (A)**, **(B)**...) e embaixo o total de fibras e de onde vem/para onde vai. O
+  filete fino na beira da barra tem a **cor do cabo no mapa**.
+- Dentro do corpo de cada splitter aparece a **razão** (**1:8**, **1:16**, **10/90**...), sempre de pé, mesmo
+  com o splitter girado.
 - As fibras andam em **ângulo reto (90°)**, cada uma na sua pista, sem se sobrepor.
 - Cada **emenda por fusão** aparece como um **tubete cinza** sobre a fibra; a **emenda por conector** aparece
   como **dois conectores (azul e verde) num acoplador**. A **passagem** é a linha tracejada, sem ícone.
