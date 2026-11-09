@@ -1023,31 +1023,88 @@ export default function MapPage() {
     setDraft((d) => (!d || d.path.length <= 1 ? null : { ...d, path: d.path.slice(0, -1) }));
   }
 
-  /**
-   * Objeto sob um ponto arrastado (até ~20 px na tela). Pontas encaixam em qualquer objeto;
-   * pontos do meio só em caixas, POP (sangria) e postes (apoio).
-   */
-  function snapTarget(cable: Cable, index: number, insert: boolean, at: LatLng): NetNode | null {
-    const map = mapRef.current;
-    if (!map) return null;
-    const last = cable.path.length - 1;
-    const isEnd = !insert && (index === 0 || index === last);
-    const other = isEnd ? (index === 0 ? cable.to_node_id : cable.from_node_id) : null;
-    const p = map.latLngToContainerPoint(at);
+  /** Objeto visível mais perto de um ponto (até ~20 px na tela); map troca o objeto (ex.: poste → CTO fixada). */
+  function nodeNear(at: LatLng, skip: (n: NetNode) => boolean, map: (n: NetNode) => NetNode = (n) => n): NetNode | null {
+    const m = mapRef.current;
+    if (!m) return null;
+    const p = m.latLngToContainerPoint(at);
     let best: NetNode | null = null;
     let bestD = 20;
     for (const raw of nodes) {
       if (!showMarker(raw)) continue;
-      // Poste/caixa com CTO/CEO fixada: o cabo liga (ou faz sangria) na CTO/CEO.
-      const n = cableTargets(raw, nodes)[0] ?? raw;
-      if (isEnd ? n.id === other : n.type === 'client' || n.id === cable.from_node_id || n.id === cable.to_node_id) continue;
-      const d = map.latLngToContainerPoint([n.lat, n.lng]).distanceTo(p);
+      const n = map(raw);
+      if (skip(n)) continue;
+      const d = m.latLngToContainerPoint([n.lat, n.lng]).distanceTo(p);
       if (d < bestD) {
         bestD = d;
         best = n;
       }
     }
     return best;
+  }
+
+  /**
+   * Objeto sob um ponto arrastado (até ~20 px na tela). Pontas encaixam em qualquer objeto;
+   * pontos do meio em qualquer objeto menos cliente (no modo conectar: caixas, POP = sangria; postes = apoio).
+   * pass: ponto do meio fora do modo conectar só passa pelo objeto (poste/caixa, não a CTO fixada nele).
+   */
+  function snapTarget(cable: Cable, index: number, insert: boolean, at: LatLng, pass = false): NetNode | null {
+    const last = cable.path.length - 1;
+    const isEnd = !insert && (index === 0 || index === last);
+    const other = isEnd ? (index === 0 ? cable.to_node_id : cable.from_node_id) : null;
+    return nodeNear(
+      at,
+      (n) => (isEnd ? n.id === other : n.type === 'client' || n.id === cable.from_node_id || n.id === cable.to_node_id),
+      // Poste/caixa com CTO/CEO fixada: o cabo liga (ou faz sangria) na CTO/CEO.
+      pass && !isEnd ? undefined : (raw) => cableTargets(raw, nodes)[0] ?? raw,
+    );
+  }
+
+  /**
+   * Solta um ponto do cabo fora do modo conectar: sobre um objeto, o ponto gruda nele (ponta = liga no objeto;
+   * meio = passa pelo objeto e acompanha quando ele for movido). Longe de objetos, só move o ponto.
+   */
+  function vertexDrop(cable: Cable, index: number, insert: boolean, at: LatLng) {
+    const last = cable.path.length - 1;
+    const isEnd = !insert && (index === 0 || index === last);
+    const target = snapTarget(cable, index, insert, at, true);
+    if (target && isEnd) return connectDrop(cable, index, insert, at);
+    const pos: LatLng = target ? [target.lat, target.lng] : at;
+    const path = insert ? [...cable.path.slice(0, index), pos, ...cable.path.slice(index)] : cable.path.map((q, j) => (j === index ? pos : q));
+    saveCablePath(cable, path);
+    if (target) notify(`Vértice de ${cable.name} fixado em ${target.name}`);
+  }
+
+  /** Objeto sob um ponto arrastado do duto: ponta liga no objeto, meio passa por ele. */
+  function ductSnapTarget(duct: Duct, index: number, insert: boolean, at: LatLng): NetNode | null {
+    const last = duct.path.length - 1;
+    const isEnd = !insert && (index === 0 || index === last);
+    const other = isEnd ? (index === 0 ? duct.to_node_id : duct.from_node_id) : null;
+    return nodeNear(at, (n) => n.type === 'client' || (isEnd ? n.id === other : n.id === duct.from_node_id || n.id === duct.to_node_id));
+  }
+
+  /** Solta um ponto do duto: sobre um objeto, gruda nele (ponta = liga no objeto; meio = acompanha o objeto). */
+  async function ductVertexDrop(duct: Duct, index: number, insert: boolean, at: LatLng) {
+    const last = duct.path.length - 1;
+    const isEnd = !insert && (index === 0 || index === last);
+    const target = ductSnapTarget(duct, index, insert, at);
+    const pos: LatLng = target ? [target.lat, target.lng] : at;
+    const raw = insert ? [...duct.path.slice(0, index), pos, ...duct.path.slice(index)] : duct.path.map((q, j) => (j === index ? pos : q));
+    if (!target || !isEnd) {
+      await saveDuctPath(duct, raw);
+      if (target) notify(`Vértice de ${duct.name} fixado em ${target.name}`);
+      return;
+    }
+    const path = raw.map(roundLatLng);
+    const key = index === 0 ? 'from_node_id' : 'to_node_id';
+    setDucts((list) => list.map((d) => (d.id === duct.id ? { ...d, path, [key]: target.id } : d)));
+    try {
+      mergeDucts([await api.updateDuct(duct.id, { path, [key]: target.id })]);
+      notify(`${duct.name} ligado em ${target.name}`);
+    } catch (e) {
+      notify(errorMessage(e), 'error');
+      load();
+    }
   }
 
   /** Solta um ponto do cabo no modo conectar: ponta = conexão simples; meio sobre caixa = sangria. */
@@ -2175,17 +2232,14 @@ export default function MapPage() {
                       drag: (e) => {
                         const ll = (e.target as L.Marker).getLatLng();
                         setVertexDrag({ cableId: selectedCable.id, index: i, at: [ll.lat, ll.lng], insert: false });
-                        if (connecting) setSnapNode(snapTarget(selectedCable, i, false, [ll.lat, ll.lng]));
+                        setSnapNode(snapTarget(selectedCable, i, false, [ll.lat, ll.lng], !connecting));
                       },
                       dragend: (e) => {
                         const ll = (e.target as L.Marker).getLatLng();
                         setVertexDrag(null);
                         setSnapNode(null);
                         if (connecting) return connectDrop(selectedCable, i, false, [ll.lat, ll.lng]);
-                        saveCablePath(
-                          selectedCable,
-                          selectedCable.path.map((q, j) => (j === i ? [ll.lat, ll.lng] : q)),
-                        );
+                        vertexDrop(selectedCable, i, false, [ll.lat, ll.lng]);
                       },
                       contextmenu: (e) => {
                         L.DomEvent.stopPropagation(e);
@@ -2212,14 +2266,14 @@ export default function MapPage() {
                       drag: (e) => {
                         const ll = (e.target as L.Marker).getLatLng();
                         setVertexDrag({ cableId: selectedCable.id, index: i + 1, at: [ll.lat, ll.lng], insert: true });
-                        if (connectId === selectedCable.id) setSnapNode(snapTarget(selectedCable, i + 1, true, [ll.lat, ll.lng]));
+                        setSnapNode(snapTarget(selectedCable, i + 1, true, [ll.lat, ll.lng], connectId !== selectedCable.id));
                       },
                       dragend: (e) => {
                         const ll = (e.target as L.Marker).getLatLng();
                         setVertexDrag(null);
                         setSnapNode(null);
                         if (connectId === selectedCable.id) return connectDrop(selectedCable, i + 1, true, [ll.lat, ll.lng]);
-                        saveCablePath(selectedCable, [...selectedCable.path.slice(0, i + 1), [ll.lat, ll.lng], ...selectedCable.path.slice(i + 1)]);
+                        vertexDrop(selectedCable, i + 1, true, [ll.lat, ll.lng]);
                       },
                     }}
                   />
@@ -2246,14 +2300,13 @@ export default function MapPage() {
                       drag: (e) => {
                         const ll = (e.target as L.Marker).getLatLng();
                         setDuctVertexDrag({ ductId: selectedDuct.id, index: i, at: [ll.lat, ll.lng], insert: false });
+                        setSnapNode(ductSnapTarget(selectedDuct, i, false, [ll.lat, ll.lng]));
                       },
                       dragend: (e) => {
                         const ll = (e.target as L.Marker).getLatLng();
                         setDuctVertexDrag(null);
-                        saveDuctPath(
-                          selectedDuct,
-                          selectedDuct.path.map((q, j) => (j === i ? [ll.lat, ll.lng] : q)),
-                        );
+                        setSnapNode(null);
+                        ductVertexDrop(selectedDuct, i, false, [ll.lat, ll.lng]);
                       },
                       contextmenu: (e) => {
                         L.DomEvent.stopPropagation(e);
@@ -2279,11 +2332,13 @@ export default function MapPage() {
                     drag: (e) => {
                       const ll = (e.target as L.Marker).getLatLng();
                       setDuctVertexDrag({ ductId: selectedDuct.id, index: i + 1, at: [ll.lat, ll.lng], insert: true });
+                      setSnapNode(ductSnapTarget(selectedDuct, i + 1, true, [ll.lat, ll.lng]));
                     },
                     dragend: (e) => {
                       const ll = (e.target as L.Marker).getLatLng();
                       setDuctVertexDrag(null);
-                      saveDuctPath(selectedDuct, [...selectedDuct.path.slice(0, i + 1), [ll.lat, ll.lng], ...selectedDuct.path.slice(i + 1)]);
+                      setSnapNode(null);
+                      ductVertexDrop(selectedDuct, i + 1, true, [ll.lat, ll.lng]);
                     },
                   }}
                 />
