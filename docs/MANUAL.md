@@ -845,6 +845,11 @@ dentro dela).
   continua enquanto você arrasta. Nas bolinhas de criar ponto o cursor mostra um **+**. As caixas, postes e
   clientes também crescem um pouco quando o mouse passa por cima. As pontas ligadas a uma caixa não têm alça: elas se movem quando
   você arrasta a própria caixa. A alteração é salva ao soltar.
+- **Fixar o ponto num objeto**: arraste um ponto (ou uma bolinha de criar ponto) até perto de um poste, caixa, CTO,
+  CEO, POP, datacenter ou outro objeto: aparece um **círculo verde** em volta dele. Ao soltar, o ponto **gruda no
+  objeto** e passa a acompanhá-lo quando ele for movido. Se for a **ponta solta** do cabo, ela fica **ligada** ao
+  objeto (num poste com CTO/CEO fixada, liga na CTO/CEO). Ponto do meio só passa pelo objeto (não faz sangria; para
+  sangria use o modo conectar). Para soltar, arraste o ponto para longe do objeto.
 - **Duplo clique** no cabo coloca o cursor no campo **Nome do cabo**.
 - **Salvar alterações**. Se você reduzir o número de fibras, as fusões das fibras que sobrarem são removidas
   (o sistema pergunta antes). Excluir o cabo também remove as fusões dele nas caixas.
@@ -891,7 +896,8 @@ O duto ganha o nome *Duto 1*, *Duto 2*... e o painel dele abre à esquerda.
 
 **Traçado**: com o duto selecionado, arraste os **pontos** para mover, as **bolinhas menores** para criar pontos novos
 e use o **botão direito** num ponto para removê-lo. As pontas ligadas a uma caixa/POP/poste acompanham o objeto quando
-ele é arrastado.
+ele é arrastado. Arrastando um ponto até um objeto (círculo verde), ele gruda nele: a ponta solta fica ligada ao
+objeto e o ponto do meio passa por ele, acompanhando o objeto quando ele for movido.
 
 Excluir um cabo tira ele dos dutos. Numa **sangria**, os trechos novos que continuam dentro do duto também ficam
 nele. Os dutos aparecem na **camada Dutos** (painel de camadas › Elementos), na **busca**, no total da barra
